@@ -7,51 +7,53 @@ const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
+  mockFetch.mockImplementation((url: string) => {
+    if (url === '/api/auth/me') {
+      return Promise.resolve({ json: () => Promise.resolve({ user: { role: 'candidate', full_name: 'John Doe' } }) });
+    }
+    if (url === '/api/dashboard/candidate') {
+      return Promise.resolve({ json: () => Promise.resolve({ profile: {} }) });
+    }
+    if (url === '/api/resume/status') {
+      return Promise.resolve({ json: () => Promise.resolve({ status: 503 }) });
+    }
+    if (url === '/api/dashboard/recruiter') {
+      return Promise.resolve({ json: () => Promise.resolve({ pipeline_stats: {} }) });
+    }
+    return Promise.resolve({ json: () => Promise.resolve({}) });
+  });
 });
 
 describe('Dashboard Router Role Isolation', () => {
   it('Redirects to login if unauthenticated', async () => {
-    mockFetch.mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ user: null }) });
+    mockFetch.mockImplementationOnce(() => Promise.resolve({ json: () => Promise.resolve({ user: null }) }));
     
     await act(async () => {
       render(<BrowserRouter><DashboardRouter /></BrowserRouter>);
     });
     
-    // fetch will be called to auth/me
     expect(mockFetch).toHaveBeenCalledWith('/api/auth/me');
   });
 
   it('Renders CandidateWorkspace for candidates', async () => {
-    mockFetch.mockResolvedValueOnce({ 
-      json: vi.fn().mockResolvedValue({ 
-        user: { role: 'candidate', full_name: 'John Doe' } 
-      }) 
-    });
-    
-    // Stub the candidate API calls
-    mockFetch.mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ profile: {} }) });
-    mockFetch.mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ status: 503 }) });
-
     await act(async () => {
       render(<BrowserRouter><DashboardRouter /></BrowserRouter>);
     });
     
-    expect(await screen.findByText(/Command Center/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Welcome back/i })).toBeInTheDocument();
   });
 
   it('Renders RecruiterWorkspace for recruiters', async () => {
-    mockFetch.mockResolvedValueOnce({ 
-      json: vi.fn().mockResolvedValue({ 
-        user: { role: 'recruiter', full_name: 'Jane Smith' } 
-      }) 
+    mockFetch.mockImplementation((url: string) => {
+      if (url === '/api/auth/me') return Promise.resolve({ json: () => Promise.resolve({ user: { role: 'recruiter', full_name: 'Jane Smith' } }) });
+      if (url === '/api/dashboard/recruiter') return Promise.resolve({ json: () => Promise.resolve({ pipeline_stats: {} }) });
+      return Promise.resolve({ json: () => Promise.resolve({}) });
     });
-    
-    mockFetch.mockResolvedValueOnce({ json: vi.fn().mockResolvedValue({ pipeline_stats: {} }) });
 
     await act(async () => {
       render(<BrowserRouter><DashboardRouter /></BrowserRouter>);
     });
     
-    expect(await screen.findByText(/Pipeline Overview/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Pipeline Overview/i })).toBeInTheDocument();
   });
 });
