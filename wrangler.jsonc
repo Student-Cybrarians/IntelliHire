@@ -12,19 +12,13 @@
     {
       "binding": "DB",
       "database_name": "intellihire-db",
-      "database_id": "intellihire-db-local"
+      "database_id": "63fdd68c-ff53-4aea-8327-2336b5e77587"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "SESSION_KV",
-      "id": "intellihire-session-kv"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "RESUME_BUCKET",
-      "bucket_name": "intellihire-resumes"
+      "id": "ce6547d827444f33b262781d9fecbb33"
     }
   ],
   "vars": {
