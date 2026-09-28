@@ -4,6 +4,10 @@ import zipfile
 import xml.etree.ElementTree as ET
 import io
 
+MAX_TEXT_SIZE = 2 * 1024 * 1024  # 2MB
+MAX_DOCX_XML_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_DOCX_ENTRIES = 500
+
 async def on_fetch(request, env):
     if request.method != "POST":
         return Response.new("Method not allowed", status=405)
@@ -17,10 +21,14 @@ async def on_fetch(request, env):
     try:
         text = ""
         metadata = {}
+        status = "SUCCESS"
 
         if format_param in ["tex", "txt"]:
-            text = await request.text()
+            raw_text = await request.text()
+            text = raw_text[:MAX_TEXT_SIZE]
             metadata["page_count"] = 1
+            status = "TEXT_DECODING_ONLY"
+            
         elif format_param == "pdf":
             import pypdf
             from js import Uint8Array
@@ -32,9 +40,19 @@ async def on_fetch(request, env):
             reader = pypdf.PdfReader(pdf_file)
             metadata["page_count"] = len(reader.pages)
             extracted_pages = []
+            
+            total_extracted_length = 0
             for page in reader.pages:
-                extracted_pages.append(page.extract_text() or "")
-            text = "\n".join(extracted_pages)
+                page_text = page.extract_text() or ""
+                if total_extracted_length + len(page_text) > MAX_TEXT_SIZE:
+                    extracted_pages.append(page_text[:(MAX_TEXT_SIZE - total_extracted_length)])
+                    break
+                extracted_pages.append(page_text)
+                total_extracted_length += len(page_text)
+                
+            text = "\n".join(extracted_pages).strip()
+            if not text:
+                status = "NO_OCR"
             
         elif format_param == "docx":
             from js import Uint8Array
@@ -43,24 +61,43 @@ async def on_fetch(request, env):
             body_bytes = js_bytes.to_py()
 
             docx_file = io.BytesIO(body_bytes)
-            with zipfile.ZipFile(docx_file) as zf:
-                xml_content = zf.read("word/document.xml")
-                tree = ET.fromstring(xml_content)
-                namespaces = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-                paragraphs = []
-                for paragraph in tree.findall('.//w:p', namespaces):
-                    texts = [node.text for node in paragraph.findall('.//w:t', namespaces) if node.text]
-                    if texts:
-                        paragraphs.append(''.join(texts))
-                text = '\n'.join(paragraphs)
-            metadata["page_count"] = 1
-            
+            try:
+                with zipfile.ZipFile(docx_file) as zf:
+                    # Enforce limits against archive bombs
+                    infolist = zf.infolist()
+                    if len(infolist) > MAX_DOCX_ENTRIES:
+                        return Response.new(json.dumps({"error": "Archive bomb detected: Too many entries"}), status=400)
+                    
+                    xml_info = zf.getinfo("word/document.xml")
+                    if xml_info.file_size > MAX_DOCX_XML_SIZE:
+                        return Response.new(json.dumps({"error": "Archive bomb detected: Oversized XML"}), status=400)
+                    
+                    xml_content = zf.read("word/document.xml")
+                    tree = ET.fromstring(xml_content)
+                    namespaces = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                    paragraphs = []
+                    total_len = 0
+                    
+                    for paragraph in tree.findall('.//w:p', namespaces):
+                        texts = [node.text for node in paragraph.findall('.//w:t', namespaces) if node.text]
+                        if texts:
+                            joined = ''.join(texts)
+                            if total_len + len(joined) > MAX_TEXT_SIZE:
+                                paragraphs.append(joined[:(MAX_TEXT_SIZE - total_len)])
+                                break
+                            paragraphs.append(joined)
+                            total_len += len(joined)
+                    text = '\n'.join(paragraphs).strip()
+                metadata["page_count"] = 1
+            except zipfile.BadZipFile:
+                return Response.new(json.dumps({"error": "Malformed DOCX/ZIP file"}), status=400)
         else:
             return Response.new(json.dumps({"error": "Unsupported format"}), status=400)
 
         result = {
             "text": text,
-            "metadata": metadata
+            "metadata": metadata,
+            "status": status
         }
         
         from js import Headers
@@ -68,4 +105,5 @@ async def on_fetch(request, env):
         return Response.new(json.dumps(result), headers=headers)
         
     except Exception as e:
-        return Response.new(json.dumps({"error": str(e)}), status=500)
+        # Generic error handler to prevent internal secrets leak
+        return Response.new(json.dumps({"error": "Extraction failure", "details": str(e)[:100]}), status=500)

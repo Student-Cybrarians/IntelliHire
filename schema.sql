@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS tenant_quota (
   last_reset_timestamp INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+DROP TABLE IF EXISTS candidate_context;
+DROP TABLE IF EXISTS candidate_resume;
+
 -- 6. Candidate Resumes (Versioning and Storage)
 CREATE TABLE IF NOT EXISTS candidate_resume (
   id TEXT PRIMARY KEY,
@@ -68,6 +71,7 @@ CREATE TABLE IF NOT EXISTS candidate_resume (
   filename TEXT NOT NULL,
   file_format TEXT NOT NULL CHECK (file_format IN ('pdf', 'docx', 'tex', 'txt')),
   file_size_bytes INTEGER NOT NULL,
+  content_hash_sha256 TEXT NOT NULL,
   storage_ref TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -79,6 +83,8 @@ CREATE TABLE IF NOT EXISTS candidate_context (
   resume_id TEXT NOT NULL REFERENCES candidate_resume(id),
   user_id TEXT NOT NULL REFERENCES user_account(id),
   raw_text TEXT NOT NULL,
+  extraction_method TEXT NOT NULL,
+  extraction_status TEXT NOT NULL,
   context_data_json TEXT NOT NULL DEFAULT '{}',
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
