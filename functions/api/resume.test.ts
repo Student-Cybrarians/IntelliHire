@@ -9,14 +9,18 @@ vi.mock('hono/jwt', () => ({
   verify: vi.fn().mockResolvedValue({ id: 'user-1' }),
 }));
 
-// Provide a full mock DB setup
 const createMockEnv = (dbOverrides: any = {}) => ({
   DB: {
-    prepare: vi.fn().mockImplementation((query) => {
+    prepare: vi.fn().mockImplementation((query: string) => {
       return {
         bind: vi.fn().mockImplementation((...args) => {
           return {
-            first: vi.fn().mockResolvedValue(dbOverrides.first || { organization_id: 'org-1', max_v: 0 }),
+            first: vi.fn().mockImplementation(async () => {
+              // Return null for duplicate hash check
+              if (query.includes('content_hash_sha256 = ?')) return null;
+              // Return mock data for version query or other queries
+              return dbOverrides.first || { organization_id: 'org-1', max_v: 0 };
+            }),
             run: vi.fn().mockResolvedValue(true),
           };
         })
