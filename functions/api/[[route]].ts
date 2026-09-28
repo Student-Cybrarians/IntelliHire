@@ -11,6 +11,9 @@ type Bindings = {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   JWT_SECRET: string;
+  NVIDIA_API_KEY: string;
+  NVIDIA_BASE_URL?: string;
+  NVIDIA_MODEL?: string;
 };
 
 type UserSession = {
@@ -121,7 +124,7 @@ app.post('/resume/upload', async (c) => {
   let body;
   try { body = await c.req.parseBody(); } catch (e) { return c.json({ error: 'Parse failed' }, 400); }
 
-  const file = body.file as File | undefined;
+  const file = (body.file || body.resume) as File | undefined;
   if (!file || !(file instanceof File)) return c.json({ error: 'Missing file' }, 400);
   if (file.size > 5 * 1024 * 1024) return c.json({ error: 'Size > 5MB limit' }, 400);
 
@@ -161,32 +164,58 @@ app.post('/resume/upload', async (c) => {
     return c.json({ error: 'Extraction service unreachable' }, 500);
   }
 
-  // Hardening: Storage
+  // MVP storage path: keep the resume and its AI analysis in per-user KV keys so the
+  // dashboard is not blocked by the pending production D1 resume migration.
   const resumeId = crypto.randomUUID();
-  const storageRef = `resume:${resumeId}`;
+  const storageRef = `resume:${user.id}:${resumeId}`;
+  const extractionStatus = extracted.status || "SUCCESS";
+  const text = String(extracted.text || '').slice(0, 120000);
+
   await c.env.RESUME_KV.put(storageRef, fileArrayBuffer);
 
-  // Hardening: Strict Versioning
-  const maxVersionRecord = await c.env.DB.prepare('SELECT MAX(version) as max_v FROM candidate_resume WHERE user_id = ?').bind(user.id).first();
-  const nextVersion = ((maxVersionRecord?.max_v as number) || 0) + 1;
+  const nvidiaKey = c.env.NVIDIA_API_KEY;
+  if (!nvidiaKey) return c.json({ error: 'AI provider is not configured' }, 503);
+  const baseUrl = c.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+  const model = c.env.NVIDIA_MODEL || 'meta/muse-glimmer-30b';
+  const aiResponse = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${nvidiaKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      top_p: 0.9,
+      max_tokens: 4096,
+      messages: [
+        { role: 'system', content: 'You are IntelliHire Resume Intelligence. Analyze only evidence present in the supplied resume text. Never invent employers, titles, dates, skills, projects, education, certifications, metrics, or achievements. Return concise JSON with keys: summary, skills, experience, education, gaps, ats_notes, evidence_status.' },
+        { role: 'user', content: `Analyze this resume text:\\n\\n${text}` }
+      ]
+    })
+  });
+  if (!aiResponse.ok) return c.json({ error: 'AI analysis failed' }, 502);
+  const aiJson = await aiResponse.json() as any;
+  const analysisText = aiJson?.choices?.[0]?.message?.content || '';
 
-  // Deactivate old resumes
-  await c.env.DB.prepare('UPDATE candidate_resume SET is_active = 0 WHERE user_id = ?').bind(user.id).run();
+  const metadata = {
+    resumeId,
+    userId: user.id,
+    organizationId: orgId,
+    filename: file.name,
+    fileFormat: format,
+    fileSizeBytes: file.size,
+    contentHashSha256: contentHash,
+    storageRef,
+    extractionStatus,
+    extractionMethod: 'pypdf_pyodide_v1',
+    analyzedBy: model,
+    analyzedAt: new Date().toISOString(),
+    analysis: analysisText
+  };
+  await c.env.RESUME_KV.put(`resume-meta:${user.id}:latest`, JSON.stringify(metadata));
 
-  await c.env.DB.prepare(`
-    INSERT INTO candidate_resume (id, organization_id, user_id, version, filename, file_format, file_size_bytes, content_hash_sha256, storage_ref, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-  `).bind(resumeId, orgId, user.id, nextVersion, file.name, format, file.size, contentHash, storageRef).run();
-
-  const contextId = crypto.randomUUID();
-  const extractionStatus = extracted.status || "SUCCESS";
-  
-  await c.env.DB.prepare(`
-    INSERT INTO candidate_context (id, resume_id, user_id, raw_text, extraction_method, extraction_status, context_data_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(contextId, resumeId, user.id, extracted.text || '', 'pypdf_pyodide_v1', extractionStatus, JSON.stringify(extracted.metadata)).run();
-
-  return c.json({ success: true, resumeId, version: nextVersion, status: extractionStatus });
+  return c.json({ success: true, resumeId, status: extractionStatus, model, analysis: analysisText });
 });
 
 // 8. Minimal Retrieval Endpoint (to prove Tenant Isolation)
@@ -194,11 +223,9 @@ app.get('/resume/latest', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-  // Note the strict user_id scoping query
-  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND is_active = 1').bind(user.id).first();
-  if (!resume) return c.json({ error: 'Not found' }, 404);
-
-  return c.json({ resume });
+  const meta = await c.env.RESUME_KV.get(`resume-meta:${user.id}:latest`, 'json');
+  if (!meta) return c.json({ error: 'Not found' }, 404);
+  return c.json({ resume: meta });
 });
 
 export const onRequest = handle(app);
