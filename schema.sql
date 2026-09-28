@@ -59,6 +59,30 @@ CREATE TABLE IF NOT EXISTS tenant_quota (
   last_reset_timestamp INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+-- 6. Candidate Resumes (Versioning and Storage)
+CREATE TABLE IF NOT EXISTS candidate_resume (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  version INTEGER NOT NULL DEFAULT 1,
+  filename TEXT NOT NULL,
+  file_format TEXT NOT NULL CHECK (file_format IN ('pdf', 'docx', 'tex', 'txt')),
+  file_size_bytes INTEGER NOT NULL,
+  storage_ref TEXT NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- 7. Candidate Context Foundation
+CREATE TABLE IF NOT EXISTS candidate_context (
+  id TEXT PRIMARY KEY,
+  resume_id TEXT NOT NULL REFERENCES candidate_resume(id),
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  raw_text TEXT NOT NULL,
+  context_data_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 -- Default system organization seed
 INSERT OR IGNORE INTO organization (id, name, slug, tier)
 VALUES ('org_default_public', 'IntelliHire Public Sandbox', 'public-sandbox', 'free');

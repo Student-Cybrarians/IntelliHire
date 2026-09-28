@@ -4,6 +4,38 @@ import { Bot, FileText, Code2, Users, CheckCircle } from 'lucide-react';
 export default function Dashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [resumeUploadSuccess, setResumeUploadSuccess] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  const uploadResume = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadError('');
+    setResumeUploadSuccess(false);
+
+    const formData = new FormData();
+    formData.append('resume', file);
+
+    try {
+      const response = await fetch('/api/resume/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed. File might be too large or invalid format.');
+      }
+
+      setResumeUploadSuccess(true);
+    } catch (err: any) {
+      setUploadError(err.message || 'An error occurred during upload.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   useEffect(() => {
     fetch('/api/profile')
@@ -95,15 +127,37 @@ export default function Dashboard() {
         
         <div className="grid md:grid-cols-2 gap-6">
           {/* Action Module 1 */}
-          <div className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 rounded-xl p-6 transition-colors">
+          <div className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 rounded-xl p-6 transition-colors flex flex-col">
             <div className="w-12 h-12 bg-sky-500/10 rounded-lg flex items-center justify-center mb-4">
               <FileText className="w-6 h-6 text-sky-400" />
             </div>
             <h3 className="text-lg font-semibold text-white mb-2">Resume Intelligence</h3>
-            <p className="text-slate-400 text-sm mb-6 h-10">Upload your resume to extract your skills, analyze ATS friendliness, and map your profile.</p>
-            <button className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg transition-colors">
-              Go to Resume Studio
-            </button>
+            <p className="text-slate-400 text-sm mb-4 flex-grow">Upload your resume to extract your skills, analyze ATS friendliness, and map your profile.</p>
+            
+            {uploadError && <div className="text-red-400 text-sm mb-3">{uploadError}</div>}
+            
+            {resumeUploadSuccess ? (
+              <div className="flex items-center justify-center gap-2 w-full py-2.5 bg-emerald-500/20 text-emerald-400 font-medium rounded-lg">
+                <CheckCircle className="w-5 h-5" />
+                Upload Successful
+              </div>
+            ) : (
+              <div className="relative">
+                <input 
+                  type="file" 
+                  accept=".pdf,.docx,.txt,.tex" 
+                  onChange={uploadResume} 
+                  disabled={isUploading}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" 
+                />
+                <button 
+                  disabled={isUploading}
+                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center"
+                >
+                  {isUploading ? 'Extracting and Analyzing...' : 'Upload Resume'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Action Module 2 */}

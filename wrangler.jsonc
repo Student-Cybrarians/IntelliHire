@@ -15,6 +15,10 @@
     {
       "binding": "SESSION_KV",
       "id": "ce6547d827444f33b262781d9fecbb33"
+    },
+    {
+      "binding": "RESUME_KV",
+      "id": "88a7fca49a7f4baab3a5de663935a5d3"
     }
   ]
 }

@@ -6,6 +6,7 @@ import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 type Bindings = {
   DB: D1Database;
   SESSION_KV: KVNamespace;
+  RESUME_KV: KVNamespace;
   ENVIRONMENT: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
@@ -228,6 +229,79 @@ app.put('/profile', async (c) => {
   await c.env.DB.prepare('UPDATE user_account SET onboarding_completed = 1 WHERE id = ?').bind(user.id).run();
 
   return c.json({ success: true, profile: body });
+});
+
+// 7. Upload Resume
+app.post('/resume/upload', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  let body;
+  try {
+    body = await c.req.parseBody();
+  } catch (e) {
+    return c.json({ error: 'Failed to parse request body' }, 400);
+  }
+
+  const file = body.file as File | undefined;
+  
+  if (!file || !(file instanceof File)) {
+    return c.json({ error: 'No file uploaded or invalid file format' }, 400);
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    return c.json({ error: 'File size exceeds 5MB limit' }, 400);
+  }
+
+  const filename = file.name;
+  const match = filename.match(/\.([a-zA-Z0-9]+)$/);
+  const format = match ? match[1].toLowerCase() : '';
+  
+  const validFormats = ['pdf', 'docx', 'txt', 'tex'];
+  if (!validFormats.includes(format)) {
+    return c.json({ error: 'Invalid file format. Allowed formats: pdf, docx, txt, tex' }, 400);
+  }
+
+  const fileArrayBuffer = await file.arrayBuffer();
+
+  let extracted: any;
+  try {
+    const response = await fetch('https://resume-extractor.codersy17mc.workers.dev?format=' + format, {
+      method: 'POST',
+      body: fileArrayBuffer
+    });
+    
+    if (!response.ok) {
+      return c.json({ error: 'Resume extraction service failed' }, 500);
+    }
+    
+    extracted = await response.json();
+  } catch (e) {
+    return c.json({ error: 'Failed to communicate with extraction service' }, 500);
+  }
+
+  const resumeId = crypto.randomUUID();
+  const storageRef = `resume:${resumeId}`;
+
+  await c.env.RESUME_KV.put(storageRef, fileArrayBuffer);
+
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser) return c.json({ error: 'User not found' }, 404);
+
+  const orgId = dbUser.organization_id;
+
+  await c.env.DB.prepare(`
+    INSERT INTO candidate_resume (id, organization_id, user_id, filename, file_format, file_size_bytes, storage_ref)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(resumeId, orgId, user.id, filename, format, file.size, storageRef).run();
+
+  const contextId = crypto.randomUUID();
+  await c.env.DB.prepare(`
+    INSERT INTO candidate_context (id, resume_id, user_id, raw_text, context_data_json)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(contextId, resumeId, user.id, extracted.text || '', JSON.stringify(extracted)).run();
+
+  return c.json({ success: true, resumeId, extracted });
 });
 
 export const onRequest = handle(app);
