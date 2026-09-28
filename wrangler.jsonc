@@ -1,9 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "intellihire-v3",
+  "name": "intellihire",
   "compatibility_date": "2024-09-25",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": "./dist",
+  "pages_build_output_dir": "dist",
   "d1_databases": [
     {
       "binding": "DB",
@@ -16,11 +16,5 @@
       "binding": "SESSION_KV",
       "id": "ce6547d827444f33b262781d9fecbb33"
     }
-  ],
-  "vars": {
-    "ENVIRONMENT": "development",
-    "GOOGLE_CLIENT_ID": "MOCK_GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET": "MOCK_GOOGLE_CLIENT_SECRET",
-    "JWT_SECRET": "intellihire-dev-jwt-secret-key-32-chars-min"
-  }
+  ]
 }
