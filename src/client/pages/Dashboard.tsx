@@ -7,6 +7,7 @@ export default function Dashboard() {
   const [isUploading, setIsUploading] = useState(false);
   const [resumeUploadSuccess, setResumeUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [resumeAnalysis, setResumeAnalysis] = useState<any>(null);
 
   const uploadResume = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -26,9 +27,12 @@ export default function Dashboard() {
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed. File might be too large or invalid format.');
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail.error || 'Upload failed. File might be too large or invalid format.');
       }
 
+      const data = await response.json();
+      setResumeAnalysis(data.analysis || null);
       setResumeUploadSuccess(true);
     } catch (err: any) {
       setUploadError(err.message || 'An error occurred during upload.');
@@ -139,7 +143,7 @@ export default function Dashboard() {
             {resumeUploadSuccess ? (
               <div className="flex items-center justify-center gap-2 w-full py-2.5 bg-emerald-500/20 text-emerald-400 font-medium rounded-lg">
                 <CheckCircle className="w-5 h-5" />
-                Upload Successful
+                Upload Successful — AI analysis ready
               </div>
             ) : (
               <div className="relative">
@@ -159,6 +163,13 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+
+{resumeAnalysis && (
+          <div className="md:col-span-2 bg-slate-900/70 border border-slate-800 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-white mb-3">Muse Glimmer Resume Intelligence</h3>
+            <pre className="whitespace-pre-wrap text-sm text-slate-300 leading-6 overflow-auto max-h-96">{resumeAnalysis}</pre>
+          </div>
+        )}
 
           {/* Action Module 2 */}
           <div className="bg-slate-900/50 border border-slate-800 hover:border-slate-700 rounded-xl p-6 transition-colors">
