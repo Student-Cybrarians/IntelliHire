@@ -166,21 +166,40 @@ app.post('/resume/upload', async (c) => {
   const storageRef = `resume:${resumeId}`;
   await c.env.RESUME_KV.put(storageRef, fileArrayBuffer);
 
-  // Hardening: Strict Versioning
-  const maxVersionRecord = await c.env.DB.prepare('SELECT MAX(version) as max_v FROM candidate_resume WHERE user_id = ?').bind(user.id).first();
-  const nextVersion = ((maxVersionRecord?.max_v as number) || 0) + 1;
-
-  // Deactivate old resumes
-  await c.env.DB.prepare('UPDATE candidate_resume SET is_active = 0 WHERE user_id = ?').bind(user.id).run();
-
-  await c.env.DB.prepare(`
-    INSERT INTO candidate_resume (id, organization_id, user_id, version, filename, file_format, file_size_bytes, content_hash_sha256, storage_ref, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-  `).bind(resumeId, orgId, user.id, nextVersion, file.name, format, file.size, contentHash, storageRef).run();
-
-  const contextId = crypto.randomUUID();
+  // Hardening: Strict Versioning with Concurrency Protection
+  let nextVersion = 1;
+  let retryCount = 0;
+  let inserted = false;
+  let contextId = crypto.randomUUID();
   const extractionStatus = extracted.status || "SUCCESS";
-  
+
+  while (!inserted && retryCount < 3) {
+    try {
+      const maxVersionRecord = await c.env.DB.prepare('SELECT MAX(version) as max_v FROM candidate_resume WHERE user_id = ?').bind(user.id).first();
+      nextVersion = ((maxVersionRecord?.max_v as number) || 0) + 1;
+      
+      // Deactivate old resumes
+      await c.env.DB.prepare('UPDATE candidate_resume SET is_active = 0 WHERE user_id = ?').bind(user.id).run();
+
+      await c.env.DB.prepare(`
+        INSERT INTO candidate_resume (id, organization_id, user_id, version, filename, file_format, file_size_bytes, content_hash_sha256, storage_ref, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `).bind(resumeId, orgId, user.id, nextVersion, file.name, format, file.size, contentHash, storageRef).run();
+      
+      inserted = true;
+    } catch (e: any) {
+      if (e.message?.includes('UNIQUE constraint failed') || e.message?.includes('D1_ERROR')) {
+        retryCount++;
+      } else {
+        return c.json({ error: 'Database error during save' }, 500);
+      }
+    }
+  }
+
+  if (!inserted) {
+    return c.json({ error: 'Failed to save resume due to high concurrency. Please try again.' }, 409);
+  }
+
   await c.env.DB.prepare(`
     INSERT INTO candidate_context (id, resume_id, user_id, raw_text, extraction_method, extraction_status, context_data_json)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -194,8 +213,12 @@ app.get('/resume/latest', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-  // Note the strict user_id scoping query
-  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND is_active = 1').bind(user.id).first();
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser) return c.json({ error: 'Tenant context missing' }, 403);
+  const orgId = dbUser.organization_id;
+
+  // Strict tenant isolation: explicitly bind BOTH user_id and organization_id to enforce organizational boundary
+  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND organization_id = ? AND is_active = 1').bind(user.id, orgId).first();
   if (!resume) return c.json({ error: 'Not found' }, 404);
 
   return c.json({ resume });

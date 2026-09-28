@@ -68,10 +68,21 @@ async def on_fetch(request, env):
                     if len(infolist) > MAX_DOCX_ENTRIES:
                         return Response.new(json.dumps({"error": "Archive bomb detected: Too many entries"}), status=400)
                     
-                    xml_info = zf.getinfo("word/document.xml")
-                    if xml_info.file_size > MAX_DOCX_XML_SIZE:
-                        return Response.new(json.dumps({"error": "Archive bomb detected: Oversized XML"}), status=400)
+                    cumulative_uncompressed_size = 0
+                    for info in infolist:
+                        # Path traversal protection
+                        if ".." in info.filename or info.filename.startswith("/"):
+                             return Response.new(json.dumps({"error": "Malicious archive path detected"}), status=400)
+                        
+                        cumulative_uncompressed_size += info.file_size
+                        if cumulative_uncompressed_size > MAX_DOCX_XML_SIZE * 2: # e.g. 20MB total uncompressed limit
+                            return Response.new(json.dumps({"error": "Archive bomb detected: Cumulative size too large"}), status=400)
+                            
+                        # Also check individual entry sizes
+                        if info.file_size > MAX_DOCX_XML_SIZE:
+                            return Response.new(json.dumps({"error": "Archive bomb detected: Oversized entry"}), status=400)
                     
+                    xml_info = zf.getinfo("word/document.xml")
                     xml_content = zf.read("word/document.xml")
                     tree = ET.fromstring(xml_content)
                     namespaces = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}

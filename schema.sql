@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS candidate_resume (
   content_hash_sha256 TEXT NOT NULL,
   storage_ref TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(user_id, version)
 );
 
 -- 7. Candidate Context Foundation

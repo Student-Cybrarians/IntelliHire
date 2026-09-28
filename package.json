@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "wrangler": "wrangler",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run preflight && wrangler pages deploy dist --project-name intellihire-v3",
     "test": "vitest run",
     "preflight": "node scripts/preflight.mjs"
   },
