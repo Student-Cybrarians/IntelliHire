@@ -34,7 +34,7 @@ try {
   execSync('npm run build', { stdio: 'inherit' });
 
   console.log('✅ All preflight checks passed.');
-} catch (e: any) {
+} catch (e) {
   console.error('❌ Preflight failed with an exception.');
   if (e.stdout) console.error(e.stdout.toString());
   if (e.stderr) console.error(e.stderr.toString());
