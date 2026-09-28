@@ -224,4 +224,32 @@ app.get('/resume/latest', async (c) => {
   return c.json({ resume });
 });
 
+// 9. Dashboard APIs
+app.get('/dashboard/candidate', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
+  
+  const profile = await c.env.DB.prepare('SELECT target_role, experience_level, readiness_score FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+  return c.json({ success: true, profile: profile || {}, modules: { resume_uploaded: false } });
+});
+
+app.get('/dashboard/recruiter', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || (user.role !== 'recruiter' && user.role !== 'org_admin')) return c.json({ error: 'Unauthorized' }, 401);
+  
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser) return c.json({ error: 'Tenant missing' }, 403);
+  
+  // Scoped count
+  const stats = await c.env.DB.prepare('SELECT count(id) as total_candidates FROM user_account WHERE organization_id = ? AND role = "candidate"').bind(dbUser.organization_id).first();
+  return c.json({ success: true, pipeline_stats: { total_candidates: stats?.total_candidates || 0, needs_review: 0 } });
+});
+
+app.get('/resume/status', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  // SLICE 3 BLOCKED DEPENDENCY STUB
+  return c.json({ error: 'Resume Intelligence module is currently undergoing security verification (Slice 3 Blocked). Please try again later.' }, 503);
+});
+
 export const onRequest = handle(app);
