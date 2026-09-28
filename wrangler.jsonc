@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "intellihire",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2024-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "intellihire-db",
+      "database_id": "intellihire-db-local"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_KV",
+      "id": "intellihire-session-kv"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RESUME_BUCKET",
+      "bucket_name": "intellihire-resumes"
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "development",
+    "GOOGLE_CLIENT_ID": "MOCK_GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET": "MOCK_GOOGLE_CLIENT_SECRET",
+    "JWT_SECRET": "intellihire-dev-jwt-secret-key-32-chars-min"
+  }
+}
