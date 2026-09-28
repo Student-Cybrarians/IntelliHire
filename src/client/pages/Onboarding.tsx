@@ -9,8 +9,26 @@ export default function Onboarding() {
   const [experience, setExperience] = useState('');
 
   const handleComplete = async () => {
-    // In production, send data to /api/candidate/onboarding
-    navigate('/dashboard');
+    try {
+      const response = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          target_role: targetRole,
+          experience_level: experience,
+        }),
+      });
+
+      if (response.ok) {
+        navigate('/dashboard');
+      } else {
+        console.error('Failed to save profile');
+      }
+    } catch (error) {
+      console.error('Error saving profile:', error);
+    }
   };
 
   return (

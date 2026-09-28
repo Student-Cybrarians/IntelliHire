@@ -19,7 +19,7 @@ type UserSession = {
   role: string;
 };
 
-const app = new Hono<{ Bindings: Bindings }>().basePath('/api');
+export const app = new Hono<{ Bindings: Bindings }>().basePath('/api');
 
 app.get('/health', (c) => c.json({ status: 'ok', time: Date.now() }));
 
@@ -178,6 +178,56 @@ app.post('/auth/logout', async (c) => {
     deleteCookie(c, 'intellihire_session', { path: '/' });
   }
   return c.json({ success: true });
+});
+
+// Helper for session validation
+const getSessionUser = async (c: any): Promise<UserSession | null> => {
+  const sessionId = getCookie(c, 'intellihire_session');
+  if (!sessionId) return null;
+  const jwt = await c.env.SESSION_KV.get(`session:${sessionId}`);
+  if (!jwt) return null;
+  try {
+    return (await verify(jwt, c.env.JWT_SECRET)) as UserSession;
+  } catch {
+    return null;
+  }
+};
+
+// 5. Get Candidate Profile
+app.get('/profile', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+  return c.json({ profile });
+});
+
+// 6. Update Candidate Profile
+app.put('/profile', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const body = await c.req.json();
+  const { target_role, experience_level, bio } = body;
+
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser) return c.json({ error: 'User not found' }, 404);
+
+  const orgId = dbUser.organization_id;
+
+  const existingProfile = await c.env.DB.prepare('SELECT id FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+
+  if (existingProfile) {
+    await c.env.DB.prepare('UPDATE candidate_profile SET target_role = ?, experience_level = ?, bio = ?, updated_at = unixepoch() WHERE user_id = ?')
+      .bind(target_role || null, experience_level || null, bio || null, user.id).run();
+  } else {
+    await c.env.DB.prepare('INSERT INTO candidate_profile (id, organization_id, user_id, target_role, experience_level, bio) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), orgId, user.id, target_role || null, experience_level || null, bio || null).run();
+  }
+
+  await c.env.DB.prepare('UPDATE user_account SET onboarding_completed = 1 WHERE id = ?').bind(user.id).run();
+
+  return c.json({ success: true, profile: body });
 });
 
 export const onRequest = handle(app);

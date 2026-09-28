@@ -1,6 +1,26 @@
+import { useState, useEffect } from 'react';
 import { Bot, FileText, Code2, Users, CheckCircle } from 'lucide-react';
 
 export default function Dashboard() {
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/profile')
+      .then(res => res.json())
+      .then((data: any) => {
+        setProfile(data.profile);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">Loading...</div>;
+  }
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col md:flex-row">
       
@@ -58,15 +78,15 @@ export default function Dashboard() {
               <circle cx="64" cy="64" r="56" stroke="currentColor" strokeWidth="12" fill="transparent" strokeDasharray="351.85" strokeDashoffset="105.55" className="text-brand-500 transition-all duration-1000 ease-out" />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-bold text-white">70%</span>
+              <span className="text-3xl font-bold text-white">{profile?.readiness_score ? `${(profile.readiness_score * 100).toFixed(0)}%` : '0%'}</span>
             </div>
           </div>
           <div className="flex-grow">
             <h2 className="text-xl font-semibold text-white mb-2">Target Role Readiness</h2>
             <p className="text-slate-400 mb-4 max-w-lg">Based on your onboarding, we estimate your readiness for a Mid-Level Software Engineer role. Complete modules to increase confidence and unlock recruiter visibility.</p>
             <div className="flex gap-4">
-              <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300">Target: Software Engineer</span>
-              <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300">Level: Mid</span>
+              <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300">Target: {profile?.target_role || 'Not set'}</span>
+              <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300">Level: {profile?.experience_level || 'Not set'}</span>
             </div>
           </div>
         </div>
