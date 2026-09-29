@@ -25,7 +25,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
     setApplyingId(id);
     try {
       const res = await fetch(`/api/requisitions/${id}/apply`, { method: 'POST' });
-      const data = await res.json();
+      const data = await res.json() as any;
       if (data.success) {
         alert('Applied successfully! AI Match Score: ' + data.matchScore);
       } else {
