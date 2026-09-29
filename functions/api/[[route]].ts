@@ -501,4 +501,93 @@ Return ONLY a valid JSON object matching this schema:
   }
 });
 
+// SLICE 10: Adaptive Assessment Session APIs
+app.post('/assessment/start', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
+
+  const { skill_id } = await c.req.json();
+  const sessionId = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_session (id, user_id, status) VALUES (?, ?, ?)'
+  ).bind(sessionId, user.id, 'ACTIVE').run();
+
+  return c.json({ success: true, session_id: sessionId });
+});
+
+app.get('/assessment/sessions/:id/next', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
+
+  const sessionId = c.req.param('id');
+  const { skill_id } = c.req.query();
+
+  // Find a question the user hasn't answered in this session
+  const item = await c.env.DB.prepare(`
+    SELECT * FROM assessment_item 
+    WHERE skill_id = ? 
+    AND id NOT IN (SELECT assessment_item_id FROM candidate_response WHERE session_id = ?)
+    ORDER BY RANDOM() LIMIT 1
+  `).bind(skill_id, sessionId).first();
+
+  if (!item) {
+    await c.env.DB.prepare("UPDATE assessment_session SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP WHERE id = ?").bind(sessionId).run();
+    return c.json({ success: true, completed: true });
+  }
+
+  // Hide correct_answer and traceability from the frontend
+  return c.json({ 
+    success: true, 
+    completed: false, 
+    item: {
+      id: item.id,
+      question_text: item.question_text,
+      options: JSON.parse(item.options_json as string)
+    } 
+  });
+});
+
+app.post('/assessment/sessions/:id/submit', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
+
+  const sessionId = c.req.param('id');
+  const { item_id, response_text, skill_id } = await c.req.json();
+
+  const item = await c.env.DB.prepare('SELECT correct_answer FROM assessment_item WHERE id = ?').bind(item_id).first();
+  if (!item) return c.json({ error: 'Item not found' }, 404);
+
+  const isCorrect = (item.correct_answer === response_text);
+  const responseId = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    'INSERT INTO candidate_response (id, session_id, assessment_item_id, response_text, is_correct) VALUES (?, ?, ?, ?, ?)'
+  ).bind(responseId, sessionId, item_id, response_text, isCorrect ? 1 : 0).run();
+
+  // Update proficiency score (Simple Bayesian Knowledge Tracing Increment)
+  const existingProf = await c.env.DB.prepare('SELECT score, confidence FROM candidate_proficiency WHERE user_id = ? AND skill_id = ?')
+    .bind(user.id, skill_id).first();
+  
+  let newScore = existingProf ? (existingProf.score as number) : 50;
+  let newConfidence = existingProf ? (existingProf.confidence as number) : 0.0;
+
+  if (isCorrect) {
+    newScore = Math.min(100, newScore + 10);
+  } else {
+    newScore = Math.max(0, newScore - 10);
+  }
+  newConfidence = Math.min(1.0, newConfidence + 0.1);
+
+  if (existingProf) {
+    await c.env.DB.prepare('UPDATE candidate_proficiency SET score = ?, confidence = ?, last_assessed_at = CURRENT_TIMESTAMP WHERE user_id = ? AND skill_id = ?')
+      .bind(newScore, newConfidence, user.id, skill_id).run();
+  } else {
+    await c.env.DB.prepare('INSERT INTO candidate_proficiency (id, user_id, skill_id, score, confidence) VALUES (?, ?, ?, ?, ?)')
+      .bind(crypto.randomUUID(), user.id, skill_id, newScore, newConfidence).run();
+  }
+
+  return c.json({ success: true, is_correct: isCorrect, new_score: newScore });
+});
+
 export const onRequest = handle(app);

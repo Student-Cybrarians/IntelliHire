@@ -44,7 +44,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">Welcome back, {profileName.split(' ')[0]}.</h1>
         <p className="text-slate-400">Your readiness score is improving. Next step: Upload your resume for ATS analysis.</p>
-      </header>
+      </header>`n      <div className="mb-8 p-6 bg-brand-500/10 border border-brand-500/20 rounded-xl flex items-center justify-between"><div><h3 className="text-white font-medium mb-1">Verify Your Skills</h3><p className="text-slate-400 text-sm">Take an AI-powered diagnostic to prove your claimed skills and increase your Match Score.</p></div><button onClick={() => window.location.href="/assessment/skill-1"} className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-sm font-medium transition-colors">Start Assessment</button></div>
 
       {/* Readiness Score Card (Hidden for brevity, but kept in code) */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-8 flex flex-col md:flex-row items-center gap-8">
