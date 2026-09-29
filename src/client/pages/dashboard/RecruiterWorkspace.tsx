@@ -179,7 +179,7 @@ export default function RecruiterWorkspace() {
                           <span className="text-white font-bold bg-slate-800 px-2 py-1 rounded">{cand.similarity_score}%</span>
                         </div>
                       </div>
-                      <a href={ + "" + mailto: + "$" + {cand.email} + "" + } className="text-sm text-slate-400 mt-2 hover:text-white transition-colors">{cand.email}</a>
+                      <a href={`mailto:${cand.email}`} className="text-sm text-slate-400 mt-2 hover:text-white transition-colors">{cand.email}</a>
                     </div>
                   ))}
                 </div>
