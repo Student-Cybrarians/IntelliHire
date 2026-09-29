@@ -150,7 +150,21 @@ app.get('/profile', async (c) => {
   const profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
   return c.json({ profile });
 });
-app.put('/profile', async (c) => { /* Omitted for brevity, assumed same */ return c.json({ success: true }); });
+app.put('/profile', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json() as any;
+  
+  await c.env.DB.prepare(
+    INSERT INTO candidate_profile (id, user_id, target_role, experience_level)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT (user_id) DO UPDATE SET target_role = excluded.target_role, experience_level = excluded.experience_level
+  ).bind(crypto.randomUUID(), user.id, body.target_role || '', body.experience_level || '').run();
+
+  await c.env.DB.prepare('UPDATE user_account SET onboarding_completed = 1 WHERE id = ?').bind(user.id).run();
+
+  return c.json({ success: true });
+});
 
 // 7. Upload Resume (HARDENED)
 async function getFileHash(buffer: ArrayBuffer): Promise<string> {
