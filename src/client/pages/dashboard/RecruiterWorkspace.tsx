@@ -18,6 +18,11 @@ export default function RecruiterWorkspace() {
   const [newDept, setNewDept] = useState('');
   const [newDesc, setNewDesc] = useState('');
 
+  // Search States
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const fetchJobs = () => {
     fetch('/api/requisitions')
       .then(res => res.json())
