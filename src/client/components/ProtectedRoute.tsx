@@ -12,9 +12,11 @@ type AuthUser = {
 export default function ProtectedRoute({
   children,
   requireOnboarding = true,
+  allowedRoles,
 }: {
   children: React.ReactNode;
   requireOnboarding?: boolean;
+  allowedRoles?: string[];
 }) {
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
@@ -58,6 +60,15 @@ export default function ProtectedRoute({
           user.onboarding_completed === true ||
           user.onboarding_completed === 1;
 
+        if (allowedRoles && !allowedRoles.includes(user.role)) {
+          if (active) {
+            setAuthorized(false);
+            setLoading(false);
+            navigate('/dashboard', { replace: true });
+          }
+          return;
+        }
+
         if (requireOnboarding && !onboardingCompleted) {
           if (active) {
             setAuthorized(false);
@@ -95,7 +106,7 @@ export default function ProtectedRoute({
     return () => {
       active = false;
     };
-  }, [location.pathname, navigate, requireOnboarding]);
+  }, [location.pathname, navigate, requireOnboarding, allowedRoles]);
 
   if (loading || !authorized) {
     return (
