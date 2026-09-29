@@ -20,9 +20,9 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
         fetch('/api/resume/status'),
         fetch('/api/requisitions')
       ]);
-      const profileData = await profileRes.json();
-      const statusData = await statusRes.json().catch(() => ({}));
-      const jobsData = await jobsRes.json();
+      const profileData: any = await profileRes.json();
+      const statusData: any = await statusRes.json().catch(() => ({}));
+      const jobsData: any = await jobsRes.json();
       setProfile(profileData.profile || {});
       setResumeStatus(profileData.modules || {});
       setClaims(statusData.claims || []);
@@ -38,7 +38,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
       const body = new FormData();
       body.append('resume', file);
       const res = await fetch('/api/resume/upload', { method: 'POST', body });
-      const data = await res.json().catch(() => ({}));
+      const data: any = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Resume upload failed');
       setUploadMessage(`Resume uploaded successfully (v${data.version || 1}). Extraction status: ${data.status || 'processing'}.`);
       await load();
@@ -51,7 +51,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
     setApplyingId(id);
     try {
       const res = await fetch(`/api/requisitions/${id}/apply`, { method: 'POST' });
-      const data = await res.json();
+      const data: any = await res.json();
       alert(data.success ? `Application submitted. Match score: ${data.matchScore}` : data.error);
     } catch { alert('Network error'); }
     finally { setApplyingId(null); }

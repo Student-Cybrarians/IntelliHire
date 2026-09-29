@@ -224,8 +224,8 @@ export default function RecruiterWorkspace() {
           e.preventDefault();
           if(!newCompetency.trim()) return;
           const res=await fetch('/api/competencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newCompetency,description:newCompetencyDesc})});
-          const d=await res.json();
-          if(d.success){setNewCompetency('');setNewCompetencyDesc('');setShowCompetencyForm(false);const r=await fetch('/api/competencies');const x=await r.json();if(x.success)setCompetencies(x.competencies||[]);}
+          const d: any = await res.json();
+          if(d.success){setNewCompetency('');setNewCompetencyDesc('');setShowCompetencyForm(false);const r=await fetch('/api/competencies');const x: any = await r.json();if(x.success)setCompetencies(x.competencies||[]);}
         }} className="grid md:grid-cols-3 gap-3 mb-5">
           <input required value={newCompetency} onChange={e=>setNewCompetency(e.target.value)} placeholder="Competency name" className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"/>
           <input value={newCompetencyDesc} onChange={e=>setNewCompetencyDesc(e.target.value)} placeholder="Description" className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"/>
