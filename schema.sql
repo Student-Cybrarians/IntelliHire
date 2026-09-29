@@ -166,3 +166,38 @@ CREATE TABLE IF NOT EXISTS candidate_proficiency (
     FOREIGN KEY (skill_id) REFERENCES skill(id) ON DELETE CASCADE,
     UNIQUE(user_id, skill_id)
 );
+
+-- SLICE 9: AI Assessment Item Generation
+
+CREATE TABLE IF NOT EXISTS assessment_item (
+    id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    question_type TEXT NOT NULL,
+    question_text TEXT NOT NULL,
+    options_json TEXT,
+    correct_answer TEXT NOT NULL,
+    difficulty_level INTEGER NOT NULL,
+    traceability_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (skill_id) REFERENCES skill(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS assessment_session (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    FOREIGN KEY (user_id) REFERENCES user_account(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS candidate_response (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    assessment_item_id TEXT NOT NULL,
+    response_text TEXT,
+    is_correct BOOLEAN,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES assessment_session(id) ON DELETE CASCADE,
+    FOREIGN KEY (assessment_item_id) REFERENCES assessment_item(id) ON DELETE CASCADE
+);

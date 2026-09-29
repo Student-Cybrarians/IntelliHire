@@ -437,4 +437,68 @@ app.get('/candidates/:id/proficiency', async (c) => {
   return c.json({ success: true, proficiencies });
 });
 
+// SLICE 9: AI Assessment Item Generation
+app.post('/assessment/generate', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'recruiter') return c.json({ error: 'Unauthorized' }, 401);
+
+  const { skill_id } = await c.req.json();
+  if (!skill_id) return c.json({ error: 'Missing skill_id' }, 400);
+
+  // Fetch skill and competency info
+  const skillQuery = await c.env.DB.prepare(`
+    SELECT s.name as skill_name, s.description as skill_desc, c.name as comp_name 
+    FROM skill s JOIN competency c ON s.competency_id = c.id WHERE s.id = ?
+  `).bind(skill_id).first();
+  
+  if (!skillQuery) return c.json({ error: 'Skill not found' }, 404);
+
+  const prompt = `You are an expert technical assessor.
+Generate a multiple-choice diagnostic question to assess a candidate's proficiency in:
+Competency: ${skillQuery.comp_name}
+Skill: ${skillQuery.skill_name}
+Description: ${skillQuery.skill_desc || 'N/A'}
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "question_text": "The question itself",
+  "options": ["A", "B", "C", "D"],
+  "correct_answer": "The exact string from options that is correct",
+  "difficulty_level": 3,
+  "traceability_reason": "Why this question tests this specific skill"
+}`;
+
+  try {
+    const aiResponse = await (c.env as any).AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [
+        { role: 'system', content: 'You are a JSON-only API. You must return only a JSON object.' },
+        { role: 'user', content: prompt }
+      ]
+    });
+
+    // Cloudflare AI sometimes wraps JSON in markdown blocks
+    const rawText = aiResponse.response.replace(/```json\n?|\n?```/g, '').trim();
+    const generated = JSON.parse(rawText);
+
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO assessment_item (id, skill_id, question_type, question_text, options_json, correct_answer, difficulty_level, traceability_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      id,
+      skill_id,
+      'MULTIPLE_CHOICE',
+      generated.question_text,
+      JSON.stringify(generated.options),
+      generated.correct_answer,
+      generated.difficulty_level,
+      JSON.stringify({ reason: generated.traceability_reason })
+    ).run();
+
+    return c.json({ success: true, item: { id, ...generated } });
+  } catch (error: any) {
+    return c.json({ error: 'AI Generation Failed', details: error.message }, 500);
+  }
+});
+
 export const onRequest = handle(app);
