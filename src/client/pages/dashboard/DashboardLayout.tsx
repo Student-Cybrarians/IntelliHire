@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Bot, CheckCircle, FileText, Code2, Users, Briefcase, Settings, LogOut } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function DashboardLayout({ children, role, userFullName }: { children: ReactNode, role: string, userFullName: string }) {
   const navigate = useNavigate();
@@ -23,37 +23,23 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
         <nav className="flex-grow space-y-2">
           {role === 'candidate' && (
             <>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium">
-                <CheckCircle className="w-5 h-5" /> Command Center
-              </a>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors">
-                <FileText className="w-5 h-5" /> Resume Studio
-              </a>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors">
-                <Code2 className="w-5 h-5" /> Technical Sandbox
-              </a>
+              <Link to="/dashboard" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium"><CheckCircle className="w-5 h-5" /> Command Center</Link>
+              <Link to="/resume" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><FileText className="w-5 h-5" /> Resume Studio</Link>
+              <Link to="/technical-sandbox" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><Code2 className="w-5 h-5" /> Technical Sandbox</Link>
             </>
           )}
 
           {role === 'recruiter' && (
             <>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium">
-                <Briefcase className="w-5 h-5" /> Pipeline Overview
-              </a>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors">
-                <Users className="w-5 h-5" /> Active Requisitions
-              </a>
+              <Link to="/dashboard" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium"><Briefcase className="w-5 h-5" /> Pipeline Overview</Link>
+              <Link to="/requisitions" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><Users className="w-5 h-5" /> Active Requisitions</Link>
             </>
           )}
 
           {role === 'org_admin' && (
             <>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium">
-                <Settings className="w-5 h-5" /> Organization Settings
-              </a>
-              <a href="#" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors">
-                <Users className="w-5 h-5" /> User Management
-              </a>
+              <Link to="/settings" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium"><Settings className="w-5 h-5" /> Organization Settings</Link>
+              <Link to="/users" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><Users className="w-5 h-5" /> User Management</Link>
             </>
           )}
         </nav>
