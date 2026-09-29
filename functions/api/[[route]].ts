@@ -705,4 +705,50 @@ app.get('/search/candidates', async (c) => {
   return c.json({ success: true, results: scoredCandidates.slice(0, 10) });
 });
 
+app.get('/analytics/pipeline', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'recruiter') return c.json({ error: 'Unauthorized' }, 401);
+
+  // 1. Total Requisitions
+  const reqCountRes = await c.env.DB.prepare(
+    `SELECT COUNT(*) as cnt FROM job_requisition WHERE organization_id = ? AND status = 'OPEN'`
+  ).bind(user.organization_id).first();
+
+  // 2. Total Candidates in Pipeline (Applications to this org's jobs)
+  const candidateCountRes = await c.env.DB.prepare(`
+    SELECT COUNT(DISTINCT a.user_id) as cnt, COUNT(a.id) as app_cnt 
+    FROM candidate_application a
+    JOIN job_requisition r ON a.job_requisition_id = r.id
+    WHERE r.organization_id = ?
+  `).bind(user.organization_id).first();
+
+  // 3. Average AI Match Score
+  const avgScoreRes = await c.env.DB.prepare(`
+    SELECT AVG(a.match_score) as avg_score
+    FROM candidate_application a
+    JOIN job_requisition r ON a.job_requisition_id = r.id
+    WHERE r.organization_id = ? AND a.match_score IS NOT NULL
+  `).bind(user.organization_id).first();
+
+  // 4. Funnel stats (count by status)
+  const funnelRes = await c.env.DB.prepare(`
+    SELECT a.status, COUNT(a.id) as cnt
+    FROM candidate_application a
+    JOIN job_requisition r ON a.job_requisition_id = r.id
+    WHERE r.organization_id = ?
+    GROUP BY a.status
+  `).bind(user.organization_id).all();
+
+  return c.json({
+    success: true,
+    metrics: {
+      open_requisitions: reqCountRes?.cnt || 0,
+      active_candidates: candidateCountRes?.cnt || 0,
+      total_applications: candidateCountRes?.app_cnt || 0,
+      avg_match_score: Math.round((avgScoreRes?.avg_score as number) || 0),
+      funnel: funnelRes.results
+    }
+  });
+});
+
 export const onRequest = handle(app);

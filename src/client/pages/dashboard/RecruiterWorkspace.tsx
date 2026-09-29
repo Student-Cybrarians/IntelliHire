@@ -23,11 +23,20 @@ export default function RecruiterWorkspace() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Analytics State
+  const [metrics, setMetrics] = useState<any>(null);
+
   const fetchJobs = () => {
     fetch('/api/requisitions')
       .then(res => res.json())
       .then((data: any) => {
         if (data.success) setJobs(data.requisitions);
+      });
+
+    fetch('/api/analytics/pipeline')
+      .then(res => res.json())
+      .then((data: any) => {
+        if (data.success) setMetrics(data.metrics);
       });
   };
 
@@ -155,6 +164,48 @@ export default function RecruiterWorkspace() {
           </button>
         </form>
       </header>
+
+      {/* Analytics Ribbon */}
+      {metrics && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Open Requisitions</p>
+              <p className="text-2xl font-bold text-white">{metrics.open_requisitions}</p>
+            </div>
+            <div className="p-3 bg-brand-500/10 rounded-lg">
+              <Briefcase className="w-6 h-6 text-brand-400" />
+            </div>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Active Candidates</p>
+              <p className="text-2xl font-bold text-white">{metrics.active_candidates}</p>
+            </div>
+            <div className="p-3 bg-blue-500/10 rounded-lg">
+              <Users className="w-6 h-6 text-blue-400" />
+            </div>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Total Applications</p>
+              <p className="text-2xl font-bold text-white">{metrics.total_applications}</p>
+            </div>
+            <div className="p-3 bg-purple-500/10 rounded-lg">
+              <FileText className="w-6 h-6 text-purple-400" />
+            </div>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">Avg Match Score</p>
+              <p className="text-2xl font-bold text-green-400">{metrics.avg_match_score}%</p>
+            </div>
+            <div className="p-3 bg-green-500/10 rounded-lg">
+              <CheckCircle className="w-6 h-6 text-green-400" />
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="grid md:grid-cols-12 gap-8">
         
