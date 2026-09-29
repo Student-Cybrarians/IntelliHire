@@ -25,6 +25,10 @@ export default function RecruiterWorkspace() {
 
   // Analytics State
   const [metrics, setMetrics] = useState<any>(null);
+  const [competencies, setCompetencies] = useState<any[]>([]);
+  const [showCompetencyForm, setShowCompetencyForm] = useState(false);
+  const [newCompetency, setNewCompetency] = useState('');
+  const [newCompetencyDesc, setNewCompetencyDesc] = useState('');
 
   const fetchJobs = () => {
     fetch('/api/requisitions')
@@ -54,6 +58,7 @@ export default function RecruiterWorkspace() {
       });
 
     fetchJobs();
+    fetch('/api/competencies').then(r=>r.json()).then((d:any)=>{ if(d.success) setCompetencies(d.competencies || []); }).catch(()=>{});
   }, []);
 
   const handleCreateJob = async (e: React.FormEvent) => {
@@ -207,6 +212,35 @@ export default function RecruiterWorkspace() {
         </div>
       )}
       
+      <section className="mb-8 bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Hiring Workspace Controls</h2>
+            <p className="text-sm text-slate-500">Manage requisitions, competency definitions and assessment preparation from one workspace.</p>
+          </div>
+          <button onClick={()=>setShowCompetencyForm(!showCompetencyForm)} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm">+ Competency</button>
+        </div>
+        {showCompetencyForm && <form onSubmit={async e=>{
+          e.preventDefault();
+          if(!newCompetency.trim()) return;
+          const res=await fetch('/api/competencies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newCompetency,description:newCompetencyDesc})});
+          const d=await res.json();
+          if(d.success){setNewCompetency('');setNewCompetencyDesc('');setShowCompetencyForm(false);const r=await fetch('/api/competencies');const x=await r.json();if(x.success)setCompetencies(x.competencies||[]);}
+        }} className="grid md:grid-cols-3 gap-3 mb-5">
+          <input required value={newCompetency} onChange={e=>setNewCompetency(e.target.value)} placeholder="Competency name" className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"/>
+          <input value={newCompetencyDesc} onChange={e=>setNewCompetencyDesc(e.target.value)} placeholder="Description" className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"/>
+          <button className="bg-brand-600 hover:bg-brand-500 text-white rounded-lg px-3 py-2">Create competency</button>
+        </form>}
+        <div className="grid md:grid-cols-3 gap-3">
+          {competencies.slice(0,6).map((comp:any)=><div key={comp.id} className="bg-slate-950 border border-slate-800 rounded-lg p-4">
+            <div className="font-medium text-white">{comp.name}</div>
+            <div className="text-xs text-slate-500 mt-1">{comp.description || 'No description'}</div>
+            <div className="text-xs text-brand-400 mt-3">{(comp.skills||[]).length} skills mapped</div>
+          </div>)}
+          {competencies.length===0 && <div className="md:col-span-3 text-sm text-slate-500 border border-dashed border-slate-700 rounded-lg p-6 text-center">No competency taxonomy configured yet.</div>}
+        </div>
+      </section>
+
       <div className="grid md:grid-cols-12 gap-8">
         
         {searchQuery && !selectedJobId ? (
