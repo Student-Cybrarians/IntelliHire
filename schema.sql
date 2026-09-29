@@ -134,3 +134,35 @@ CREATE TABLE IF NOT EXISTS candidate_application (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(requisition_id, candidate_user_id)
 );
+
+-- SLICE 8: Competency & Taxonomy Framework
+
+CREATE TABLE IF NOT EXISTS competency (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (organization_id) REFERENCES organization(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS skill (
+    id TEXT PRIMARY KEY,
+    competency_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (competency_id) REFERENCES competency(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS candidate_proficiency (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    skill_id TEXT NOT NULL,
+    score INTEGER NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL DEFAULT 0.0,
+    last_assessed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user_account(id) ON DELETE CASCADE,
+    FOREIGN KEY (skill_id) REFERENCES skill(id) ON DELETE CASCADE,
+    UNIQUE(user_id, skill_id)
+);

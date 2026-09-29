@@ -357,4 +357,84 @@ app.get('/requisitions/:id/applications', async (c) => {
   return c.json({ success: true, applications: apps.results });
 });
 
+// SLICE 8: Competency & Taxonomy APIs
+
+app.get('/competencies', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+
+  const { results } = await c.env.DB.prepare(
+    'SELECT * FROM competency WHERE organization_id = ?'
+  ).bind(dbUser.organization_id).all();
+
+  const competencies = await Promise.all(results.map(async (comp: any) => {
+    const { results: skills } = await c.env.DB.prepare(
+      'SELECT * FROM skill WHERE competency_id = ?'
+    ).bind(comp.id).all();
+    return { ...comp, skills };
+  }));
+
+  return c.json({ success: true, competencies });
+});
+
+app.post('/competencies', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'recruiter') return c.json({ error: 'Unauthorized' }, 401);
+
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+
+  const { name, description } = await c.req.json();
+  const id = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    'INSERT INTO competency (id, organization_id, name, description) VALUES (?, ?, ?, ?)'
+  ).bind(id, dbUser.organization_id, name, description).run();
+
+  return c.json({ success: true, id });
+});
+
+app.post('/competencies/:id/skills', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'recruiter') return c.json({ error: 'Unauthorized' }, 401);
+
+  const competencyId = c.req.param('id');
+  const { name, description } = await c.req.json();
+  const id = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    'INSERT INTO skill (id, competency_id, name, description) VALUES (?, ?, ?, ?)'
+  ).bind(id, competencyId, name, description).run();
+
+  return c.json({ success: true, id });
+});
+
+app.get('/candidates/:id/proficiency', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const targetUserId = c.req.param('id');
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  
+  // Verify tenant access
+  if (user.role === 'recruiter') {
+     const { results } = await c.env.DB.prepare('SELECT id FROM user_account WHERE id = ? AND organization_id = ?')
+       .bind(targetUserId, dbUser.organization_id).all();
+     if (results.length === 0) return c.json({ error: 'Unauthorized' }, 401);
+  } else if (user.id !== targetUserId) {
+     return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const { results: proficiencies } = await c.env.DB.prepare(`
+    SELECT p.*, s.name as skill_name, c.name as competency_name 
+    FROM candidate_proficiency p
+    JOIN skill s ON p.skill_id = s.id
+    JOIN competency c ON s.competency_id = c.id
+    WHERE p.user_id = ?
+  `).bind(targetUserId).all();
+
+  return c.json({ success: true, proficiencies });
+});
+
 export const onRequest = handle(app);
