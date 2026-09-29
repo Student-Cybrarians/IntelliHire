@@ -178,7 +178,6 @@ app.post('/resume/upload', async (c) => {
   let retryCount = 0;
   let inserted = false;
   let contextId = crypto.randomUUID();
-  const extractionStatus = extracted.status || "SUCCESS";
 
   while (!inserted && retryCount < 3) {
     try {
