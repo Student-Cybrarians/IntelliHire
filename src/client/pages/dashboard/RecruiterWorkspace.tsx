@@ -187,7 +187,7 @@ export default function RecruiterWorkspace() {
             </div>
           </div>
         ) : (
-        
+          <>
         {/* LEFT COLUMN: Jobs */}
         <div className="md:col-span-5 flex flex-col gap-4">
           <div className="flex justify-between items-center">
@@ -294,6 +294,7 @@ export default function RecruiterWorkspace() {
             </div>
           )}
         </div>
+        </>
       )}
       </div>
     </div>
