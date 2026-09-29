@@ -128,14 +128,14 @@ export default function Assessment() {
                   key={i}
                   disabled={result !== null || submitting}
                   onClick={() => setSelectedOption(opt)}
-                  className={\`w-full text-left p-4 rounded-xl border transition-all \${
+                  className={`w-full text-left p-4 rounded-xl border transition-all ${
                     selectedOption === opt
                       ? 'border-brand-500 bg-brand-500/10 text-white'
                       : 'border-slate-700 bg-slate-800/30 text-slate-300 hover:border-slate-600 hover:bg-slate-800'
-                  } \${result !== null ? 'opacity-70 cursor-default' : ''}\`}
+                  } ${result !== null ? 'opacity-70 cursor-default' : ''}`}
                 >
                   <div className="flex gap-4">
-                    <span className={\`font-mono font-medium \${selectedOption === opt ? 'text-brand-400' : 'text-slate-500'}\`}>
+                    <span className={`font-mono font-medium ${selectedOption === opt ? 'text-brand-400' : 'text-slate-500'}`}>
                       {String.fromCharCode(65 + i)}
                     </span>
                     <span>{opt}</span>
@@ -145,10 +145,10 @@ export default function Assessment() {
             </div>
 
             {result && (
-              <div className={\`mt-8 p-4 rounded-xl flex items-start gap-4 \${result.is_correct ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}\`}>
+              <div className={`mt-8 p-4 rounded-xl flex items-start gap-4 ${result.is_correct ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                 {result.is_correct ? <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" /> : <XCircle className="w-6 h-6 text-red-500 shrink-0" />}
                 <div>
-                  <h4 className={\`font-medium \${result.is_correct ? 'text-emerald-400' : 'text-red-400'}\`}>
+                  <h4 className={`font-medium ${result.is_correct ? 'text-emerald-400' : 'text-red-400'}`}>
                     {result.is_correct ? 'Correct Answer' : 'Incorrect Answer'}
                   </h4>
                   <p className="text-sm text-slate-400 mt-1">Your new verified proficiency score for this skill is <strong className="text-white">{result.new_score}%</strong>.</p>
