@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, AlertCircle, Briefcase, Plus, ChevronRight, FileText } from 'lucide-react';
+import { Users, AlertCircle, Briefcase, Plus, ChevronRight, FileText, CheckCircle } from 'lucide-react';
 
 export default function RecruiterWorkspace() {
   const [stats, setStats] = useState<any>(null);
