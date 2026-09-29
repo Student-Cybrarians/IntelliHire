@@ -19,6 +19,7 @@ const createMockEnv = (dbOverrides: any = {}) => ({
           return {
             first: vi.fn().mockResolvedValue(dbOverrides.first || null),
             run: vi.fn().mockResolvedValue(true),
+            all: vi.fn().mockResolvedValue(dbOverrides.all || { results: [] }),
           };
         })
       };
@@ -77,15 +78,15 @@ describe('Dashboard APIs (RBAC & Tenant Scoping)', () => {
     expect(res.status).toBe(401);
   });
   
-  it('Resume Status - correctly returns 503 Blocked Dependency Stub', async () => {
+  it('Resume Status - correctly returns 200 after extraction', async () => {
     const env = createMockEnv();
     const req = new Request('http://localhost/api/resume/status', {
       headers: { Cookie: 'intellihire_session=cand-session' }
     });
     const res = await app.request(req, {}, env as any);
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(200);
     const data = await res.json() as any;
-    expect(data.error).toContain('Blocked');
+    expect(data.status).toBe('processed');
   });
 
 });

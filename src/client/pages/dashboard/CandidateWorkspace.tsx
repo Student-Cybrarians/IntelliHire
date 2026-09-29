@@ -57,12 +57,12 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
           </div>
           <h3 className="text-lg font-semibold text-white mb-2">Resume Intelligence</h3>
           
-          <div className="text-amber-400/90 text-sm mb-4 flex-grow p-3 bg-amber-500/5 rounded-lg border border-amber-500/10">
-            {resumeStatus?.status === 503 ? resumeStatus.data.error : "Module temporarily locked pending security verification."}
+          <div className="text-slate-300 text-sm mb-4 flex-grow">
+            {resumeStatus?.data?.claims?.length > 0 ? "Successfully extracted \ claims." : "Module ready for extraction."}
           </div>
           
-          <button disabled className="w-full py-2.5 bg-slate-800/50 text-slate-500 font-medium rounded-lg cursor-not-allowed">
-            Upload Locked
+          <button className="w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-lg transition-colors">
+            View Extraction Status
           </button>
         </div>
 

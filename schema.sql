@@ -93,3 +93,17 @@ CREATE TABLE IF NOT EXISTS candidate_context (
 -- Default system organization seed
 INSERT OR IGNORE INTO organization (id, name, slug, tier)
 VALUES ('org_default_public', 'IntelliHire Public Sandbox', 'public-sandbox', 'free');
+
+-- 8. Candidate Claims (Slice 4 - Provenance)
+CREATE TABLE IF NOT EXISTS candidate_claim (
+  id TEXT PRIMARY KEY,
+  context_id TEXT NOT NULL REFERENCES candidate_context(id),
+  claim_type TEXT NOT NULL CHECK (claim_type IN ('skill', 'experience', 'education', 'certification', 'other')),
+  claim_value TEXT NOT NULL,
+  normalized_value TEXT,
+  confidence_score REAL NOT NULL,
+  verification_state TEXT NOT NULL CHECK (verification_state IN ('extracted', 'normalized', 'inferred', 'missing', 'unverified', 'contradictory')),
+  provenance_start_index INTEGER,
+  provenance_end_index INTEGER,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

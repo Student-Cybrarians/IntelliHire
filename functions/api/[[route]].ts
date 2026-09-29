@@ -248,8 +248,8 @@ app.get('/dashboard/recruiter', async (c) => {
 app.get('/resume/status', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  // SLICE 3 BLOCKED DEPENDENCY STUB
-  return c.json({ error: 'Resume Intelligence module is currently undergoing security verification (Slice 3 Blocked). Please try again later.' }, 503);
+  const claims = await c.env.DB.prepare('SELECT claim_type, claim_value, normalized_value FROM candidate_claim WHERE context_id IN (SELECT id FROM candidate_context WHERE user_id = ?)').bind(user.id).all();
+  return c.json({ success: true, status: 'processed', claims: claims.results });
 });
 
 export const onRequest = handle(app);
