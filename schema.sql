@@ -214,3 +214,8 @@ CREATE TABLE IF NOT EXISTS application_audit (
     FOREIGN KEY (application_id) REFERENCES candidate_application(id) ON DELETE CASCADE,
     FOREIGN KEY (changed_by_user_id) REFERENCES user_account(id)
 );
+
+-- SLICE 12: Semantic Search Embeddings
+-- ALTER TABLE candidate_profile ADD COLUMN embedding_json TEXT;
+-- Note: SQLite ALTER TABLE ADD COLUMN runs cleanly if the column does not exist, but errors if it does.
+-- We will use a safe approach or just run it via wrangler directly.

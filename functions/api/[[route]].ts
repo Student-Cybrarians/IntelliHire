@@ -627,4 +627,82 @@ app.patch('/applications/:id/status', async (c) => {
   return c.json({ success: true, status });
 });
 
+// SLICE 12: Semantic Search & Match Refinement
+function cosineSimilarity(vecA: number[], vecB: number[]) {
+  let dotProduct = 0, normA = 0, normB = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
+  }
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+app.get('/search/candidates', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'recruiter') return c.json({ error: 'Unauthorized' }, 401);
+
+  const query = c.req.query('q');
+  if (!query) return c.json({ error: 'Missing query param q' }, 400);
+
+  // 1. Embed the search query
+  let queryEmbedding: number[];
+  try {
+    const aiRes = await (c.env as any).AI.run('@cf/baai/bge-base-en-v1.5', { text: [query] });
+    queryEmbedding = aiRes.data[0];
+  } catch (e) {
+    return c.json({ error: 'AI Embedding Failed' }, 500);
+  }
+
+  // 2. Fetch all candidate profiles
+  const { results: profiles } = await c.env.DB.prepare(`
+    SELECT p.id, p.user_id, p.target_role, p.experience_level, p.bio, p.embedding_json, u.full_name, u.email 
+    FROM candidate_profile p
+    JOIN user_account u ON p.user_id = u.id
+    WHERE u.role = 'candidate'
+  `).all();
+
+  // 3. Score and sort candidates
+  const scoredCandidates = [];
+  for (const profile of profiles as any[]) {
+    let candidateEmbedding: number[] | null = null;
+    
+    // Lazy Embedding Generation
+    if (!profile.embedding_json) {
+      const candidateText = `${profile.target_role} | ${profile.experience_level} | ${profile.bio}`;
+      try {
+        const aiRes = await (c.env as any).AI.run('@cf/baai/bge-base-en-v1.5', { text: [candidateText] });
+        candidateEmbedding = aiRes.data[0];
+        // Save back to DB asynchronously
+        c.executionCtx.waitUntil(
+          c.env.DB.prepare('UPDATE candidate_profile SET embedding_json = ? WHERE id = ?')
+            .bind(JSON.stringify(candidateEmbedding), profile.id).run()
+        );
+      } catch (e) {
+        console.error('Failed to embed candidate', e);
+      }
+    } else {
+      candidateEmbedding = JSON.parse(profile.embedding_json);
+    }
+
+    if (candidateEmbedding && queryEmbedding) {
+      const score = cosineSimilarity(queryEmbedding, candidateEmbedding);
+      // Optional threshold, e.g. score > 0.5
+      scoredCandidates.push({
+        id: profile.user_id,
+        full_name: profile.full_name,
+        email: profile.email,
+        target_role: profile.target_role,
+        experience_level: profile.experience_level,
+        similarity_score: (score * 100).toFixed(1)
+      });
+    }
+  }
+
+  // Sort descending by similarity
+  scoredCandidates.sort((a, b) => parseFloat(b.similarity_score) - parseFloat(a.similarity_score));
+
+  return c.json({ success: true, results: scoredCandidates.slice(0, 10) });
+});
+
 export const onRequest = handle(app);

@@ -65,6 +65,7 @@ export default function RecruiterWorkspace() {
   };
 
   const handleSelectJob = async (id: string) => {
+    setSearchQuery('');
     setSelectedJobId(id);
     setLoadingApps(true);
     setApplications([]);
@@ -99,6 +100,24 @@ export default function RecruiterWorkspace() {
     }
   };
 
+  const performSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    setSelectedJobId(null);
+    setSearchResults([]);
+    try {
+      const res = await fetch('/api/search/candidates?q=' + encodeURIComponent(searchQuery));
+      const data = await res.json() as any;
+      if (data.success) {
+        setSearchResults(data.results);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setIsSearching(false);
+  };
+
   if (loading) return <div className="text-white">Loading pipeline data...</div>;
 
   if (error) return (
@@ -113,12 +132,61 @@ export default function RecruiterWorkspace() {
 
   return (
     <div>
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2">Recruiter Workspace</h1>
-        <p className="text-slate-400">Manage job requisitions and review AI-scored candidate pipelines.</p>
+      <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Recruiter Workspace</h1>
+          <p className="text-slate-400">Manage job requisitions and review AI-scored candidate pipelines.</p>
+        </div>
+        <form onSubmit={performSearch} className="flex relative">
+          <input 
+            type="text" 
+            placeholder="AI Candidate Search..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full md:w-80 bg-slate-900 border border-slate-700 text-white px-4 py-2 rounded-l-lg focus:outline-none focus:border-brand-500"
+          />
+          <button type="submit" disabled={isSearching} className="bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-r-lg font-medium">
+            {isSearching ? '...' : 'Search'}
+          </button>
+        </form>
       </header>
       
       <div className="grid md:grid-cols-12 gap-8">
+        
+        {searchQuery && !selectedJobId ? (
+          <div className="md:col-span-12">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-white">Semantic Search Results</h2>
+                <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-white text-sm">Clear Search</button>
+              </div>
+              
+              {isSearching ? (
+                <div className="text-slate-400 py-8 text-center">AI is scanning the candidate pool...</div>
+              ) : searchResults.length === 0 ? (
+                <div className="text-slate-500 py-8 text-center border border-dashed border-slate-700 rounded-lg">No candidates matched your search.</div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {searchResults.map(cand => (
+                    <div key={cand.id} className="bg-slate-950 border border-slate-800 p-5 rounded-lg flex flex-col gap-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-semibold text-white text-lg">{cand.full_name}</h4>
+                          <span className="text-sm text-brand-400">{cand.target_role} • {cand.experience_level}</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs text-slate-500 uppercase tracking-wider mb-1">Match</span>
+                          <span className="text-white font-bold bg-slate-800 px-2 py-1 rounded">{cand.similarity_score}%</span>
+                        </div>
+                      </div>
+                      <a href={ + "" + mailto: + "$" + {cand.email} + "" + } className="text-sm text-slate-400 mt-2 hover:text-white transition-colors">{cand.email}</a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
         
         {/* LEFT COLUMN: Jobs */}
         <div className="md:col-span-5 flex flex-col gap-4">
@@ -226,7 +294,7 @@ export default function RecruiterWorkspace() {
             </div>
           )}
         </div>
-
+      )}
       </div>
     </div>
   );
