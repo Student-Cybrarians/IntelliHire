@@ -289,20 +289,56 @@ app.post('/requisitions/:id/apply', async (c) => {
   if (!dbUser) return c.json({ error: 'Tenant missing' }, 403);
   
   const reqId = c.req.param('id');
-  const reqCheck = await c.env.DB.prepare(`SELECT id FROM job_requisition WHERE id = ? AND organization_id = ? AND status = 'open'`).bind(reqId, dbUser.organization_id).first();
-  if (!reqCheck) return c.json({ error: 'Requisition not found or closed' }, 404);
+  const reqData = await c.env.DB.prepare(`SELECT id, title, description FROM job_requisition WHERE id = ? AND organization_id = ? AND status = 'open'`).bind(reqId, dbUser.organization_id).first();
+  if (!reqData) return c.json({ error: 'Requisition not found or closed' }, 404);
   
   const appId = crypto.randomUUID();
+  
+  // SLICE 6: AI Match Engine Evaluation
+  let matchScore = 0;
+  let matchReasoning = "Evaluation pending or failed.";
+  try {
+    // 1. Fetch Candidate Claims
+    const claims = await c.env.DB.prepare('SELECT claim_type, claim_value FROM candidate_claim WHERE context_id IN (SELECT id FROM candidate_context WHERE user_id = ?)').bind(user.id).all();
+    
+    // 2. Format Context
+    const claimsList = claims.results.map((r: any) => `- [${r.claim_type}] ${r.claim_value}`).join('\n');
+    const prompt = `Evaluate the candidate's extracted skills/experience against the job description.
+Return a STRICT JSON response: { "score": number, "reasoning": "string" }
+Score should be 0-100. Reasoning should be 1-2 sentences.
+
+JOB TITLE: ${reqData.title}
+JOB DESCRIPTION: ${reqData.description || 'Not provided'}
+
+CANDIDATE CLAIMS:
+${claimsList || 'No claims found'}
+`;
+
+    // 3. Ask LLaMA
+    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+      messages: [{ role: 'user', content: prompt }]
+    });
+    
+    const jsonMatch = aiResponse.response.match(/\{.*\}/s);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      matchScore = typeof parsed.score === 'number' ? parsed.score : 0;
+      matchReasoning = parsed.reasoning || "Evaluation processed.";
+    }
+  } catch (e) {
+    console.warn('AI Match Engine failed', e);
+  }
+
   try {
     await c.env.DB.prepare(`
-      INSERT INTO candidate_application (id, organization_id, requisition_id, candidate_user_id, status)
-      VALUES (?, ?, ?, ?, 'applied')
-    `).bind(appId, dbUser.organization_id, reqId, user.id).run();
+      INSERT INTO candidate_application (id, organization_id, requisition_id, candidate_user_id, status, match_score, match_reasoning)
+      VALUES (?, ?, ?, ?, 'applied', ?, ?)
+    `).bind(appId, dbUser.organization_id, reqId, user.id, matchScore, matchReasoning).run();
   } catch (e: any) {
     if (e.message?.includes('UNIQUE')) return c.json({ error: 'Already applied' }, 409);
     return c.json({ error: 'Database error' }, 500);
   }
-  return c.json({ success: true, applicationId: appId });
+  return c.json({ success: true, applicationId: appId, matchScore });
 });
 
 app.get('/requisitions/:id/applications', async (c) => {
@@ -312,11 +348,11 @@ app.get('/requisitions/:id/applications', async (c) => {
   const reqId = c.req.param('id');
   
   const apps = await c.env.DB.prepare(`
-    SELECT a.id, a.candidate_user_id, a.status, a.match_score, a.created_at, u.full_name, u.email 
+    SELECT a.id, a.candidate_user_id, a.status, a.match_score, a.match_reasoning, a.created_at, u.full_name, u.email 
     FROM candidate_application a
     JOIN user_account u ON a.candidate_user_id = u.id
     WHERE a.requisition_id = ? AND a.organization_id = ?
-    ORDER BY a.created_at DESC
+    ORDER BY a.match_score DESC, a.created_at DESC
   `).bind(reqId, dbUser.organization_id).all();
   return c.json({ success: true, applications: apps.results });
 });

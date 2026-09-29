@@ -32,6 +32,7 @@ const createMockEnv = (dbOverrides: any = {}) => ({
     }),
   },
   JWT_SECRET: 'test',
+  AI: { run: vi.fn().mockResolvedValue({ response: '{"score":85,"reasoning":"test"}' }) },
 });
 
 

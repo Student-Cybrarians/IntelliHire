@@ -1,0 +1,1 @@
+ALTER TABLE candidate_application ADD COLUMN match_reasoning TEXT;

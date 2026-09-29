@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS candidate_application (
   candidate_user_id TEXT NOT NULL REFERENCES user_account(id),
   status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'screening', 'interviewing', 'offered', 'rejected')),
   match_score REAL,
+  match_reasoning TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(requisition_id, candidate_user_id)
