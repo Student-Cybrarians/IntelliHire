@@ -201,3 +201,16 @@ CREATE TABLE IF NOT EXISTS candidate_response (
     FOREIGN KEY (session_id) REFERENCES assessment_session(id) ON DELETE CASCADE,
     FOREIGN KEY (assessment_item_id) REFERENCES assessment_item(id) ON DELETE CASCADE
 );
+
+-- SLICE 11: Candidate Pipeline State Machine
+
+CREATE TABLE IF NOT EXISTS application_audit (
+    id TEXT PRIMARY KEY,
+    application_id TEXT NOT NULL,
+    previous_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    changed_by_user_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (application_id) REFERENCES candidate_application(id) ON DELETE CASCADE,
+    FOREIGN KEY (changed_by_user_id) REFERENCES user_account(id)
+);

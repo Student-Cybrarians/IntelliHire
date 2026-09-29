@@ -590,4 +590,41 @@ app.post('/assessment/sessions/:id/submit', async (c) => {
   return c.json({ success: true, is_correct: isCorrect, new_score: newScore });
 });
 
+// SLICE 11: Candidate Pipeline State Machine
+app.patch('/applications/:id/status', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user || user.role !== 'recruiter') return c.json({ error: 'Unauthorized' }, 401);
+
+  const appId = c.req.param('id');
+  const { status } = await c.req.json();
+
+  const VALID_STATUSES = ['APPLIED', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED'];
+  if (!VALID_STATUSES.includes(status)) return c.json({ error: 'Invalid status' }, 400);
+
+  // Get current status and verify organization access
+  const appData = await c.env.DB.prepare(`
+    SELECT a.status, a.organization_id 
+    FROM candidate_application a
+    WHERE a.id = ?
+  `).bind(appId).first();
+
+  if (!appData) return c.json({ error: 'Application not found' }, 404);
+
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (appData.organization_id !== dbUser.organization_id) return c.json({ error: 'Unauthorized' }, 401);
+
+  if (appData.status === status) return c.json({ success: true, status });
+
+  const auditId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    'INSERT INTO application_audit (id, application_id, previous_status, new_status, changed_by_user_id) VALUES (?, ?, ?, ?, ?)'
+  ).bind(auditId, appId, appData.status, status, user.id).run();
+
+  await c.env.DB.prepare(
+    'UPDATE candidate_application SET status = ? WHERE id = ?'
+  ).bind(status, appId).run();
+
+  return c.json({ success: true, status });
+});
+
 export const onRequest = handle(app);

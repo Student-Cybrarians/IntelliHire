@@ -80,6 +80,25 @@ export default function RecruiterWorkspace() {
     setLoadingApps(false);
   };
 
+  const updateApplicationStatus = async (appId: string, newStatus: string) => {
+    try {
+      const res = await fetch(`/api/applications/${appId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json() as any;
+      if (data.success) {
+        // Optimistically update UI
+        setApplications(apps => apps.map(a => a.id === appId ? { ...a, status: newStatus } : a));
+      } else {
+        alert(data.error || 'Failed to update status');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   if (loading) return <div className="text-white">Loading pipeline data...</div>;
 
   if (error) return (
@@ -166,6 +185,22 @@ export default function RecruiterWorkspace() {
                         <div>
                           <h4 className="font-semibold text-white text-lg">{app.full_name}</h4>
                           <a href={`mailto:${app.email}`} className="text-sm text-brand-400 hover:underline">{app.email}</a>
+                          
+                          <div className="mt-3">
+                            <label className="text-xs text-slate-500 block mb-1">Pipeline Stage</label>
+                            <select 
+                              value={app.status || 'APPLIED'} 
+                              onChange={(e) => updateApplicationStatus(app.id, e.target.value)}
+                              className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-brand-500 focus:border-brand-500 block w-40 p-2"
+                            >
+                              <option value="APPLIED">Applied</option>
+                              <option value="SCREENING">Screening</option>
+                              <option value="INTERVIEW">Interview</option>
+                              <option value="OFFER">Offer</option>
+                              <option value="HIRED">Hired</option>
+                              <option value="REJECTED">Rejected</option>
+                            </select>
+                          </div>
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-xs text-slate-500 uppercase tracking-wider mb-1">Match Score</span>
