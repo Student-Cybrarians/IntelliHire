@@ -54,6 +54,6 @@ describe('Dashboard Router Role Isolation', () => {
       render(<BrowserRouter><DashboardRouter /></BrowserRouter>);
     });
     
-    expect(await screen.findByRole('heading', { name: /Pipeline Overview/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Recruiter Workspace/i })).toBeInTheDocument();
   });
 });
