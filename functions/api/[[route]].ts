@@ -155,10 +155,11 @@ app.put('/profile', async (c) => {
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const body = await c.req.json() as any;
   
-  await c.env.DB.prepare(    INSERT INTO candidate_profile (id, user_id, target_role, experience_level)
+  await c.env.DB.prepare(`
+    INSERT INTO candidate_profile (id, user_id, target_role, experience_level)
     VALUES (?, ?, ?, ?)
     ON CONFLICT (user_id) DO UPDATE SET target_role = excluded.target_role, experience_level = excluded.experience_level
-  \).bind(crypto.randomUUID(), user.id, body.target_role || '', body.experience_level || '').run();
+  `).bind(crypto.randomUUID(), user.id, body.target_role || '', body.experience_level || '').run();
 
   await c.env.DB.prepare('UPDATE user_account SET onboarding_completed = 1 WHERE id = ?').bind(user.id).run();
 
