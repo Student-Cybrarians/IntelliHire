@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
 import Onboarding from './Onboarding';
@@ -8,62 +8,79 @@ import Onboarding from './Onboarding';
 global.fetch = vi.fn();
 
 describe('Onboarding Component', () => {
-  it('should render step 1 initially', () => {
-    render(
-      <BrowserRouter>
-        <Onboarding />
-      </BrowserRouter>
-    );
-    expect(screen.getByText('What is your target role?')).toBeInTheDocument();
-    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (global.fetch as any).mockImplementation((url: string) => {
+      if (url === '/api/taxonomy/domains') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { id: 'dom_it', name: 'Information Technology', code: '15-0000' }
+          ])
+        });
+      }
+      if (url.startsWith('/api/taxonomy/occupations')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { id: 'occ_software_dev', domain_id: 'dom_it', name: 'Software Developer', code: '15-1252' }
+          ])
+        });
+      }
+      if (url === '/api/profile') {
+        return Promise.resolve({ ok: true });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
   });
 
-  it('should allow selecting a role and navigating to step 2', () => {
+  it('should render step 1 initially and fetch domains', async () => {
     render(
       <BrowserRouter>
         <Onboarding />
       </BrowserRouter>
     );
-    
-    const roleButton = screen.getByText('Software Engineer (Frontend, Backend, Fullstack)');
-    fireEvent.click(roleButton);
-    
-    const continueButton = screen.getByText('Continue');
-    expect(continueButton).not.toBeDisabled();
-    fireEvent.click(continueButton);
-    
-    expect(screen.getByText('Experience Level')).toBeInTheDocument();
-    expect(screen.getByText('Step 2 of 2')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Information Technology')).toBeInTheDocument());
+    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument();
   });
 
-  it('should allow submitting the profile', async () => {
-    (global.fetch as any).mockResolvedValueOnce({ ok: true });
-
+  it('should allow selecting a domain, occupation, and experience', async () => {
     render(
       <BrowserRouter>
         <Onboarding />
       </BrowserRouter>
     );
     
-    // Step 1
-    fireEvent.click(screen.getByText('Product Manager / Owner'));
+    // Step 1: Domain
+    await waitFor(() => expect(screen.getByText('Information Technology')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Information Technology'));
     fireEvent.click(screen.getByText('Continue'));
     
-    // Step 2
+    // Step 2: Occupation Search
+    await waitFor(() => expect(screen.getByText('Step 2 of 3')).toBeInTheDocument());
+    const input = screen.getByPlaceholderText('Search occupations...');
+    fireEvent.change(input, { target: { value: 'soft' } });
+    await waitFor(() => expect(screen.getByText('Software Developer')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Software Developer'));
+    fireEvent.click(screen.getByText('Continue'));
+    
+    // Step 3: Experience
+    await waitFor(() => expect(screen.getByText('Step 3 of 3')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Mid Level'));
     const submitButton = screen.getByText('Generate Blueprint');
     expect(submitButton).not.toBeDisabled();
     fireEvent.click(submitButton);
 
-    expect(global.fetch).toHaveBeenCalledWith('/api/profile', expect.objectContaining({
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        target_role: 'product',
-        experience_level: 'mid',
-      }),
-    }));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/profile', expect.objectContaining({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_domain_id: 'dom_it',
+          target_occupation_id: 'occ_software_dev',
+          experience_level: 'mid',
+        }),
+      }));
+    });
   });
 });

@@ -150,6 +150,23 @@ app.get('/profile', async (c) => {
   const profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
   return c.json({ profile });
 });
+
+
+app.get('/taxonomy/domains', async (c) => {
+  const result = await c.env.DB.prepare('SELECT * FROM taxonomy_domain').all();
+  return c.json(result.results);
+});
+
+app.get('/taxonomy/occupations', async (c) => {
+  const domainId = c.req.query('domain_id');
+  if (domainId) {
+    const result = await c.env.DB.prepare('SELECT * FROM taxonomy_occupation WHERE domain_id = ?').bind(domainId).all();
+    return c.json(result.results);
+  }
+  const result = await c.env.DB.prepare('SELECT * FROM taxonomy_occupation').all();
+  return c.json(result.results);
+});
+
 app.put('/profile', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
