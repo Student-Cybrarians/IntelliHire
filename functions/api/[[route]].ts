@@ -156,10 +156,25 @@ app.put('/profile', async (c) => {
   const body = await c.req.json() as any;
   
   await c.env.DB.prepare(`
-    INSERT INTO candidate_profile (id, user_id, target_role, experience_level)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT (user_id) DO UPDATE SET target_role = excluded.target_role, experience_level = excluded.experience_level
-  `).bind(crypto.randomUUID(), user.id, body.target_role || '', body.experience_level || '').run();
+    INSERT INTO candidate_profile (id, organization_id, user_id, target_role, experience_level, primary_domain, skills_json, bio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (user_id) DO UPDATE SET
+      target_role = excluded.target_role,
+      experience_level = excluded.experience_level,
+      primary_domain = excluded.primary_domain,
+      skills_json = excluded.skills_json,
+      bio = excluded.bio,
+      updated_at = unixepoch()
+  `).bind(
+    crypto.randomUUID(),
+    user.organization_id,
+    user.id,
+    body.target_role || '',
+    body.experience_level || '',
+    body.primary_domain || '',
+    body.skills_json || '[]',
+    body.bio || ''
+  ).run();
 
   await c.env.DB.prepare('UPDATE user_account SET onboarding_completed = 1 WHERE id = ?').bind(user.id).run();
 
@@ -315,8 +330,18 @@ app.get('/dashboard/candidate', async (c) => {
   const user = await getSessionUser(c);
   if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
   
-  const profile = await c.env.DB.prepare('SELECT target_role, experience_level, readiness_score FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
-  return c.json({ success: true, profile: profile || {}, modules: { resume_uploaded: false } });
+  const profile = await c.env.DB.prepare('SELECT target_role, experience_level, primary_domain, skills_json, bio, readiness_score FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND organization_id = ? AND is_active = 1').bind(user.id, user.organization_id).first();
+  let claimsCount = 0;
+  try {
+    const claimCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM candidate_claim WHERE context_id IN (SELECT id FROM candidate_context WHERE user_id = ?)').bind(user.id).first();
+    claimsCount = Number(claimCount?.count || 0);
+  } catch (_) {}
+  return c.json({
+    success: true,
+    profile: profile || {},
+    modules: { resume_uploaded: !!resume, resume, claims_count: claimsCount, assessment_ready: true }
+  });
 });
 
 app.get('/dashboard/recruiter', async (c) => {
