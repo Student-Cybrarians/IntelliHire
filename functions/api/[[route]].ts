@@ -11,6 +11,9 @@ type Bindings = {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   JWT_SECRET: string;
+  NVIDIA_API_KEY: string;
+  NVIDIA_BASE_URL?: string;
+  NVIDIA_MODEL?: string;
 };
 
 type UserSession = {
@@ -121,7 +124,7 @@ app.post('/resume/upload', async (c) => {
   let body;
   try { body = await c.req.parseBody(); } catch (e) { return c.json({ error: 'Parse failed' }, 400); }
 
-  const file = body.file as File | undefined;
+  const file = (body.file || body.resume) as File | undefined;
   if (!file || !(file instanceof File)) return c.json({ error: 'Missing file' }, 400);
   if (file.size > 5 * 1024 * 1024) return c.json({ error: 'Size > 5MB limit' }, 400);
 
@@ -161,9 +164,13 @@ app.post('/resume/upload', async (c) => {
     return c.json({ error: 'Extraction service unreachable' }, 500);
   }
 
-  // Hardening: Storage
+  // MVP storage path: keep the resume and its AI analysis in per-user KV keys so the
+  // dashboard is not blocked by the pending production D1 resume migration.
   const resumeId = crypto.randomUUID();
-  const storageRef = `resume:${resumeId}`;
+  const storageRef = `resume:${user.id}:${resumeId}`;
+  const extractionStatus = extracted.status || "SUCCESS";
+  const text = String(extracted.text || '').slice(0, 120000);
+
   await c.env.RESUME_KV.put(storageRef, fileArrayBuffer);
 
   // Hardening: Strict Versioning with Concurrency Protection
