@@ -107,3 +107,29 @@ CREATE TABLE IF NOT EXISTS candidate_claim (
   provenance_end_index INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- 9. Job Requisitions (Slice 5)
+CREATE TABLE IF NOT EXISTS job_requisition (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  created_by_user_id TEXT NOT NULL REFERENCES user_account(id),
+  title TEXT NOT NULL,
+  department TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('draft', 'open', 'paused', 'closed')),
+  description TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- 10. Candidate Applications (Slice 5)
+CREATE TABLE IF NOT EXISTS candidate_application (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organization(id),
+  requisition_id TEXT NOT NULL REFERENCES job_requisition(id),
+  candidate_user_id TEXT NOT NULL REFERENCES user_account(id),
+  status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'screening', 'interviewing', 'offered', 'rejected')),
+  match_score REAL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(requisition_id, candidate_user_id)
+);
