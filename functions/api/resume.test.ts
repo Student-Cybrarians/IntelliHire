@@ -171,4 +171,64 @@ describe('Hardened Resume API', () => {
     const data = await res.json() as any;
     expect(data.error).toBe('Archive bomb detected');
   });
+
+  it('8. AI Extraction: successful parsing sets candidate_claim and returns data', async () => {
+    const mockEnv = {
+      DB: {
+        prepare: vi.fn().mockImplementation(() => ({
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockResolvedValue({ id: 'res-1', raw_text: 'I know React and TypeScript', context_id: 'ctx-1', organization_id: 'org-1' }),
+          run: vi.fn().mockResolvedValue(true)
+        }))
+      },
+      SESSION_KV: { get: vi.fn().mockResolvedValue(JSON.stringify({ id: 'user-1', role: 'candidate' })) },
+      NVIDIA_API_KEY: 'test-nv-key',
+      JWT_SECRET: 'test'
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        choices: [{ message: { content: '{"skills":["React","TypeScript"],"experience":[],"education":[]}' } }]
+      })
+    });
+
+    const req = new Request('http://localhost/api/resume/extract/res-1', {
+      method: 'POST',
+      headers: { Cookie: 'intellihire_session=session-1' },
+    });
+
+    const res = await app.request(req, {}, mockEnv as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.data.skills).toContain('React');
+    expect(data.data.provenance.extraction_method).toBe('meta/muse-glimmer-30b');
+  });
+
+  it('9. AI Extraction: fails gracefully when API key is missing', async () => {
+    const mockEnv = {
+      DB: {
+        prepare: vi.fn().mockImplementation(() => ({
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockResolvedValue({ id: 'res-1', raw_text: 'I know React and TypeScript', context_id: 'ctx-1', organization_id: 'org-1' }),
+          run: vi.fn().mockResolvedValue(true)
+        }))
+      },
+      SESSION_KV: { get: vi.fn().mockResolvedValue(JSON.stringify({ id: 'user-1', role: 'candidate' })) },
+      NVIDIA_API_KEY: '', // Missing
+      JWT_SECRET: 'test'
+    };
+
+    const req = new Request('http://localhost/api/resume/extract/res-1', {
+      method: 'POST',
+      headers: { Cookie: 'intellihire_session=session-1' },
+    });
+
+    const res = await app.request(req, {}, mockEnv as any);
+    expect(res.status).toBe(503);
+    const data = await res.json() as any;
+    expect(data.error).toContain('AI Extraction Unavailable');
+  });
 });

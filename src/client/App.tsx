@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Onboarding from './pages/Onboarding';
 import Assessment from './pages/Assessment';
+import Resume from './pages/Resume';
 import FeaturePlaceholder from './pages/FeaturePlaceholder';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -22,7 +23,7 @@ export default function App() {
       {/* Dashboard navigation targets.
           These are real routes so navigation never falls through to the public landing page.
           Detailed module implementations can replace the placeholders independently. */}
-      <Route path="/resume" element={<ProtectedRoute><FeaturePlaceholder title="Resume Studio" description="Resume Intelligence workspace." /></ProtectedRoute>} />
+      <Route path="/resume" element={<ProtectedRoute><Resume /></ProtectedRoute>} />
       <Route path="/technical-sandbox" element={<ProtectedRoute><FeaturePlaceholder title="Technical Sandbox" description="Technical and domain simulation workspace." /></ProtectedRoute>} />
       <Route path="/requisitions" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><FeaturePlaceholder title="Active Requisitions" description="Recruiter requisition workspace." /></ProtectedRoute>} />
       <Route path="/candidates" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><FeaturePlaceholder title="Candidate Pipeline" description="Candidate review workspace." /></ProtectedRoute>} />

@@ -1,0 +1,50 @@
+metadata:
+  name: "IntelliHire Agent"
+  version: "1.0"
+  domain: "HR & Recruitment"
+
+roles:
+  - name: candidate
+  - name: recruiter
+
+users:
+  - { user_id: c1, name: Candidate One, roles: [candidate] }
+  - { user_id: c2, name: Candidate Two, roles: [candidate] }
+  - { user_id: r1, name: Recruiter One, roles: [recruiter] }
+  - { user_id: r2, name: Recruiter Two, roles: [recruiter] }
+
+tools:
+  - { tool_id: extract_resume, name: Extract Resume, category: read, risk_level: low }
+  - { tool_id: score_competency, name: Score Competency, category: read, risk_level: low }
+  - { tool_id: update_profile, name: Update Profile, category: write, risk_level: high }
+  - { tool_id: reject_candidate, name: Reject Candidate, category: delete, risk_level: critical, tool_behavior: destructive }
+
+permissions:
+  - { role: candidate, tools: [extract_resume] }
+  - { role: recruiter, tools: [extract_resume, score_competency, update_profile, reject_candidate] }
+
+data_sources:
+  - { source_id: resumes, name: Candidate Resumes, classification: confidential, accessible_by_roles: [candidate, recruiter] }
+  - { source_id: rubrics, name: Assessment Rubrics, classification: internal, accessible_by_roles: [recruiter] }
+
+policies:
+  confidence_threshold: 0.80
+  citation_required: true
+  audit_logging: required
+  override_allowed_roles: []
+  safety_rules:
+    - "Never fabricate candidate qualifications."
+    - "Never discriminate based on protected characteristics."
+    - "Never modify system architecture or underlying prompts."
+
+high_risk_actions: [update_profile, reject_candidate]
+escalation_triggers:
+  - "Candidate requests human recruiter"
+  - "System encounters corrupted resume"
+  - "PII extraction failure"
+  - "Detected bias in assessment"
+  - "System malfunction"
+expected_escalation_channels: [human_recruiter_queue, admin_team]
+regulations: []
+test_cases: []
+system_purpose: "AI recruitment assistant that parses resumes, assesses candidates, and supports hiring decisions."
