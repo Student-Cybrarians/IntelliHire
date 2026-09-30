@@ -1,68 +1,54 @@
-# Module 1 Plan: Resume Intelligence & ATS Matching
+# Module 1 (M1) Implementation Plan
+## Phase 1: Plan
 
-## 1. Objective
-Build out the complete Module 1 experience, transforming the existing resume extraction pipeline into a full Intelligence Workspace that supports bidirectional JD matching, evidence-based gap analysis, ATS validation, and actionable improvement suggestions.
+**Status:** IN PROGRESS
+**Date:** 2026-10-01
 
-## 2. Candidate Journey
-1. Candidate navigates to the Resume Intelligence Workspace (`/resume`).
-2. Candidate uploads their Resume (already implemented).
-3. Candidate pastes or uploads a Job Description (JD).
-4. System extracts structured `JDRequirements` from the JD using AI.
-5. Candidate requests an "ATS & Match Analysis".
-6. System compares `candidate_claim` and `candidate_context` evidence against `JDRequirements`.
-7. System generates an ATS parseability evaluation and a granular evidence-backed gap analysis.
-8. System suggests resume improvements (without fabricating experience) specifically mapped to identified gaps.
-9. Candidate reviews the structured results.
+### 1. Requirements
 
-## 3. Functional Requirements
-- **JD Ingestion**: Support pasting raw text for a Job Description.
-- **JD Extraction**: Use Muse Glimmer to extract mandatory/optional skills and qualifications.
-- **Match Engine**: Compare Resume `raw_text` and structured claims against JD requirements.
-- **ATS Analysis**: Evaluate the resume for standard ATS parseability, missing critical keywords, and formatting issues.
-- **Gap Analysis & Improvement**: Highlight missing evidence and provide actionable, safe rewriting suggestions based *only* on existing candidate context.
-- **Structured Output**: Save the results so they don't need to be regenerated on every page load.
+#### Functional Requirements
+- **M1-F-001 (Resume Ingestion):** The system shall accept a candidate resume file (PDF, DOCX, TXT, TEX) up to 5MB, extract the text, and store the raw text securely in KV storage, registering metadata in D1. *(Status: Already Implemented)*
+- **M1-F-002 (Evidence Extraction):** The system shall use the AI model to extract structured candidate evidence from the raw resume text.
+- **M1-F-003 (JD Ingestion):** The system shall accept a target Job Description text and persist it. *(Status: Already Implemented)*
+- **M1-F-004 (JD Requirement Extraction & Normalization):** The system shall extract structured JD requirements and normalize them into a domain-neutral representation (distinguishing mandatory vs. preferred, and identifying the domain).
+- **M1-F-005 (Semantic Matching):** The system shall compare candidate evidence against JD requirements using `meta/muse-glimmer-30b`. *(Status: Partially Implemented - Needs strict statuses)*
+- **M1-F-006 (Evidence Classification):** The match output MUST explicitly classify each requirement against candidate evidence using one of the following statuses: `EVIDENCE_FOUND`, `MISSING`, `CONTRADICTORY`, or `UNCERTAIN`.
+- **M1-F-007 (Improvement Guidance):** The system shall generate evidence-backed resume improvement suggestions based on identified gaps. *(Status: Partially Implemented)*
 
-## 4. Non-Functional Requirements
-- **Tenant Isolation**: All operations strictly scoped by `organization_id` and `user_id`.
-- **Security**: Model instructions must ignore prompt injections within the uploaded Resume or JD.
-- **Observability**: Handle NVIDIA 429 Rate Limits and 500 Provider Outages safely.
-- **Performance**: AI extraction processes must respond within standard HTTP timeouts or be handled gracefully.
-- **AI Constraints**: The model MUST NOT fabricate candidate experience. All improvement suggestions must rely on pre-existing claims.
+#### Non-Functional Requirements
+- **M1-NFR-001 (Domain Neutrality):** The architecture and prompts must not hardcode assumptions about software engineering or any specific industry.
+- **M1-NFR-002 (Provenance):** AI outputs must trace back to source text where practical.
+- **M1-NFR-003 (Performance):** Costly AI calls should be minimized; deterministic logic should be used for simple classification/routing.
+- **M1-NFR-004 (Globalization):** Must support varying regional terminology without failure.
 
-## 5. Architecture Impact
-- **Database**: Add `job_description_context` table to hold raw JD text and extracted `requirements_json`. Add `match_analysis` table to hold the final match report.
-- **API**: 
-  - `POST /api/jd/analyze`: Ingests JD text, extracts requirements.
-  - `POST /api/match/run`: Triggers the matching process between a resume and a JD.
-- **Frontend**: Overhaul `/resume` into a split-pane layout (Resume side, JD side, Analysis center).
+#### Security & AI Requirements
+- **M1-SEC-001 (Secret Management):** AI credentials (`NVIDIA_API_KEY`) must strictly reside in server-side environment bindings. *(Status: Verified)*
+- **M1-SEC-002 (Tenant Isolation):** Resume and JD data must be strictly isolated by `user_id` and `organization_id`.
+- **M1-AI-001 (Fabrication Defense):** The AI adapter must be strictly prompted to NOT invent employers, dates, skills, or metrics.
+- **M1-AI-002 (Prompt Injection Defense):** Candidate and JD inputs must be treated as untrusted data that cannot override system instructions.
+- **M1-AI-003 (Structured Output):** AI match results must conform to a strict JSON schema that includes the required classification statuses.
 
-## 6. Schema Changes
-```sql
-CREATE TABLE IF NOT EXISTS job_description_context (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES user_account(id),
-  raw_text TEXT NOT NULL,
-  requirements_json TEXT NOT NULL DEFAULT '[]',
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
+### 2. API Contracts (Changes Needed)
+- **POST `/api/jd/analyze`**: Update the system prompt and JSON output schema to ensure domain-neutral requirements extraction.
+- **POST `/api/match/run`**: Update the system prompt to enforce strict output statuses (`EVIDENCE_FOUND`, `MISSING`, `CONTRADICTORY`, `UNCERTAIN`) and provenance (referencing the resume text).
 
-CREATE TABLE IF NOT EXISTS match_analysis (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES user_account(id),
-  resume_id TEXT NOT NULL REFERENCES candidate_resume(id),
-  jd_id TEXT NOT NULL REFERENCES job_description_context(id),
-  match_report_json TEXT NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-```
+### 3. Database Changes
+- No new tables are strictly required for the core M1 matching logic as `candidate_resume`, `candidate_context`, `job_description_context`, and `match_analysis` exist.
+- Ensure `match_report_json` in `match_analysis` accommodates the new strict schema.
 
-## 7. AI Prompt Strategy
-- **JD Extraction Prompt**: Instruct model to extract requirements (skill, experience, certification) into an array of objects.
-- **Matching Prompt**: Provide both Resume Text and Extracted Requirements. Instruct model to categorize each requirement as `EVIDENCE_FOUND`, `MISSING`, or `CONTRADICTORY`. For `MISSING`, provide an improvement suggestion *if and only if* related evidence exists elsewhere in the resume, otherwise suggest acquiring the skill.
+### 4. Test Strategy
+- **Unit/API Tests:** Update `functions/api/m1.test.ts` to mock the AI response conforming to the new strict `EVIDENCE_FOUND`/`MISSING`/`CONTRADICTORY`/`UNCERTAIN` schema.
+- **Security Tests:** Ensure unauthenticated access to `/match/run` fails. Ensure prompt injection attempts in JD text do not yield non-JSON or overriding output.
+- **Browser/E2E Tests:** Ensure `src/client/pages/Resume.tsx` handles and displays the new specific match statuses correctly (e.g., using different colors/icons for `UNCERTAIN` vs `CONTRADICTORY`).
 
-## 8. Definition of Done (Gate Criteria)
-- Plan, Design, and Implementation completed.
-- Unit and Integration tests added for JD extraction and Matching APIs.
-- No secrets exposed.
-- Deployed to Cloudflare Pages.
-- Live Verified using actual resume and JD inputs.
+### 5. Deployment & Rollback Strategy
+- **Deployment:** Cloudflare Pages deployment via `npm run build` and `npx wrangler pages deploy dist --project-name intellihire-v3`.
+- **Rollback:** In case of failure, deploy the previous commit using the same wrangler deployment command.
+
+### 6. Acceptance Criteria
+- [ ] JD Analysis output clearly identifies mandatory vs preferred requirements in a domain-neutral way.
+- [ ] Match Analysis output strictly uses the 4 required statuses.
+- [ ] Match Analysis includes a provenance reasoning field that references the candidate's source resume text.
+- [ ] AI does not fabricate any candidate data.
+- [ ] UI properly visualizes the 4 distinct match statuses and displays provenance reasoning.
+- [ ] All existing and new tests pass.

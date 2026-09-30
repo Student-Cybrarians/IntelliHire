@@ -1,51 +1,41 @@
-# Module 1 UX & Design: Resume Intelligence Workspace
+# Module 1 (M1) UX & UI Design
+## Phase 2: Design
 
-## 1. Overall Layout
-The M1 workspace (`/resume`) will transition from a simple upload form into a robust two-column Dashboard.
-- **Left Column (Source & Evidence)**: Resume uploading, candidate evidence, ATS analysis.
-- **Right Column (Target & Match)**: Job Description input, parsed requirements, Match Analysis, Gap Analysis, Improvement Suggestions.
+**Status:** IN PROGRESS
+**Date:** 2026-10-01
 
-## 2. Component Hierarchy
+### 1. UX Principles
+- **Clarity Over Complexity:** Do not expose the user to raw JSON, embedding concepts, or API mechanics.
+- **Evidence-Backed Transparency:** Users must know *why* the AI assigned a match score.
+- **Non-Technical Fallbacks:** Ensure terms like "ATS Score" are explained simply (e.g., "Parseability & Alignment").
 
-### 2.1. M1 Header
-- **Title**: "Resume Intelligence & ATS Matching"
-- **Actions**: "Reset Workspace", "Export Analysis"
+### 2. UI Components & States
 
-### 2.2. Left Column: Resume Source & Evidence
-- **Resume Upload Card**:
-  - Drag-and-drop file upload.
-  - Displays current active resume version and filename.
-  - Extraction status indicator (Loading, Extracted, Error).
-- **Candidate Evidence Card**:
-  - Displays structured data (Skills, Experience, Education).
-  - Badges indicating evidence status (e.g., `extracted`, `normalized`, `inferred`).
-- **ATS Analysis Card**:
-  - Overall parseability score.
-  - Formatting warnings.
-  - Keyword density insights.
+#### A. Resume Upload Pane (Left)
+- **State 1 (Empty):** Drag-and-drop zone or click to upload (`Upload` icon).
+- **State 2 (Uploading/Parsing):** Spinning loader with "Extracting Evidence..." text.
+- **State 3 (Success):** Checkmark, filename, and a tag cloud of verified skills/attributes extracted.
 
-### 2.3. Right Column: Job Description & Match Analysis
-- **Job Description Card**:
-  - Textarea to paste raw JD text (MVP).
-  - "Analyze JD" button.
-  - Read-only view of parsed `JDRequirements` (Skills, Qualifications).
-- **Match & Gap Analysis Card** (Appears after JD and Resume are both analyzed):
-  - **Match Summary**: Progress bar showing Requirement Coverage.
-  - **Gap Analysis List**:
-    - Each JD requirement is listed.
-    - Status icon: `EVIDENCE FOUND` (Green), `MISSING` (Red), `CONTRADICTORY` (Yellow).
-    - Expandable row showing mapping to candidate evidence and reasoning.
-- **Resume Improvement Card**:
-  - Actionable suggestions to rewrite specific resume bullets.
-  - **Crucial UI Pattern**: Side-by-side comparison of "Original Evidence" vs "Suggested Wording".
-  - **Warning Banner**: "Generated wording does not establish new experience. Verify suggestions against actual work history."
+#### B. JD Input Pane (Right)
+- **State 1 (Empty):** `textarea` prompting "Paste Job Description here...". Submit button disabled if empty.
+- **State 2 (Analyzing):** Spinning loader with "Extracting Requirements..." text.
+- **State 3 (Success):** Checkmark, list of Requirements with chevron bullets.
 
-## 3. Data Flow & Loading States
-- **State 1 (Empty)**: Upload Resume and Paste JD inputs are visible.
-- **State 2 (Analyzing)**: Skeleton loaders and spinner indicators while waiting on NVIDIA API.
-- **State 3 (Results)**: Cards populate with structured `MatchEvidence` and `ImprovementSuggestion` data.
+#### C. Match Analysis Pane (Bottom)
+- **Trigger:** Button "Run Intelligence Match" (only visible if both Resume and JD are in Success states).
+- **State 1 (Running):** Spinning loader with "Running Match Engine..." text.
+- **State 2 (Results):**
+  - **ATS Score:** Large typography showing `SCORE/100`.
+  - **Evidence Gap Analysis (The Core):** A list of evaluated requirements.
+    - `EVIDENCE_FOUND`: Green Check icon. Shows requirement + matching resume quote.
+    - `MISSING`: Red X icon. Shows requirement + "No evidence found in resume."
+    - `CONTRADICTORY`: Orange Alert icon. Shows requirement + "Resume states [X], requirement asks for [Y]."
+    - `UNCERTAIN`: Gray Question icon. Shows requirement + "Resume implies [X] but lacks explicit detail."
+  - **Improvement Suggestions:** Actionable bullet points.
 
-## 4. Accessibility & Responsiveness
-- Semantic HTML tags for sections.
-- ARIA live regions for AI extraction status updates.
-- Stacks vertically on mobile/tablet screens.
+### 3. Accessibility & Responsiveness
+- **Responsive:** Layout starts stacked (1 column) on mobile/tablet, shifts to 2 columns on `lg:` screens.
+- **Accessibility:** Uses semantic HTML. Loading states must use `aria-live="polite"`. Status icons must have corresponding `aria-label`s (e.g., `aria-label="Evidence Found"`).
+
+### 4. Traceability Visualization
+For every `gap_analysis` item, the UI must render the `reasoning` field provided by the backend to assure the user the AI is grounding its decision in the source document.
