@@ -219,3 +219,21 @@ CREATE TABLE IF NOT EXISTS application_audit (
 -- ALTER TABLE candidate_profile ADD COLUMN embedding_json TEXT;
 -- Note: SQLite ALTER TABLE ADD COLUMN runs cleanly if the column does not exist, but errors if it does.
 -- We will use a safe approach or just run it via wrangler directly.
+
+-- M1: JD and Matching Context
+CREATE TABLE IF NOT EXISTS job_description_context (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  raw_text TEXT NOT NULL,
+  requirements_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE IF NOT EXISTS match_analysis (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  resume_id TEXT NOT NULL REFERENCES candidate_resume(id),
+  jd_id TEXT NOT NULL REFERENCES job_description_context(id),
+  match_report_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
