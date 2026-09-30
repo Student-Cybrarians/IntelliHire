@@ -8,6 +8,8 @@ type Bindings = {
   SESSION_KV: KVNamespace;
   RESUME_KV: KVNamespace;
   ENVIRONMENT: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
   JWT_SECRET: string;
   NVIDIA_API_KEY: string;
   NVIDIA_BASE_URL?: string;
@@ -32,9 +34,123 @@ export function getRoleForEmail(email: string | undefined | null): string {
   return 'candidate';
 }
 
+// Google OAuth Endpoints
+app.get('/auth/google/url', async (c) => {
+  const clientId = c.env.GOOGLE_CLIENT_ID;
+  if (!clientId || clientId === 'MOCK_GOOGLE_CLIENT_ID') return c.json({ error: 'OAuth not configured' }, 500);
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google/callback`;
+  const state = crypto.randomUUID();
+  await c.env.SESSION_KV.put(`oauth_state:${state}`, 'valid', { expirationTtl: 600 });
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'openid email profile');
+  authUrl.searchParams.set('state', state);
+  return c.redirect(authUrl.toString());
+});
+
+app.get('/auth/google/callback', async (c) => {
+  const code = c.req.query('code');
+  const state = c.req.query('state');
+  if (!code || !state) return c.text('Missing params', 400);
+
+  const validState = await c.env.SESSION_KV.get(`oauth_state:${state}`);
+  if (!validState) return c.text('Invalid state', 400);
+  await c.env.SESSION_KV.delete(`oauth_state:${state}`);
+
+  const clientId = c.env.GOOGLE_CLIENT_ID;
+  const clientSecret = c.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/google/callback`;
+
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri
+    })
+  });
+
+  const tokenData = await tokenResponse.json() as any;
+  if (tokenData.error) return c.text(`Token exchange failed: ${tokenData.error_description}`, 400);
+
+  const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+  });
+  const userData = await userResponse.json() as any;
+  if (!userData.email) return c.text('Failed to fetch user profile', 400);
+
+  await c.env.DB.prepare(`
+    INSERT OR IGNORE INTO organization (id, name, slug, tier)
+    VALUES ('org_default_public', 'IntelliHire Public Sandbox', 'public-sandbox', 'free')
+  `).run();
+
+  const assignedRole = getRoleForEmail(userData.email);
+  const existingUser = await c.env.DB.prepare('SELECT * FROM user_account WHERE email = ?').bind(userData.email).first();
+  let userId = existingUser?.id as string;
+  let isNewUser = false;
+
+  if (!existingUser) {
+    userId = crypto.randomUUID();
+    isNewUser = true;
+    const initialOnboarding = assignedRole !== 'candidate' ? 1 : 0;
+    await c.env.DB.prepare(`
+      INSERT INTO user_account (id, organization_id, email, full_name, avatar_url, role, onboarding_completed)
+      VALUES (?, 'org_default_public', ?, ?, ?, ?, ?)
+    `).bind(userId, userData.email, userData.name, userData.picture, assignedRole, initialOnboarding).run();
+  } else {
+    const updateOnboarding = assignedRole !== 'candidate' ? 1 : (existingUser.onboarding_completed || 0);
+    await c.env.DB.prepare('UPDATE user_account SET role = ?, onboarding_completed = ?, last_login_at = unixepoch() WHERE id = ?')
+      .bind(assignedRole, updateOnboarding, userId).run();
+  }
+
+  const sessionData = {
+    id: userId,
+    email: userData.email,
+    full_name: userData.name,
+    organization_id: existingUser?.organization_id || 'org_default_public',
+    role: assignedRole
+  };
+
+  const sessionId = crypto.randomUUID();
+  const jwt = await sign(sessionData, c.env.JWT_SECRET, 'HS256');
+  await c.env.SESSION_KV.put(`session:${sessionId}`, jwt, { expirationTtl: 86400 });
+
+  setCookie(c, 'intellihire_session', sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: 86400
+  });
+
+  if (assignedRole === 'candidate' && (isNewUser || !(existingUser?.onboarding_completed))) {
+    return c.redirect('/onboarding');
+  }
+  return c.redirect('/dashboard');
+});
+
 app.get('/auth/me', async (c) => {
-  const user = await getSessionUser(c);
-  return c.json({ user });
+  const sessionUser = await getSessionUser(c);
+  if (!sessionUser) return c.json({ user: null });
+  const dbUser = await c.env.DB.prepare('SELECT id, email, full_name, role, organization_id, onboarding_completed FROM user_account WHERE id = ?').bind(sessionUser.id).first();
+  if (dbUser) {
+    return c.json({
+      user: {
+        id: dbUser.id,
+        email: dbUser.email,
+        full_name: dbUser.full_name,
+        role: dbUser.role || sessionUser.role,
+        organization_id: dbUser.organization_id,
+        onboarding_completed: dbUser.onboarding_completed
+      }
+    });
+  }
+  return c.json({ user: sessionUser });
 });
 
 app.post('/auth/logout', async (c) => {
@@ -51,7 +167,15 @@ const getSessionUser = async (c: any): Promise<UserSession | null> => {
   if (!sessionId) return null;
   const jwt = await c.env.SESSION_KV.get(`session:${sessionId}`);
   if (!jwt) return null;
-  try { return (await verify(jwt, c.env.JWT_SECRET)) as UserSession; } catch { return null; }
+  try {
+    const session = (await verify(jwt, c.env.JWT_SECRET, 'HS256')) as UserSession;
+    if (session && session.email) {
+      session.role = getRoleForEmail(session.email);
+    }
+    return session;
+  } catch {
+    return null;
+  }
 };
 
 // Profile CRUD
