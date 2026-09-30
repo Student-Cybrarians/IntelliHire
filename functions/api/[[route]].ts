@@ -27,6 +27,13 @@ export const app = new Hono<{ Bindings: Bindings }>().basePath('/api');
 
 app.get('/health', (c) => c.json({ status: 'ok', time: Date.now() }));
 
+export function getRoleForEmail(email: string | undefined | null): string {
+  const normalized = (email || '').toLowerCase().trim();
+  if (normalized === 'mokshithyoga@gmail.com') return 'recruiter';
+  if (normalized === 'codersy17mc@gmail.com') return 'org_admin';
+  return 'candidate';
+}
+
 // Google OAuth Endpoints
 app.get('/auth/google/url', async (c) => {
   const clientId = c.env.GOOGLE_CLIENT_ID;

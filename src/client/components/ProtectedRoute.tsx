@@ -69,7 +69,9 @@ export default function ProtectedRoute({
           return;
         }
 
-        if (requireOnboarding && !onboardingCompleted) {
+        const isCandidate = user.role === 'candidate';
+
+        if (isCandidate && requireOnboarding && !onboardingCompleted) {
           if (active) {
             setAuthorized(false);
             setLoading(false);
@@ -78,7 +80,7 @@ export default function ProtectedRoute({
           return;
         }
 
-        if (!requireOnboarding && onboardingCompleted) {
+        if (isCandidate && !requireOnboarding && onboardingCompleted) {
           // An already-completed candidate should never remain on onboarding.
           if (active) {
             setAuthorized(false);

@@ -38,7 +38,9 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
 
           {role === 'org_admin' && (
             <>
-              <Link to="/settings" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium"><Settings className="w-5 h-5" /> Organization Settings</Link>
+              <Link to="/dashboard" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-brand-500/10 text-brand-400 font-medium"><Briefcase className="w-5 h-5" /> Pipeline Overview</Link>
+              <Link to="/requisitions" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><Users className="w-5 h-5" /> Active Requisitions</Link>
+              <Link to="/settings" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><Settings className="w-5 h-5" /> Organization Settings</Link>
               <Link to="/users" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"><Users className="w-5 h-5" /> User Management</Link>
             </>
           )}
