@@ -28,6 +28,14 @@
     }
   ],
 
+  "queues": {
+    "producers": [
+      {
+        "binding": "M1_JOBS",
+        "queue": "m1-jobs-queue"
+      }
+    ]
+  },
   "ai": {
     "binding": "AI"
   }
