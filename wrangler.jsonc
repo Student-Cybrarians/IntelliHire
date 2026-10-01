@@ -27,15 +27,6 @@
       "id": "88a7fca49a7f4baab3a5de663935a5d3"
     }
   ],
-
-  "queues": {
-    "producers": [
-      {
-        "binding": "M1_JOBS",
-        "queue": "m1-jobs-queue"
-      }
-    ]
-  },
   "ai": {
     "binding": "AI"
   }
