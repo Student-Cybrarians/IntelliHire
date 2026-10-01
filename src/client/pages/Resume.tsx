@@ -100,12 +100,33 @@ export default function Resume() {
         body: JSON.stringify({ resume_id: resumeId, jd_id: jdId })
       });
       const data = await res.json() as any;
-      if (!res.ok) throw new Error(data.error || 'Match analysis failed');
+      if (!res.ok) throw new Error(data.error || 'Match analysis failed to start');
 
-      setMatchData(data.data);
+      const jobId = data.job_id;
+      
+      // Poll for completion
+      const poll = async () => {
+        const statusRes = await fetch(`/api/match/status/${jobId}`);
+        const statusData = await statusRes.json() as any;
+        
+        if (statusData.status === 'READY') {
+          // Fetch the actual match data. 
+          // The result JSON from the job should have the match report.
+          setMatchData(statusData.result);
+          setMatchRunning(false);
+        } else if (statusData.status === 'FAILED') {
+          setError(statusData.error || 'Match processing failed');
+          setMatchRunning(false);
+        } else {
+          // PENDING or PROCESSING
+          setTimeout(poll, 2000);
+        }
+      };
+
+      poll();
+
     } catch (err: any) {
       setError(err.message);
-    } finally {
       setMatchRunning(false);
     }
   };
@@ -302,6 +323,11 @@ export default function Resume() {
                               <p className="text-sm text-slate-400 mt-1"><span className="text-brand-400 font-semibold">Evidence:</span> {gap.candidate_evidence}</p>
                             )}
                             <p className="text-sm text-slate-500 mt-2 bg-slate-900 p-2 rounded">{gap.explanation}</p>
+                              {gap.status === 'CONTRADICTORY' && (
+                                <div className="mt-2 text-xs font-semibold text-orange-400 bg-orange-950/50 inline-block px-2 py-1 rounded">
+                                  NEEDS HUMAN REVIEW - PLEASE VERIFY
+                                </div>
+                              )}
                           </div>
                         </div>
                       </div>

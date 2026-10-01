@@ -237,3 +237,34 @@ CREATE TABLE IF NOT EXISTS match_analysis (
   match_report_json TEXT NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+-- M1 Asynchronous Jobs
+CREATE TABLE IF NOT EXISTS async_job (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    progress_percentage INTEGER DEFAULT 0,
+    result_data_json TEXT,
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user_account(id) ON DELETE CASCADE
+);
+
+-- M1 Universal Evidence Item
+CREATE TABLE IF NOT EXISTS evidence_item (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    candidate_context_id TEXT,
+    category TEXT NOT NULL,
+    claimed_value TEXT,
+    normalized_value TEXT,
+    evidence_status TEXT NOT NULL,
+    confidence REAL,
+    source_reference TEXT,
+    contradiction_notes TEXT,
+    needs_human_review BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user_account(id) ON DELETE CASCADE,
+    FOREIGN KEY (candidate_context_id) REFERENCES candidate_context(id) ON DELETE CASCADE
+);
