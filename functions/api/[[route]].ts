@@ -1106,7 +1106,41 @@ app.get('/match/status/:jobId', async (c) => {
   return c.json({ success: true, status: job.status, progress: job.progress_percentage, result: job.result_data_json ? JSON.parse(job.result_data_json as string) : null, error: job.error_message });
 });
 
-app.get('/candidate/context', async (c) => {
+
+  app.post('/resume/:id/optimize', async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({error: 'Unauthorized'}, 401);
+    const resumeId = c.req.param('id');
+    const { accepted_suggestions } = await c.req.json();
+    
+    try {
+      const resume = await c.env.DB.prepare('SELECT * FROM candidate_resume WHERE id = ? AND user_id = ?').bind(resumeId, user.id).first();
+      const ctx = await c.env.DB.prepare('SELECT * FROM candidate_context WHERE resume_id = ?').bind(resumeId).first();
+      if (!resume || !ctx) return c.json({error: 'Not found'}, 404);
+      
+      let newText = ctx.raw_text;
+      for (const s of accepted_suggestions) {
+        newText = newText.replace(s.source_evidence, s.suggested_text);
+      }
+      
+      const newId = crypto.randomUUID();
+      const version = (resume.version || 1) + 1;
+      
+      await c.env.DB.prepare(`INSERT INTO candidate_resume (id, organization_id, user_id, version, filename, file_format, file_size_bytes, content_hash_sha256, storage_ref)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(newId, resume.organization_id, resume.user_id, version, resume.filename, resume.file_format, newText.length, resume.content_hash_sha256, `resume:${newId}`).run();
+      
+      await c.env.RESUME_KV.put(`resume:${newId}`, newText);
+      
+      await c.env.DB.prepare('INSERT INTO candidate_context (id, resume_id, user_id, raw_text, extraction_method, extraction_status, context_data_json) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(crypto.randomUUID(), newId, user.id, newText, ctx.extraction_method, ctx.extraction_status, ctx.context_data_json).run();
+        
+      return c.json({success: true, new_resume_id: newId});
+    } catch (e: any) {
+      return c.json({error: e.message}, 500);
+    }
+  });
+
+  app.get('/candidate/context', async (c) => {
   const user = await getSessionUser(c);
   if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
 

@@ -19,6 +19,37 @@ export default function Resume() {
 
   const [matchRunning, setMatchRunning] = useState(false);
   const [matchData, setMatchData] = useState<any>(null);
+  const [acceptedSuggestions, setAcceptedSuggestions] = useState<Set<number>>(new Set());
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizedResumeId, setOptimizedResumeId] = useState<string | null>(null);
+
+  
+  const toggleSuggestion = (index: number) => {
+    const newSet = new Set(acceptedSuggestions);
+    if (newSet.has(index)) newSet.delete(index);
+    else newSet.add(index);
+    setAcceptedSuggestions(newSet);
+  };
+
+  const applyOptimizations = async () => {
+    if (!resumeId || acceptedSuggestions.size === 0) return;
+    setOptimizing(true);
+    const accepted = Array.from(acceptedSuggestions).map(i => matchData.improvement_suggestions[i]);
+    try {
+      const res = await fetch(`/api/resume/${resumeId}/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted_suggestions: accepted })
+      });
+      const data = await res.json() as any;
+      if (res.ok) setOptimizedResumeId(data.new_resume_id);
+      else setError(data.error);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setOptimizing(false);
+    }
+  };
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,30 +367,49 @@ export default function Resume() {
                 </div>
 
                 {/* Improvements */}
-                {matchData.improvement_suggestions && matchData.improvement_suggestions.length > 0 && (
-                  <div>
+                
+            {matchData.improvement_suggestions && matchData.improvement_suggestions.length > 0 && (
+                  <div aria-live="polite">
                     <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-yellow-500" />
+                      <Sparkles className="w-5 h-5 text-yellow-500" aria-hidden="true" />
                       Actionable Improvements
                     </h3>
-                    <div className="p-3 bg-yellow-950/20 border border-yellow-900/50 rounded-lg text-yellow-500 text-xs mb-4">
+                    <div className="p-3 bg-yellow-950/20 border border-yellow-900/50 rounded-lg text-yellow-500 text-xs mb-4" role="alert">
                       Warning: Generated wording does not establish new experience. Verify suggestions against your actual work history.
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-4" role="group" aria-label="Optimization Suggestions">
                       {matchData.improvement_suggestions.map((sugg: any, i: number) => (
-                        <div key={i} className="grid md:grid-cols-2 gap-4 p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                          <div>
-                            <span className="text-xs font-bold text-slate-500 uppercase">Original Evidence</span>
-                            <p className="text-sm text-slate-400 mt-1">{sugg.source_evidence}</p>
-                          </div>
-                          <div>
-                            <span className="text-xs font-bold text-brand-500 uppercase">Suggested Rewrite</span>
-                            <p className="text-sm text-slate-200 mt-1">{sugg.suggested_text}</p>
-                            <p className="text-xs text-slate-500 mt-2 italic">{sugg.rationale}</p>
+                        <div key={i} className="flex gap-4 p-4 bg-slate-950 border border-slate-800 rounded-lg items-start">
+                          <label className="sr-only" htmlFor={`opt-sugg-${i}`}>Accept suggestion {i+1}</label>
+                          <input type="checkbox" id={`opt-sugg-${i}`} className="mt-1 w-5 h-5 rounded border-slate-700 bg-slate-800 text-brand-600 focus:ring-brand-500 focus:ring-offset-slate-950" 
+                                 checked={acceptedSuggestions.has(i)} onChange={() => toggleSuggestion(i)} />
+                          <div className="grid md:grid-cols-2 gap-4 flex-1">
+                            <div>
+                              <span className="text-xs font-bold text-slate-500 uppercase">Original Evidence</span>
+                              <p className="text-sm text-slate-400 mt-1">{sugg.source_evidence}</p>
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-brand-500 uppercase">Suggested Rewrite</span>
+                              <p className="text-sm text-slate-200 mt-1">{sugg.suggested_text}</p>
+                              <p className="text-xs text-slate-500 mt-2 italic">{sugg.rationale}</p>
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
+                    {acceptedSuggestions.size > 0 && !optimizedResumeId && (
+                      <div className="mt-6">
+                        <button onClick={applyOptimizations} disabled={optimizing} className="px-6 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white rounded-lg font-semibold focus:ring-2 focus:ring-yellow-500">
+                          {optimizing ? 'Generating New Version...' : `Apply ${acceptedSuggestions.size} Optimizations (Creates v2)`}
+                        </button>
+                      </div>
+                    )}
+                    {optimizedResumeId && (
+                      <div className="mt-6 p-4 bg-green-950/30 border border-green-900/50 rounded-lg flex items-center gap-3 text-green-400" role="status">
+                        <CheckCircle2 className="w-5 h-5" aria-hidden="true" />
+                        <span>Successfully created new resume version!</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
