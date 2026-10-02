@@ -74,7 +74,7 @@ describe('Hardened Resume API', () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({ text: 'text', status: 'SUCCESS', metadata: {} }),
     });
@@ -99,7 +99,7 @@ describe('Hardened Resume API', () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({ text: 'text', status: 'SUCCESS', metadata: {} }),
     });
@@ -122,7 +122,7 @@ describe('Hardened Resume API', () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    mockFetch.mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({}) });
+    mockFetch.mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({}) });
 
     const req = new Request('http://localhost/api/resume/upload', {
       method: 'POST',
@@ -160,7 +160,7 @@ describe('Hardened Resume API', () => {
     const formData = new FormData();
     formData.append('file', file);
 
-    mockFetch.mockResolvedValueOnce({ ok: false, json: vi.fn().mockResolvedValue({ error: 'Archive bomb detected' }) });
+    mockFetch.mockResolvedValue({ ok: false, json: vi.fn().mockResolvedValue({ error: 'Archive bomb detected' }) });
 
     const req = new Request('http://localhost/api/resume/upload', {
       method: 'POST', body: formData, headers: { Cookie: 'intellihire_session=session-1' },
@@ -186,7 +186,7 @@ describe('Hardened Resume API', () => {
       JWT_SECRET: 'test'
     };
 
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
       json: vi.fn().mockResolvedValue({
@@ -204,7 +204,7 @@ describe('Hardened Resume API', () => {
     const data = await res.json() as any;
     expect(data.success).toBe(true);
     expect(data.data.skills).toContain('React');
-    expect(data.data.provenance.extraction_method).toBe('meta/muse-glimmer-30b');
+    expect(data.data.provenance.extraction_method).toBe('multi_pass_v2_muse_glimmer_30b');
   });
 
   it('9. AI Extraction: fails gracefully when API key is missing', async () => {
@@ -232,3 +232,4 @@ describe('Hardened Resume API', () => {
     expect(data.error).toContain('AI Extraction Unavailable');
   });
 });
+
