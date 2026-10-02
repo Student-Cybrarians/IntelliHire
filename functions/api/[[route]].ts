@@ -900,8 +900,6 @@ app.get('/search/candidates', async (c) => {
   // 3. Score and sort candidates
   const scoredCandidates = [];
   for (const profile of profiles as any[]) {
-    let candidateEmbedding: number[] | null = null;
-    
     // E-11: Load pre-computed embedding. If missing, cron job will backfill it.
     if (!profile.embedding_json) continue;
     const candidateEmbedding = JSON.parse(profile.embedding_json);
@@ -1145,43 +1143,7 @@ Return ONLY valid JSON: { "skills": [string], "experience": [ { "company": strin
   }
 });
 
-    if (aiResponse.status === 429) return c.json({ error: 'AI Extraction Rate Limited: Provider quota exceeded' }, 429);
-    if (!aiResponse.ok) return c.json({ error: 'AI Provider Unavailable' }, 502);
 
-    const aiData = await aiResponse.json();
-    const aiContent = aiData.choices?.[0]?.message?.content;
-    if (!aiContent) return c.json({ error: 'Empty response from AI provider' }, 500);
-    
-    let structuredData;
-    try {
-      structuredData = JSON.parse(aiContent);
-    } catch (e) {
-      const cleaned = aiContent.replace(/```json/g, '').replace(/```/g, '').trim();
-      try {
-        structuredData = JSON.parse(cleaned);
-      } catch (e2) {
-        return c.json({ error: 'Malformed AI output', raw: aiContent }, 500);
-      }
-    }
-
-    const finalPayload = {
-      ...structuredData,
-      provenance: { source_document_id: resumeId, extraction_method: 'meta/muse-glimmer-30b', extraction_status: 'extracted', confidence: 'unverified' }
-    };
-
-    await c.env.DB.prepare("UPDATE candidate_context SET context_data_json = ?, extraction_status = 'parsed' WHERE id = ?").bind(JSON.stringify(finalPayload), resumeData.context_id).run();
-
-    if (structuredData.skills && Array.isArray(structuredData.skills)) {
-      for (const skill of structuredData.skills) {
-        await c.env.DB.prepare(`INSERT INTO candidate_claim (id, context_id, claim_type, claim_value, confidence_score, verification_state) VALUES (?, ?, 'skill', ?, 0.9, 'extracted')`).bind(crypto.randomUUID(), resumeData.context_id, String(skill).substring(0, 255)).run();
-      }
-    }
-
-    return c.json({ success: true, data: finalPayload });
-  } catch (error) {
-    return c.json({ error: 'Timeout or network failure reaching AI provider' }, 504);
-  }
-});
 
 
 // AI JD Extraction
@@ -1261,29 +1223,7 @@ app.post('/jd/analyze', async (c) => {
   }
 });
 
-    if (!aiResponse.ok) return c.json({ error: 'AI Extraction failed', status: aiResponse.status }, aiResponse.status === 429 ? 429 : 502);
 
-    const aiData = await aiResponse.json() as any;
-    const aiContent = aiData.choices?.[0]?.message?.content;
-    if (!aiContent) return c.json({ error: 'Empty AI response' }, 500);
-
-    let structuredData;
-    try {
-      structuredData = JSON.parse(aiContent.replace(/```json/g, '').replace(/```/g, '').trim());
-    } catch(e) {
-      return c.json({ error: 'Malformed AI output', raw: aiContent }, 500);
-    }
-
-    const jdId = crypto.randomUUID();
-    await c.env.DB.prepare('INSERT INTO job_description_context (id, user_id, raw_text, requirements_json) VALUES (?, ?, ?, ?)')
-      .bind(jdId, user.id, rawText, JSON.stringify(structuredData))
-      .run();
-
-    return c.json({ success: true, jd_id: jdId, data: structuredData });
-  } catch (error) {
-    return c.json({ error: 'Network failure' }, 504);
-  }
-});
 
 // Match Analysis
 
@@ -1376,5 +1316,8 @@ app.get('/match/status/:jobId', async (c) => {
 });
 
 export const onRequest = handle(app);
+
+
+
 
 
