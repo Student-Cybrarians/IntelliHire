@@ -19,7 +19,12 @@ async function run() {
     { name: 'Health Check API', url: base + '/api/health', expected: [200] },
     { name: 'M1 Resume Protected', url: base + '/api/resume/status', expected: [401] },
     { name: 'M2 Blueprints Protected', url: base + '/api/m2/blueprints', expected: [401] },
-    { name: 'M2 Attempts Protected', url: base + '/api/m2/attempts', method: 'POST', body: '{}', expected: [401] }
+    { name: 'M2 Attempts Protected', url: base + '/api/m2/attempts', method: 'POST', body: '{}', expected: [401] },
+    { name: 'M2 Modality Registry Protected', url: base + '/api/m2/modalities', expected: [401] },
+    { name: 'M2 Evidence Strategies Protected', url: base + '/api/m2/strategies', expected: [401] },
+    { name: 'M2 Purposes Protected', url: base + '/api/m2/purposes', expected: [401] },
+    { name: 'M2 Seniorities Protected', url: base + '/api/m2/seniorities', expected: [401] },
+    { name: 'M2 Occupation Adapters Protected', url: base + '/api/m2/occupations/adapters', expected: [401] }
   ];
 
   let allPass = true;
