@@ -3,6 +3,7 @@ import { handle } from 'hono/cloudflare-pages';
 import { sign, verify } from 'hono/jwt';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { globalModalityRegistry } from '../../src/shared/modalityRegistry';
+import { getAllPurposeBehaviors, getPurposeBehavior, generatePurposeProvenance } from '../../src/shared/purposeEngine';
 
 type Bindings = {
   DB: D1Database;
@@ -1395,13 +1396,28 @@ app.post('/m2/purposes', async (c) => {
 app.get('/m2/purposes', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
 
   const results = await c.env.DB.prepare(
-    'SELECT p.* FROM assessment_purpose p JOIN assessment_blueprint b ON p.blueprint_id = b.id WHERE b.organization_id = ?'
-  ).bind(dbUser.organization_id).all();
-  return c.json({ purposes: results.results });
+    'SELECT * FROM assessment_purpose WHERE is_active = 1 ORDER BY created_at ASC'
+  ).all();
+
+  const purposes = results.results && results.results.length > 0
+    ? results.results
+    : getAllPurposeBehaviors();
+
+  return c.json({ purposes });
+});
+
+app.get('/m2/purposes/:code', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const code = c.req.param('code') as any;
+  try {
+    const behavior = getPurposeBehavior(code);
+    return c.json({ purpose: behavior });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 404);
+  }
 });
 
 // Rubrics
@@ -1547,7 +1563,7 @@ app.post('/m2/attempts', async (c) => {
   const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
   if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
 
-  const { blueprint_id, context_data_json } = await c.req.json();
+  const { blueprint_id, purpose, context_data_json } = await c.req.json();
   const id = crypto.randomUUID();
   const initialAdaptiveState = {
     skillEstimates: {},
@@ -1555,12 +1571,26 @@ app.post('/m2/attempts', async (c) => {
     itemCount: 0
   };
 
+  const attemptPurpose = purpose || 'recruitment';
+  const provenance = generatePurposeProvenance(attemptPurpose, {
+    organization_id: dbUser.organization_id as string,
+    user_id: user.id,
+    attempt_id: id,
+    ip_address: c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1'
+  });
+
+  const mergedContext = {
+    ...(context_data_json || {}),
+    purpose: attemptPurpose,
+    purpose_provenance: provenance
+  };
+
   await c.env.DB.prepare(
     'INSERT INTO assessment_attempt (id, user_id, blueprint_id, status, adaptive_state_json, context_data_json) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(id, user.id, blueprint_id, 'in_progress', JSON.stringify(initialAdaptiveState), JSON.stringify(context_data_json || {})).run();
+  ).bind(id, user.id, blueprint_id, 'in_progress', JSON.stringify(initialAdaptiveState), JSON.stringify(mergedContext)).run();
   
-  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'START', 'ATTEMPT', id);
-  return c.json({ id });
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'START', 'ATTEMPT', id, { purpose: attemptPurpose });
+  return c.json({ id, purpose: attemptPurpose });
 });
 
 app.get('/m2/attempts/:id', async (c) => {

@@ -272,10 +272,15 @@ CREATE TABLE IF NOT EXISTS evidence_item (
 
 CREATE TABLE IF NOT EXISTS assessment_purpose (
     id TEXT PRIMARY KEY,
+    purpose_code TEXT UNIQUE,
     name TEXT NOT NULL,
     description TEXT,
+    behavior_config_json TEXT,
+    version INTEGER DEFAULT 1,
+    is_active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_assessment_purpose_code ON assessment_purpose(purpose_code);
 
 CREATE TABLE IF NOT EXISTS assessment_blueprint (
     id TEXT PRIMARY KEY,
