@@ -6,6 +6,8 @@ import { globalModalityRegistry } from '../../src/shared/modalityRegistry';
 import { getAllPurposeBehaviors, getPurposeBehavior, generatePurposeProvenance } from '../../src/shared/purposeEngine';
 import { getAllSeniorityProfiles, getSeniorityProfile } from '../../src/shared/seniorityEngine';
 import { globalOccupationRegistry } from '../../src/shared/occupationAdapters';
+import { validateStrategy } from '../../src/shared/strategyValidator';
+import { selectEvidenceStrategy } from '../../src/shared/runtimeStrategySelector';
 
 type Bindings = {
   DB: D1Database;
@@ -1468,6 +1470,263 @@ app.post('/m2/occupations/resolve', async (c) => {
     regulatoryFrameworks: adapter.regulatoryFrameworks,
     accommodations: adapter.getAccessibilityAccommodations(),
   });
+});
+
+// ==========================================
+// Prompt 19: Evidence Strategy APIs
+// ==========================================
+
+// 1. Create Evidence Strategy
+app.post('/m2/strategies', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+  if (user.role === 'candidate') return c.json({ error: 'Forbidden: Candidates cannot create strategy templates' }, 403);
+
+  const orgId = dbUser.organization_id as string;
+  const body = await c.req.json();
+
+  const validationInput = {
+    ...body,
+    organization_id: orgId,
+  };
+
+  const validation = validateStrategy(validationInput);
+  if (!validation.valid) {
+    return c.json({
+      error: 'Strategy validation failed',
+      errors: validation.errors,
+      rejection_codes: validation.rejection_codes,
+    }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  const stoppingRule = body.stopping_rule || { max_items: 10, min_uncertainty: 0.20 };
+  const allowedModalities = body.allowed_modalities || [body.primary_modality || 'knowledge_question'];
+  const alternativeModalities = body.alternative_modalities || [];
+
+  await c.env.DB.prepare(`
+    INSERT INTO evidence_strategy (
+      id, organization_id, competency_id, skill_id, occupation_code, target_role,
+      seniority_level, assessment_purpose, required_evidence, allowed_modalities_json,
+      preferred_modality, alternative_modalities_json, evaluation_method, rubric_id,
+      minimum_evidence_items, stopping_rule_json, accessibility_accommodations_json,
+      language_code, fairness_constraints_json, confidence_threshold, provenance_json,
+      version, is_active
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `).bind(
+    id,
+    orgId,
+    body.competency_id || null,
+    body.skill_id || null,
+    body.occupation_code || null,
+    body.target_role || null,
+    body.seniority_level || 'mid',
+    body.assessment_purpose || 'recruitment',
+    body.required_evidence,
+    JSON.stringify(allowedModalities),
+    body.primary_modality || 'knowledge_question',
+    JSON.stringify(alternativeModalities),
+    body.evaluation_method || 'hybrid',
+    body.rubric_id || null,
+    body.minimum_evidence_items || 3,
+    JSON.stringify(stoppingRule),
+    JSON.stringify(body.accessibility_accommodations || []),
+    body.language_code || 'en',
+    JSON.stringify(body.fairness_constraints || {}),
+    body.confidence_threshold || 0.75,
+    JSON.stringify({ created_by: user.id, timestamp: new Date().toISOString(), ...body.provenance }),
+    1
+  ).run();
+
+  await logAuditEvent(c, orgId, user.id, 'CREATE', 'EVIDENCE_STRATEGY', id, { target_role: body.target_role });
+  return c.json({ id, status: 'created', version: 1 }, 201);
+});
+
+// 2. Retrieve Strategies for Organization
+app.get('/m2/strategies', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const results = await c.env.DB.prepare(
+    'SELECT * FROM evidence_strategy WHERE organization_id = ? AND is_active = 1 ORDER BY created_at DESC'
+  ).bind(dbUser.organization_id).all();
+
+  return c.json({ strategies: results.results });
+});
+
+// 3. Retrieve Single Strategy by ID
+app.get('/m2/strategies/:id', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const id = c.req.param('id');
+  const strategy = await c.env.DB.prepare(
+    'SELECT * FROM evidence_strategy WHERE id = ? AND organization_id = ?'
+  ).bind(id, dbUser.organization_id).first();
+
+  if (!strategy) return c.json({ error: 'Strategy not found' }, 404);
+  return c.json({ strategy });
+});
+
+// 4. Version an Existing Strategy
+app.post('/m2/strategies/:id/version', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+  if (user.role === 'candidate') return c.json({ error: 'Forbidden' }, 403);
+
+  const orgId = dbUser.organization_id as string;
+  const oldId = c.req.param('id');
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM evidence_strategy WHERE id = ? AND organization_id = ?'
+  ).bind(oldId, orgId).first<any>();
+
+  if (!existing) return c.json({ error: 'Strategy not found' }, 404);
+
+  const updates = await c.req.json();
+  const newVersion = (existing.version || 1) + 1;
+  const newId = crypto.randomUUID();
+
+  const merged = {
+    ...existing,
+    ...updates,
+    organization_id: orgId,
+    version: newVersion,
+  };
+
+  const validation = validateStrategy(merged);
+  if (!validation.valid) {
+    return c.json({
+      error: 'Versioned strategy validation failed',
+      errors: validation.errors,
+      rejection_codes: validation.rejection_codes,
+    }, 400);
+  }
+
+  // Deactivate prior version
+  await c.env.DB.prepare('UPDATE evidence_strategy SET is_active = 0 WHERE id = ?').bind(oldId).run();
+
+  // Insert new version
+  await c.env.DB.prepare(`
+    INSERT INTO evidence_strategy (
+      id, organization_id, competency_id, skill_id, occupation_code, target_role,
+      seniority_level, assessment_purpose, required_evidence, allowed_modalities_json,
+      preferred_modality, alternative_modalities_json, evaluation_method, rubric_id,
+      minimum_evidence_items, stopping_rule_json, accessibility_accommodations_json,
+      language_code, fairness_constraints_json, confidence_threshold, provenance_json,
+      version, is_active
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `).bind(
+    newId,
+    orgId,
+    merged.competency_id || null,
+    merged.skill_id || null,
+    merged.occupation_code || null,
+    merged.target_role || null,
+    merged.seniority_level || 'mid',
+    merged.assessment_purpose || 'recruitment',
+    merged.required_evidence,
+    typeof merged.allowed_modalities_json === 'string' ? merged.allowed_modalities_json : JSON.stringify(merged.allowed_modalities || []),
+    merged.preferred_modality || merged.primary_modality || 'knowledge_question',
+    typeof merged.alternative_modalities_json === 'string' ? merged.alternative_modalities_json : JSON.stringify(merged.alternative_modalities || []),
+    merged.evaluation_method || 'hybrid',
+    merged.rubric_id || null,
+    merged.minimum_evidence_items || 3,
+    typeof merged.stopping_rule_json === 'string' ? merged.stopping_rule_json : JSON.stringify(merged.stopping_rule || {}),
+    typeof merged.accessibility_accommodations_json === 'string' ? merged.accessibility_accommodations_json : JSON.stringify(merged.accessibility_accommodations || []),
+    merged.language_code || 'en',
+    typeof merged.fairness_constraints_json === 'string' ? merged.fairness_constraints_json : JSON.stringify(merged.fairness_constraints || {}),
+    merged.confidence_threshold || 0.75,
+    JSON.stringify({ previous_version_id: oldId, versioned_by: user.id, timestamp: new Date().toISOString() }),
+    newVersion
+  ).run();
+
+  await logAuditEvent(c, orgId, user.id, 'VERSION', 'EVIDENCE_STRATEGY', newId, { previous_id: oldId, new_version: newVersion });
+  return c.json({ id: newId, version: newVersion, status: 'versioned' });
+});
+
+// 5. Preflight Strategy Validation (Non-persisting)
+app.post('/m2/strategies/validate', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json();
+  const result = validateStrategy(body);
+  return c.json(result);
+});
+
+// 6. Strategy Selection Preview
+app.post('/m2/strategies/preview', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json();
+  try {
+    const preview = selectEvidenceStrategy(body);
+    return c.json({ preview });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 400);
+  }
+});
+
+// 7. Execution Planning API
+app.post('/m2/strategies/execution-plan', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json();
+
+  let decision: any;
+  try {
+    decision = selectEvidenceStrategy(body.context || body);
+  } catch (err: any) {
+    return c.json({ error: `Failed to resolve strategy for plan: ${err.message}` }, 400);
+  }
+
+  const extendedTimeFactor = body.accessibility?.extended_time ? 1.5 : 1.0;
+  const baseMinutesPerItem = decision.modality === 'coding' ? 20 : decision.modality === 'scenario' ? 15 : 5;
+  const totalEstimatedMinutes = Math.round(decision.confidence_requirement.minimum_items * baseMinutesPerItem * extendedTimeFactor);
+
+  const executionPlan = {
+    plan_id: `PLAN_${crypto.randomUUID().substring(0, 8).toUpperCase()}`,
+    strategy_id: decision.strategy_id,
+    selected_modality: decision.modality,
+    alternative_modalities: decision.alternatives,
+    estimated_duration_minutes: totalEstimatedMinutes,
+    time_limit_policy: decision.rationale.purpose_factor,
+    stopping_rules: {
+      minimum_evidence_items: decision.confidence_requirement.minimum_items,
+      target_confidence_threshold: decision.confidence_requirement.threshold,
+      maximum_uncertainty_threshold: decision.confidence_requirement.max_uncertainty,
+    },
+    stages: [
+      {
+        order: 1,
+        name: 'Syntax & Foundational Precision',
+        focus: 'Direct comprehension and basic domain execution under controlled parameters.',
+        modality: decision.alternatives.includes('knowledge_question') ? 'knowledge_question' : decision.modality,
+      },
+      {
+        order: 2,
+        name: 'Applied Domain Execution',
+        focus: decision.required_evidence,
+        modality: decision.modality,
+      },
+      {
+        order: 3,
+        name: 'Trade-Off & Fault-Tolerance Defense',
+        focus: 'Navigating ambiguity and defending design/process trade-offs.',
+        modality: decision.alternatives.includes('reasoning') ? 'reasoning' : decision.modality,
+      },
+    ],
+    provenance: decision.audit_record,
+  };
+
+  return c.json({ execution_plan: executionPlan });
 });
 
 // Rubrics

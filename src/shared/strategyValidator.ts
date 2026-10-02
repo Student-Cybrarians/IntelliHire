@@ -103,7 +103,7 @@ export function validateStrategy(input: StrategyValidationInput): ComprehensiveV
   }
 
   // --- GATE 3: Unsupported Modality ---
-  const modalityId = input.primary_modality || '';
+  const modalityId = input.primary_modality || (input as any).preferred_modality || '';
   if (!modalityId || !globalModalityRegistry.has(modalityId)) {
     errors.push(`Unsupported evidence modality: "${modalityId}".`);
     rejectionCodes.push(REJECTION_CODES.UNSUPPORTED_MODALITY);
