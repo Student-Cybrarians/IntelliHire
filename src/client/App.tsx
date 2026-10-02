@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Onboarding from './pages/Onboarding';
 import Assessment from './pages/Assessment';
+import AssessmentV2 from './pages/AssessmentV2';
 import Resume from './pages/Resume';
 import FeaturePlaceholder from './pages/FeaturePlaceholder';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/onboarding" element={<ProtectedRoute requireOnboarding={false}><Onboarding /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/assessment/:skill_id" element={<ProtectedRoute><Assessment /></ProtectedRoute>} />
+      <Route path="/assess" element={<ProtectedRoute><AssessmentV2 /></ProtectedRoute>} />
 
       {/* Dashboard navigation targets.
           These are real routes so navigation never falls through to the public landing page.

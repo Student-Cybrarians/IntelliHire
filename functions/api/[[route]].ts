@@ -1315,7 +1315,537 @@ app.get('/match/status/:jobId', async (c) => {
   return c.json({ success: true, package: contextPackage });
 });
 
+
+// ==========================================
+// M2 Domain Service Routes (Prompts 03-11)
+// ==========================================
+
+// Audit Event Helper
+async function logAuditEvent(c: any, orgId: string, userId: string, eventType: string, entityType: string, entityId: string, details: any = {}) {
+  await c.env.DB.prepare(
+    'INSERT INTO m2_audit_event (id, organization_id, user_id, event_type, entity_type, entity_id, details_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(crypto.randomUUID(), orgId, userId, eventType, entityType, entityId, JSON.stringify(details)).run();
+}
+
+// Assessment Blueprint & Purpose
+app.post('/m2/blueprints', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+  const orgId = dbUser.organization_id;
+
+  const { title, version, is_active } = await c.req.json();
+  const id = crypto.randomUUID();
+  
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_blueprint (id, organization_id, title, version, is_active) VALUES (?, ?, ?, ?, ?)'
+  ).bind(id, orgId, title, version || '1.0', is_active ? 1 : 0).run();
+
+  await logAuditEvent(c, orgId as string, user.id, 'CREATE', 'BLUEPRINT', id);
+  return c.json({ id, title });
+});
+
+app.get('/m2/blueprints', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const results = await c.env.DB.prepare('SELECT * FROM assessment_blueprint WHERE organization_id = ?').bind(dbUser.organization_id).all();
+  return c.json({ blueprints: results.results });
+});
+
+app.get('/m2/blueprints/:id', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const bpId = c.req.param('id');
+  const blueprint = await c.env.DB.prepare('SELECT * FROM assessment_blueprint WHERE id = ? AND organization_id = ?').bind(bpId, dbUser.organization_id).first();
+  if (!blueprint) return c.json({ error: 'Not found' }, 404);
+
+  const stages = await c.env.DB.prepare('SELECT * FROM assessment_stage WHERE blueprint_id = ? ORDER BY stage_order ASC').bind(bpId).all();
+  return c.json({ blueprint, stages: stages.results });
+});
+
+app.post('/m2/purposes', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { blueprint_id, target_role, difficulty_profile } = await c.req.json();
+  const id = crypto.randomUUID();
+
+  // Basic validation that blueprint belongs to org
+  const bp = await c.env.DB.prepare('SELECT id FROM assessment_blueprint WHERE id = ? AND organization_id = ?').bind(blueprint_id, dbUser.organization_id).first();
+  if (!bp) return c.json({ error: 'Invalid blueprint' }, 400);
+
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_purpose (id, blueprint_id, target_role, difficulty_profile) VALUES (?, ?, ?, ?)'
+  ).bind(id, blueprint_id, target_role, difficulty_profile).run();
+
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'CREATE', 'PURPOSE', id);
+  return c.json({ id });
+});
+
+app.get('/m2/purposes', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const results = await c.env.DB.prepare(
+    'SELECT p.* FROM assessment_purpose p JOIN assessment_blueprint b ON p.blueprint_id = b.id WHERE b.organization_id = ?'
+  ).bind(dbUser.organization_id).all();
+  return c.json({ purposes: results.results });
+});
+
+// Rubrics
+app.post('/m2/rubrics', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { skill_id, proficiency_level, evaluation_criteria_json } = await c.req.json();
+  const id = crypto.randomUUID();
+  
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_rubric (id, skill_id, proficiency_level, evaluation_criteria_json) VALUES (?, ?, ?, ?)'
+  ).bind(id, skill_id, proficiency_level, JSON.stringify(evaluation_criteria_json)).run();
+
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'CREATE', 'RUBRIC', id);
+  return c.json({ id });
+});
+
+app.get('/m2/rubrics/:skill_id', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+  
+  // Note: Assuming skill belongs to the org. In a fully robust system we'd join on competency to check org_id
+  const results = await c.env.DB.prepare('SELECT * FROM assessment_rubric WHERE skill_id = ?').bind(c.req.param('skill_id')).all();
+  return c.json({ rubrics: results.results });
+});
+
+// Items (Questions/Tasks)
+app.post('/m2/items', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { skill_id, item_type, difficulty_level, content_json, validation_status } = await c.req.json();
+  const id = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_item_v2 (id, skill_id, item_type, difficulty_level, content_json, validation_status) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id, skill_id, item_type, difficulty_level, JSON.stringify(content_json), validation_status || 'draft').run();
+  
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'CREATE', 'ITEM', id);
+  return c.json({ id });
+});
+
+app.get('/m2/items', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const skillId = c.req.query('skill_id');
+  let q = 'SELECT * FROM assessment_item_v2';
+  const params: any[] = [];
+  if (skillId) {
+    q += ' WHERE skill_id = ?';
+    params.push(skillId);
+  }
+  
+  const results = await c.env.DB.prepare(q).bind(...params).all();
+  return c.json({ items: results.results });
+});
+
+app.patch('/m2/items/:id/status', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { validation_status } = await c.req.json();
+  const itemId = c.req.param('id');
+  await c.env.DB.prepare('UPDATE assessment_item_v2 SET validation_status = ? WHERE id = ?').bind(validation_status, itemId).run();
+  
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'UPDATE_STATUS', 'ITEM', itemId);
+  return c.json({ success: true });
+});
+
+app.post('/m2/items/generate', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { skill_id, difficulty, item_type, role_context } = await c.req.json();
+
+  const prompt = `Generate a ${item_type || 'multiple_choice'} assessment question for the following role context: ${role_context || 'general'}. Return valid JSON with: { "question": "...", "options": ["...", "..."], "correct_answer": "..." }. Ensure the answer perfectly matches one of the options.`;
+  
+  const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${c.env.NVIDIA_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "meta/muse-glimmer-30b",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3
+    })
+  });
+
+  const aiResult = await response.json() as any;
+  const text = aiResult.choices?.[0]?.message?.content || '{}';
+  let parsedContent;
+  try {
+    const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+    parsedContent = JSON.parse(jsonStr);
+  } catch (e) {
+    return c.json({ error: 'Failed to parse AI response' }, 500);
+  }
+
+  // Basic validation checks
+  if (!parsedContent.question || (item_type === 'mcq' && (!parsedContent.options || !parsedContent.correct_answer))) {
+      return c.json({ error: 'Invalid AI response format' }, 500);
+  }
+
+  const id = crypto.randomUUID();
+  const validationStatus = 'ai_validated';
+  
+  const provenance = {
+    model: "meta/muse-glimmer-30b",
+    timestamp: new Date().toISOString(),
+    prompt_used: prompt
+  };
+  
+  parsedContent._provenance = provenance;
+
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_item_v2 (id, skill_id, item_type, difficulty_level, content_json, validation_status) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id, skill_id, item_type, difficulty, JSON.stringify(parsedContent), validationStatus).run();
+  
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'AI_GENERATE', 'ITEM', id);
+  return c.json({ id, content: parsedContent });
+});
+
+// Assessment Attempts
+app.post('/m2/attempts', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { blueprint_id, context_data_json } = await c.req.json();
+  const id = crypto.randomUUID();
+  const initialAdaptiveState = {
+    skillEstimates: {},
+    usedItems: [],
+    itemCount: 0
+  };
+
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_attempt (id, user_id, blueprint_id, status, adaptive_state_json, context_data_json) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(id, user.id, blueprint_id, 'in_progress', JSON.stringify(initialAdaptiveState), JSON.stringify(context_data_json || {})).run();
+  
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'START', 'ATTEMPT', id);
+  return c.json({ id });
+});
+
+app.get('/m2/attempts/:id', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const attemptId = c.req.param('id');
+  const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ? AND user_id = ?').bind(attemptId, user.id).first();
+  if (!attempt) return c.json({ error: 'Not found' }, 404);
+  return c.json({ attempt });
+});
+
+app.get('/m2/attempts/:id/next', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const attemptId = c.req.param('id');
+  
+  const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ? AND user_id = ?').bind(attemptId, user.id).first();
+  if (!attempt) return c.json({ error: 'Not found' }, 404);
+  if (attempt.status !== 'in_progress') return c.json({ error: 'Attempt not in progress' }, 400);
+
+  const state = JSON.parse((attempt.adaptive_state_json as string) || '{}');
+  const usedItems = state.usedItems || [];
+  const itemCount = state.itemCount || 0;
+  
+  if (itemCount >= 20) { // Max items threshold
+    await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed' WHERE id = ?").bind(attemptId).run();
+    return c.json({ completed: true });
+  }
+
+  // Simplified Adaptive Selection: Pick highest uncertainty skill
+  const skillUncertainties = state.skillEstimates || {};
+  let targetSkill = null;
+  let maxUncertainty = 0;
+  
+  for (const [skillId, stats] of Object.entries(skillUncertainties)) {
+    const s = stats as any;
+    if (s.uncertainty > maxUncertainty) {
+      maxUncertainty = s.uncertainty;
+      targetSkill = skillId;
+    }
+  }
+
+  // If no state or all below threshold, try to get a random skill from blueprint if we could, 
+  // for simplicity here we query items not used.
+  let itemQuery = 'SELECT * FROM assessment_item_v2 WHERE validation_status IN (?, ?)';
+  const params: any[] = ['ai_validated', 'published'];
+  
+  if (targetSkill) {
+    itemQuery += ' AND skill_id = ?';
+    params.push(targetSkill);
+  }
+  
+  if (usedItems.length > 0) {
+    itemQuery += ` AND id NOT IN (${usedItems.map(() => '?').join(',')})`;
+    params.push(...usedItems);
+  }
+  itemQuery += ' LIMIT 1';
+
+  const nextItem = await c.env.DB.prepare(itemQuery).bind(...params).first();
+  
+  if (!nextItem) {
+    // Terminate if no more items
+    await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed' WHERE id = ?").bind(attemptId).run();
+    return c.json({ completed: true });
+  }
+
+  state.usedItems = [...usedItems, nextItem.id];
+  state.itemCount = itemCount + 1;
+  state.lastSelectionReason = targetSkill ? `Targeted skill ${targetSkill} with uncertainty ${maxUncertainty}` : 'Exploration';
+
+  await c.env.DB.prepare('UPDATE assessment_attempt SET adaptive_state_json = ? WHERE id = ?').bind(JSON.stringify(state), attemptId).run();
+
+  return c.json({ item: nextItem, completed: false });
+});
+
+app.post('/m2/attempts/:id/respond', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const attemptId = c.req.param('id');
+  const { item_id, response_data_json } = await c.req.json();
+  const id = crypto.randomUUID();
+
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_response_v2 (id, attempt_id, item_id, response_data_json) VALUES (?, ?, ?, ?)'
+  ).bind(id, attemptId, item_id, JSON.stringify(response_data_json)).run();
+
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'RESPOND', 'ATTEMPT', attemptId, { response_id: id });
+  return c.json({ id });
+});
+
+app.post('/m2/attempts/:id/complete', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const attemptId = c.req.param('id');
+  await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?").bind(attemptId, user.id).run();
+  return c.json({ success: true });
+});
+
+// Evaluation
+app.post('/m2/evaluate', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { response_id, rubric_id } = await c.req.json();
+  
+  const responseRec = await c.env.DB.prepare('SELECT * FROM assessment_response_v2 WHERE id = ?').bind(response_id).first();
+  if (!responseRec) return c.json({ error: 'Response not found' }, 404);
+
+  const item = await c.env.DB.prepare('SELECT * FROM assessment_item_v2 WHERE id = ?').bind(responseRec.item_id).first();
+  if (!item) return c.json({ error: 'Item not found' }, 404);
+
+  const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ?').bind(responseRec.attempt_id).first();
+  
+  let score = 0;
+  let confidence = 1.0;
+  let evaluatorType = 'objective';
+  let evaluatorMetadata: any = {};
+  
+  const content = JSON.parse((item.content_json as string) || '{}');
+  const responseData = JSON.parse((responseRec.response_data_json as string) || '{}');
+
+  if (item.item_type === 'mcq') {
+    score = responseData.answer === content.correct_answer ? 100 : 0;
+  } else {
+    // Subjective - Use AI evaluation
+    const rubric = await c.env.DB.prepare('SELECT * FROM assessment_rubric WHERE id = ?').bind(rubric_id).first();
+    const criteria = rubric ? rubric.evaluation_criteria_json : 'General correctness';
+
+    const prompt = `Evaluate the following response based on the criteria. 
+    Criteria: ${criteria}
+    Question: ${content.question || content.text}
+    Response: ${JSON.stringify(responseData)}
+    Provide a JSON response with { "score": (0 to 100 integer), "feedback": "..." }`;
+    
+    const aiResp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${c.env.NVIDIA_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "meta/muse-glimmer-30b",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1
+      })
+    });
+    const aiResult = await aiResp.json() as any;
+    const text = aiResult.choices?.[0]?.message?.content || '{}';
+    let parsedContent = { score: 0, feedback: 'Parse error' };
+    try {
+      const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+      parsedContent = JSON.parse(jsonStr);
+    } catch (e) {}
+
+    score = parsedContent.score;
+    evaluatorMetadata = { feedback: parsedContent.feedback, model: "meta/muse-glimmer-30b" };
+    evaluatorType = 'ai';
+    confidence = 0.8;
+  }
+
+  const evalId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    'INSERT INTO assessment_evaluation (id, response_id, evaluator_type, evaluator_id, score, confidence_score, feedback_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(evalId, response_id, evaluatorType, 'system', score, confidence, JSON.stringify(evaluatorMetadata)).run();
+
+  // Proficiency update (Bayesian-ish / Weighted average)
+  const currentProf = await c.env.DB.prepare('SELECT * FROM candidate_skill_proficiency_v2 WHERE user_id = ? AND skill_id = ?').bind(attempt?.user_id, item.skill_id).first();
+  const idProf = currentProf ? currentProf.id : crypto.randomUUID();
+  
+  if (currentProf) {
+    const p = currentProf as any;
+    // New estimate = prior * (1-w) + current_score * w
+    const weight = 0.3; // simple weight for new evidence
+    const newScore = (p.proficiency_score * (1 - weight)) + (score * weight);
+    const newConf = Math.min(1.0, p.confidence_score + 0.1); // increase confidence
+    
+    await c.env.DB.prepare(
+      'UPDATE candidate_skill_proficiency_v2 SET proficiency_score = ?, confidence_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).bind(newScore, newConf, idProf).run();
+  } else {
+    await c.env.DB.prepare(
+      'INSERT INTO candidate_skill_proficiency_v2 (id, user_id, skill_id, proficiency_score, confidence_score) VALUES (?, ?, ?, ?, ?)'
+    ).bind(idProf, attempt?.user_id, item.skill_id, score, confidence).run();
+  }
+
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'EVALUATE', 'RESPONSE', response_id);
+  return c.json({ evalId, score, feedback: evaluatorMetadata });
+});
+
+// Proficiency & Gaps
+app.get('/m2/proficiency', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const results = await c.env.DB.prepare('SELECT * FROM candidate_skill_proficiency_v2 WHERE user_id = ?').bind(user.id).all();
+  return c.json({ proficiency: results.results });
+});
+
+app.get('/m2/gaps', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const results = await c.env.DB.prepare('SELECT * FROM candidate_gap WHERE user_id = ?').bind(user.id).all();
+  return c.json({ gaps: results.results });
+});
+
+app.get('/m2/evidence-package', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+  const orgId = dbUser.organization_id;
+
+  const proficiencies = await c.env.DB.prepare('SELECT * FROM candidate_skill_proficiency_v2 WHERE user_id = ?').bind(user.id).all();
+  const gaps = await c.env.DB.prepare('SELECT * FROM candidate_gap WHERE user_id = ?').bind(user.id).all();
+  const attempts = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE user_id = ?').bind(user.id).all();
+  
+  const pkg = {
+    candidateId: user.id,
+    generatedAt: new Date().toISOString(),
+    evaluatorMetadata: { system: "IntelliHire-M2", version: "2.0" },
+    proficiencies: proficiencies.results,
+    gaps: gaps.results,
+    assessmentHistory: attempts.results,
+    limitations: "AI evaluations require human review for subjective items"
+  };
+
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(
+    'INSERT INTO evidence_package (id, user_id, organization_id, package_json) VALUES (?, ?, ?, ?)'
+  ).bind(id, user.id, orgId, JSON.stringify(pkg)).run();
+
+  await logAuditEvent(c, orgId as string, user.id, 'GENERATE', 'EVIDENCE_PACKAGE', id);
+  return c.json({ id, package: pkg });
+});
+
+// Role/Competency Mapping
+app.post('/m2/role-mapping', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+
+  const { role_title, job_description } = await c.req.json();
+  const prompt = `Extract key competencies and skills required for the role "${role_title}". 
+  Context: ${job_description || 'None provided'}
+  Return JSON: { "competencies": [ { "name": "...", "skills": ["..."] } ] }`;
+
+  const aiResp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${c.env.NVIDIA_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "meta/muse-glimmer-30b",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1
+    })
+  });
+  
+  const aiResult = await aiResp.json() as any;
+  const text = aiResult.choices?.[0]?.message?.content || '{}';
+  let mapping;
+  try {
+    const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+    mapping = JSON.parse(jsonStr);
+  } catch (e) {
+    mapping = { error: 'Failed to parse' };
+  }
+  
+  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'GENERATE', 'ROLE_MAPPING', role_title);
+  return c.json({ mapping });
+});
+
+app.get('/m2/role-mapping/:role', async (c) => {
+  // In a real system, we'd cache these or store in a table. Returning stub.
+  return c.json({ status: 'Not implemented' });
+});
+
+
 export const onRequest = handle(app);
+
 
 
 
