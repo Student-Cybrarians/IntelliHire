@@ -16,3 +16,14 @@ Log of all repairs performed across the IntelliHire M1 audit cycles.
 | 2026-10-02 | Cloudflare Pages Deployment | Deployed `dist` via `wrangler pages deploy` -> deployment `0ec4f160` | DevSecOps | Reticle | Active deployment `0ec4f160-80aa-4c4d-bcee-ed559d5e9d82` (PASS) |
 | 2026-10-02 | GitHub Remote Sync Blocker | Cleared revoked environment token, authenticated via OAuth, pushed to `origin/main` | Release Auditor | Governance Protocol | `git rev-parse origin/main` -> `6cf2ac6` (PASS) |
 | 2026-10-02 | Live Production Verification | Tested live edge endpoints on `https://intellihire-v3.pages.dev` | DevSecOps / QA | Reticle / Anti-Slop | Edge curl 200/401 verified (PASS) |
+
+## [2026-10-02] E-03, E-05, E-11, E-14, E-18 Enhancement Implementation
+**Issue:** M1 features were functional but simplistic and exposed PII to LLMs.
+**Action:** 
+1. Replaced simple text-length ATS heuristic with a multi-dimensional (Format, Keyword, Structure, Semantic) Hybrid ATS Scoring model (E-05).
+2. Implemented PII redaction pipeline before NVIDIA NIM inference, capturing redacted fields in extraction provenance (E-14).
+3. Optimized Semantic Search to pre-compute embeddings and use optimized D1 scan instead of brute-force on-the-fly embeddings, with an ADR created (E-11).
+4. Implemented LLM caching via KV on content hashes to prevent duplicate NVIDIA calls (E-18).
+5. Added Multi-Pass Extraction (Segmentation, Entity Extraction, Taxonomy Alignment) for accurate ATS parsing (E-03).
+6. Tests added for enhancements and frontend UI updated to display new AI metadata.
+**Result:** Code pushed to `origin/main`. Enhancements improve performance, compliance, and user experience. M1 functionality enhanced successfully.
