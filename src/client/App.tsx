@@ -1,38 +1,64 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import PublicLanding from './pages/PublicLanding';
+import About from './pages/About';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Onboarding from './pages/Onboarding';
 import Assessment from './pages/Assessment';
 import AssessmentV2 from './pages/AssessmentV2';
 import Resume from './pages/Resume';
+import CandidateProfile from './pages/CandidateProfile';
+import AdminWorkspace from './pages/AdminWorkspace';
+import Module3Pipeline from './pages/Module3Pipeline';
+import Module4Interviews from './pages/Module4Interviews';
+import Module5Analytics from './pages/Module5Analytics';
 import FeaturePlaceholder from './pages/FeaturePlaceholder';
 import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
   return (
     <Routes>
-      {/* Public */}
+      {/* Public Pages */}
       <Route path="/" element={<PublicLanding />} />
+      <Route path="/about" element={<About />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
 
-      {/* Candidate lifecycle */}
+      {/* Candidate Lifecycle */}
       <Route path="/onboarding" element={<ProtectedRoute requireOnboarding={false}><Onboarding /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/assessment/:skill_id" element={<ProtectedRoute><Assessment /></ProtectedRoute>} />
-      <Route path="/assess" element={<ProtectedRoute><AssessmentV2 /></ProtectedRoute>} />
-
-      {/* Dashboard navigation targets.
-          These are real routes so navigation never falls through to the public landing page.
-          Detailed module implementations can replace the placeholders independently. */}
+      <Route path="/candidate" element={<ProtectedRoute><CandidateProfile /></ProtectedRoute>} />
+      
+      {/* Module 1: Resume Intelligence & Ingestion */}
       <Route path="/resume" element={<ProtectedRoute><Resume /></ProtectedRoute>} />
-      <Route path="/technical-sandbox" element={<ProtectedRoute><FeaturePlaceholder title="Technical Sandbox" description="Technical and domain simulation workspace." /></ProtectedRoute>} />
-      <Route path="/requisitions" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><FeaturePlaceholder title="Active Requisitions" description="Recruiter requisition workspace." /></ProtectedRoute>} />
-      <Route path="/candidates" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><FeaturePlaceholder title="Candidate Pipeline" description="Candidate review workspace." /></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute allowedRoles={['org_admin']}><FeaturePlaceholder title="Organization Settings" description="Organization administration workspace." /></ProtectedRoute>} />
-      <Route path="/users" element={<ProtectedRoute allowedRoles={['org_admin']}><FeaturePlaceholder title="User Management" description="Organization user-management workspace." /></ProtectedRoute>} />
+      <Route path="/module-1" element={<ProtectedRoute><Resume /></ProtectedRoute>} />
 
-      {/* Unknown application routes must not silently send authenticated users to the public landing page. */}
+      {/* Module 2: Universal Adaptive Evidence Engine */}
+      <Route path="/assess" element={<ProtectedRoute><AssessmentV2 /></ProtectedRoute>} />
+      <Route path="/module-2" element={<ProtectedRoute><AssessmentV2 /></ProtectedRoute>} />
+      <Route path="/assessment/:skill_id" element={<ProtectedRoute><Assessment /></ProtectedRoute>} />
+
+      {/* Module 3: Requisition Match & Pipeline */}
+      <Route path="/module-3" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
+      <Route path="/requisitions" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
+      <Route path="/candidates" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
+
+      {/* Module 4: Structured Interview Intelligence */}
+      <Route path="/module-4" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module4Interviews /></ProtectedRoute>} />
+      <Route path="/interviews" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module4Interviews /></ProtectedRoute>} />
+
+      {/* Module 5: Enterprise Decision Support & Governance */}
+      <Route path="/module-5" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module5Analytics /></ProtectedRoute>} />
+      <Route path="/analytics" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module5Analytics /></ProtectedRoute>} />
+
+      {/* Admin Control Center */}
+      <Route path="/admin" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />
+      <Route path="/users" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />
+      <Route path="/technical-sandbox" element={<ProtectedRoute><FeaturePlaceholder title="Technical Sandbox" description="Technical and domain simulation workspace." /></ProtectedRoute>} />
+
+      {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Bot } from 'lucide-react';
+import { Flame, Shield, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
@@ -10,26 +11,37 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6">
-      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand-600 to-sky-400"></div>
+    <div className="min-h-screen flex items-center justify-center bg-[#001621] p-4 sm:p-6 selection:bg-[#FF4103] selection:text-white relative overflow-hidden">
+      
+      {/* Background Volcanic Aura */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[#FF4103]/10 rounded-full blur-[140px] pointer-events-none" />
 
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-            <Bot className="w-8 h-8 text-brand-500" />
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Welcome to IntelliHire</h2>
-          <p className="text-slate-400 text-center">Sign in to access your assessment dashboard and AI training modules.</p>
+      <div className="max-w-md w-full bg-[#001f2e] border border-[#063750] rounded-3xl p-8 sm:p-10 shadow-2xl relative z-10">
+        
+        {/* Top Flame Accent Bar */}
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#FF4103] via-[#ff7847] to-[#e03200] rounded-t-3xl" />
+
+        <div className="flex flex-col items-center text-center mb-8">
+          <Link to="/" className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FF4103] to-[#b82500] flex items-center justify-center mb-4 shadow-lg shadow-[#FF4103]/30">
+            <Flame className="w-8 h-8 text-white" />
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+            Sign In to IntelliHire
+          </h1>
+          <p className="text-sm text-slate-300 mt-2">
+            Access your Universal Evidence Portfolio, assessments, and recruiting workspaces.
+          </p>
         </div>
 
         <div className="space-y-4">
           <button
             onClick={handleGoogleLogin}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 font-semibold py-3 px-4 rounded-lg transition-colors disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-100 font-bold py-3.5 px-4 rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.01] disabled:opacity-60 focus:ring-4 focus:ring-[#FF4103]/40"
+            aria-label="Continue with Google SSO"
           >
             {isLoading ? (
-              <span className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></span>
+              <span className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
             ) : (
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -38,19 +50,42 @@ export default function Login() {
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
               </svg>
             )}
-            Continue with Google
+            <span className="text-sm font-bold">Continue with Google SSO</span>
           </button>
 
-          <div className="relative flex py-2 items-center">
-            <div className="flex-grow border-t border-slate-800"></div>
-            <span className="flex-shrink-0 mx-4 text-slate-500 text-sm">Secure SSO Access</span>
-            <div className="flex-grow border-t border-slate-800"></div>
+          <div className="relative flex py-3 items-center">
+            <div className="flex-grow border-t border-[#002f47]" />
+            <span className="flex-shrink-0 mx-3 text-xs uppercase font-bold text-slate-500 tracking-wider">
+              Enterprise Tenant Security
+            </span>
+            <div className="flex-grow border-t border-[#002f47]" />
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#001621] border border-[#002b3f] space-y-2 text-xs text-slate-400">
+            <div className="flex items-center gap-2 text-slate-300 font-semibold">
+              <Shield className="w-4 h-4 text-[#FF4103]" />
+              <span>Zero Credential Retention</span>
+            </div>
+            <p className="leading-relaxed">
+              Sessions are cryptographically signed with HS256 tokens stored in Cloudflare KV. PII is automatically redacted before LLM evaluation.
+            </p>
           </div>
         </div>
 
-        <p className="mt-8 text-center text-sm text-slate-500">
-          By continuing, you agree to our Terms of Service and Privacy Policy.
-        </p>
+        <div className="mt-8 pt-6 border-t border-[#002a40] text-center space-y-3">
+          <p className="text-xs text-slate-400">
+            Don't have an account yet?{' '}
+            <Link to="/register" className="text-[#FF4103] font-bold hover:underline">
+              Create an Account
+            </Link>
+          </p>
+          <div>
+            <Link to="/" className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+              &larr; Back to IntelliHire Home
+            </Link>
+          </div>
+        </div>
+
       </div>
     </div>
   );

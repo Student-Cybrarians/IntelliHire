@@ -162,9 +162,9 @@ export default function RecruiterWorkspace() {
             placeholder="AI Candidate Search..." 
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full md:w-80 bg-slate-900 border border-slate-700 text-white px-4 py-2 rounded-l-lg focus:outline-none focus:border-brand-500"
+            className="w-full md:w-80 bg-[#001f2e] border border-[#002f47] text-white px-4 py-2 rounded-l-lg focus:outline-none focus:border-[#FF4103]"
           />
-          <button type="submit" disabled={isSearching} className="bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-r-lg font-medium">
+          <button type="submit" disabled={isSearching} className="bg-[#FF4103] hover:bg-[#e03200] text-white px-4 py-2 rounded-r-lg font-medium">
             {isSearching ? '...' : 'Search'}
           </button>
         </form>
@@ -173,16 +173,16 @@ export default function RecruiterWorkspace() {
       {/* Analytics Ribbon */}
       {metrics && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+          <div className="bg-[#001f2e] border border-[#063750] p-4 rounded-xl flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-400">Open Requisitions</p>
               <p className="text-2xl font-bold text-white">{metrics.open_requisitions}</p>
             </div>
             <div className="p-3 bg-brand-500/10 rounded-lg">
-              <Briefcase className="w-6 h-6 text-brand-400" />
+              <Briefcase className="w-6 h-6 text-[#FF4103]" />
             </div>
           </div>
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+          <div className="bg-[#001f2e] border border-[#063750] p-4 rounded-xl flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-400">Active Candidates</p>
               <p className="text-2xl font-bold text-white">{metrics.active_candidates}</p>
@@ -191,7 +191,7 @@ export default function RecruiterWorkspace() {
               <Users className="w-6 h-6 text-blue-400" />
             </div>
           </div>
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+          <div className="bg-[#001f2e] border border-[#063750] p-4 rounded-xl flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-400">Total Applications</p>
               <p className="text-2xl font-bold text-white">{metrics.total_applications}</p>
@@ -200,7 +200,7 @@ export default function RecruiterWorkspace() {
               <FileText className="w-6 h-6 text-purple-400" />
             </div>
           </div>
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+          <div className="bg-[#001f2e] border border-[#063750] p-4 rounded-xl flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-400">Avg Match Score</p>
               <p className="text-2xl font-bold text-green-400">{metrics.avg_match_score}%</p>
@@ -212,7 +212,7 @@ export default function RecruiterWorkspace() {
         </div>
       )}
       
-      <section className="mb-8 bg-slate-900 border border-slate-800 rounded-xl p-6">
+      <section className="mb-8 bg-[#001f2e] border border-[#063750] rounded-xl p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
           <div>
             <h2 className="text-xl font-semibold text-white">Hiring Workspace Controls</h2>
@@ -227,17 +227,17 @@ export default function RecruiterWorkspace() {
           const d: any = await res.json();
           if(d.success){setNewCompetency('');setNewCompetencyDesc('');setShowCompetencyForm(false);const r=await fetch('/api/competencies');const x: any = await r.json();if(x.success)setCompetencies(x.competencies||[]);}
         }} className="grid md:grid-cols-3 gap-3 mb-5">
-          <input required value={newCompetency} onChange={e=>setNewCompetency(e.target.value)} placeholder="Competency name" className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"/>
-          <input value={newCompetencyDesc} onChange={e=>setNewCompetencyDesc(e.target.value)} placeholder="Description" className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"/>
-          <button className="bg-brand-600 hover:bg-brand-500 text-white rounded-lg px-3 py-2">Create competency</button>
+          <input required value={newCompetency} onChange={e=>setNewCompetency(e.target.value)} placeholder="Competency name" className="bg-[#001824] border border-[#002f47] rounded-lg px-3 py-2 text-white"/>
+          <input value={newCompetencyDesc} onChange={e=>setNewCompetencyDesc(e.target.value)} placeholder="Description" className="bg-[#001824] border border-[#002f47] rounded-lg px-3 py-2 text-white"/>
+          <button className="bg-[#FF4103] hover:bg-[#e03200] text-white rounded-lg px-3 py-2">Create competency</button>
         </form>}
         <div className="grid md:grid-cols-3 gap-3">
-          {competencies.slice(0,6).map((comp:any)=><div key={comp.id} className="bg-slate-950 border border-slate-800 rounded-lg p-4">
+          {competencies.slice(0,6).map((comp:any)=><div key={comp.id} className="bg-[#001824] border border-[#063750] rounded-lg p-4">
             <div className="font-medium text-white">{comp.name}</div>
             <div className="text-xs text-slate-500 mt-1">{comp.description || 'No description'}</div>
-            <div className="text-xs text-brand-400 mt-3">{(comp.skills||[]).length} skills mapped</div>
+            <div className="text-xs text-[#FF4103] mt-3">{(comp.skills||[]).length} skills mapped</div>
           </div>)}
-          {competencies.length===0 && <div className="md:col-span-3 text-sm text-slate-500 border border-dashed border-slate-700 rounded-lg p-6 text-center">No competency taxonomy configured yet.</div>}
+          {competencies.length===0 && <div className="md:col-span-3 text-sm text-slate-500 border border-dashed border-[#002f47] rounded-lg p-6 text-center">No competency taxonomy configured yet.</div>}
         </div>
       </section>
 
@@ -245,7 +245,7 @@ export default function RecruiterWorkspace() {
         
         {searchQuery && !selectedJobId ? (
           <div className="md:col-span-12">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <div className="bg-[#001f2e] border border-[#063750] rounded-xl p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-white">Semantic Search Results</h2>
                 <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-white text-sm">Clear Search</button>
@@ -254,15 +254,15 @@ export default function RecruiterWorkspace() {
               {isSearching ? (
                 <div className="text-slate-400 py-8 text-center">AI is scanning the candidate pool...</div>
               ) : searchResults.length === 0 ? (
-                <div className="text-slate-500 py-8 text-center border border-dashed border-slate-700 rounded-lg">No candidates matched your search.</div>
+                <div className="text-slate-500 py-8 text-center border border-dashed border-[#002f47] rounded-lg">No candidates matched your search.</div>
               ) : (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {searchResults.map(cand => (
-                    <div key={cand.id} className="bg-slate-950 border border-slate-800 p-5 rounded-lg flex flex-col gap-3">
+                    <div key={cand.id} className="bg-[#001824] border border-[#063750] p-5 rounded-lg flex flex-col gap-3">
                       <div className="flex justify-between items-start">
                         <div>
                           <h4 className="font-semibold text-white text-lg">{cand.full_name}</h4>
-                          <span className="text-sm text-brand-400">{cand.target_role} • {cand.experience_level}</span>
+                          <span className="text-sm text-[#FF4103]">{cand.target_role} • {cand.experience_level}</span>
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-xs text-slate-500 uppercase tracking-wider mb-1">Match</span>
@@ -282,17 +282,17 @@ export default function RecruiterWorkspace() {
         <div className="md:col-span-5 flex flex-col gap-4">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold text-white">Requisitions</h2>
-            <button onClick={() => setShowCreateForm(!showCreateForm)} className="flex items-center gap-1 px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium rounded-lg transition-colors">
+            <button onClick={() => setShowCreateForm(!showCreateForm)} className="flex items-center gap-1 px-3 py-1.5 bg-[#FF4103] hover:bg-[#e03200] text-white text-sm font-medium rounded-lg transition-colors">
               <Plus className="w-4 h-4" /> New Job
             </button>
           </div>
 
           {showCreateForm && (
-            <form onSubmit={handleCreateJob} className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
-              <input required type="text" placeholder="Job Title" value={newTitle} onChange={e => setNewTitle(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500" />
-              <input type="text" placeholder="Department" value={newDept} onChange={e => setNewDept(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500" />
-              <textarea placeholder="Job Description (required for AI matching)" value={newDesc} onChange={e => setNewDesc(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500 min-h-[100px]" />
-              <button type="submit" className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-medium rounded-lg transition-colors text-sm">Create Requisition</button>
+            <form onSubmit={handleCreateJob} className="bg-[#001f2e] border border-[#002f47] rounded-xl p-4 flex flex-col gap-3">
+              <input required type="text" placeholder="Job Title" value={newTitle} onChange={e => setNewTitle(e.target.value)} className="w-full bg-[#001824] border border-[#063750] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF4103]" />
+              <input type="text" placeholder="Department" value={newDept} onChange={e => setNewDept(e.target.value)} className="w-full bg-[#001824] border border-[#063750] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF4103]" />
+              <textarea placeholder="Job Description (required for AI matching)" value={newDesc} onChange={e => setNewDesc(e.target.value)} className="w-full bg-[#001824] border border-[#063750] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF4103] min-h-[100px]" />
+              <button type="submit" className="w-full py-2 bg-[#FF4103] hover:bg-[#e03200] text-white font-medium rounded-lg transition-colors text-sm">Create Requisition</button>
             </form>
           )}
 
@@ -302,15 +302,15 @@ export default function RecruiterWorkspace() {
               <button 
                 key={job.id} 
                 onClick={() => handleSelectJob(job.id)}
-                className={`text-left p-4 rounded-xl border transition-all ${selectedJobId === job.id ? 'bg-slate-800 border-brand-500' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}
+                className={`text-left p-4 rounded-xl border transition-all ${selectedJobId === job.id ? 'bg-slate-800 border-[#FF4103]' : 'bg-[#001f2e] border-[#063750] hover:border-slate-600'}`}
               >
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="font-semibold text-white">{job.title}</h3>
-                  <ChevronRight className={`w-5 h-5 ${selectedJobId === job.id ? 'text-brand-400' : 'text-slate-600'}`} />
+                  <ChevronRight className={`w-5 h-5 ${selectedJobId === job.id ? 'text-[#FF4103]' : 'text-slate-600'}`} />
                 </div>
                 <div className="flex gap-2">
-                  <span className="px-2 py-0.5 bg-slate-950 rounded text-xs text-slate-400 border border-slate-800">{job.department}</span>
-                  <span className="px-2 py-0.5 bg-slate-950 rounded text-xs text-slate-400 border border-slate-800">{job.status}</span>
+                  <span className="px-2 py-0.5 bg-[#001824] rounded text-xs text-slate-400 border border-[#063750]">{job.department}</span>
+                  <span className="px-2 py-0.5 bg-[#001824] rounded text-xs text-slate-400 border border-[#063750]">{job.status}</span>
                 </div>
               </button>
             ))}
@@ -320,36 +320,36 @@ export default function RecruiterWorkspace() {
         {/* RIGHT COLUMN: Applications View */}
         <div className="md:col-span-7">
           {!selectedJobId ? (
-            <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-xl p-12 flex flex-col items-center justify-center text-center">
+            <div className="bg-[#001f2e]/50 border border-[#063750] border-dashed rounded-xl p-12 flex flex-col items-center justify-center text-center">
               <Users className="w-12 h-12 text-slate-700 mb-4" />
               <h3 className="text-lg font-medium text-slate-300">Select a Requisition</h3>
               <p className="text-slate-500 text-sm max-w-sm mt-2">Click a job on the left to view incoming candidate applications and their AI Match Scores.</p>
             </div>
           ) : (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <div className="bg-[#001f2e] border border-[#063750] rounded-xl p-6">
               <h2 className="text-xl font-semibold text-white mb-6">Candidate Pipeline</h2>
               
               {loadingApps ? (
                 <div className="text-slate-400 py-8 text-center">Loading AI Evaluations...</div>
               ) : applications.length === 0 ? (
-                <div className="text-slate-500 py-8 text-center border border-dashed border-slate-700 rounded-lg">No candidates have applied yet.</div>
+                <div className="text-slate-500 py-8 text-center border border-dashed border-[#002f47] rounded-lg">No candidates have applied yet.</div>
               ) : (
                 <div className="flex flex-col gap-4">
                   {applications.map(app => (
-                    <div key={app.id} className="bg-slate-950 border border-slate-800 p-5 rounded-lg flex flex-col gap-4">
+                    <div key={app.id} className="bg-[#001824] border border-[#063750] p-5 rounded-lg flex flex-col gap-4">
                       
                       {/* Top Row: Name and Score */}
                       <div className="flex justify-between items-start">
                         <div>
                           <h4 className="font-semibold text-white text-lg">{app.full_name}</h4>
-                          <a href={`mailto:${app.email}`} className="text-sm text-brand-400 hover:underline">{app.email}</a>
+                          <a href={`mailto:${app.email}`} className="text-sm text-[#FF4103] hover:underline">{app.email}</a>
                           
                           <div className="mt-3">
                             <label className="text-xs text-slate-500 block mb-1">Pipeline Stage</label>
                             <select 
                               value={app.status || 'APPLIED'} 
                               onChange={(e) => updateApplicationStatus(app.id, e.target.value)}
-                              className="bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg focus:ring-brand-500 focus:border-brand-500 block w-40 p-2"
+                              className="bg-[#001f2e] border border-[#002f47] text-slate-200 text-sm rounded-lg focus:ring-brand-500 focus:border-[#FF4103] block w-40 p-2"
                             >
                               <option value="APPLIED">Applied</option>
                               <option value="SCREENING">Screening</option>
@@ -369,8 +369,8 @@ export default function RecruiterWorkspace() {
                       </div>
 
                       {/* AI Reasoning */}
-                      <div className="bg-slate-900 p-4 rounded-md border border-slate-800 flex gap-3">
-                        <FileText className="w-5 h-5 text-brand-500 flex-shrink-0 mt-0.5" />
+                      <div className="bg-[#001f2e] p-4 rounded-md border border-[#063750] flex gap-3">
+                        <FileText className="w-5 h-5 text-[#FF4103] flex-shrink-0 mt-0.5" />
                         <div>
                           <h5 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">AI Match Reasoning</h5>
                           <p className="text-slate-300 text-sm leading-relaxed">{app.match_reasoning || "Pending evaluation."}</p>

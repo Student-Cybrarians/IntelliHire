@@ -223,9 +223,9 @@ export default function AssessmentV2() {
 
   if (state === 'loading') {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center" role="status" aria-label="Loading assessment">
+      <div className="min-h-screen bg-[#001621] flex items-center justify-center" role="status" aria-label="Loading assessment">
         <div className="text-center">
-          <Loader2 className="w-10 h-10 text-brand-500 animate-spin mx-auto mb-4" aria-hidden="true" />
+          <Loader2 className="w-10 h-10 text-[#FF4103] animate-spin mx-auto mb-4" aria-hidden="true" />
           <p className="text-slate-400">Preparing your assessment...</p>
         </div>
       </div>
@@ -234,8 +234,8 @@ export default function AssessmentV2() {
 
   if (state === 'error') {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-red-800 rounded-xl p-8 text-center" role="alert">
+      <div className="min-h-screen bg-[#001621] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-[#001f2e] border border-red-800 rounded-xl p-8 text-center" role="alert">
           <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" aria-hidden="true" />
           <h1 className="text-xl font-bold text-white mb-2">Assessment Error</h1>
           <p className="text-slate-400 mb-6">{error}</p>
@@ -243,7 +243,7 @@ export default function AssessmentV2() {
             <button onClick={() => navigate('/dashboard')} className="px-4 py-2.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white">
               Back to Dashboard
             </button>
-            <button onClick={() => { setError(''); setState('intro'); }} className="px-4 py-2.5 rounded-lg bg-brand-600 text-white hover:bg-brand-500">
+            <button onClick={() => { setError(''); setState('intro'); }} className="px-4 py-2.5 rounded-lg bg-[#FF4103] text-white hover:bg-[#e03200]">
               Try Again
             </button>
           </div>
@@ -254,16 +254,16 @@ export default function AssessmentV2() {
 
   if (state === 'intro') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8">
+      <div className="min-h-screen bg-[#001621] text-slate-200 p-4 md:p-8">
         <div className="max-w-2xl mx-auto mt-12">
           <button onClick={() => navigate('/dashboard')} className="text-slate-400 hover:text-white text-sm mb-8 flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" /> Back to Dashboard
           </button>
           
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8">
+          <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-8">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-12 h-12 bg-brand-500/10 rounded-xl flex items-center justify-center">
-                <Brain className="w-6 h-6 text-brand-400" />
+                <Brain className="w-6 h-6 text-[#FF4103]" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">Skill Assessment</h1>
@@ -272,19 +272,19 @@ export default function AssessmentV2() {
             </div>
 
             <div className="space-y-4 mb-8">
-              <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                <h3 className="text-sm font-semibold text-brand-400 uppercase mb-2">How it works</h3>
+              <div className="p-4 bg-[#001621] border border-[#063750] rounded-lg">
+                <h3 className="text-sm font-semibold text-[#FF4103] uppercase mb-2">How it works</h3>
                 <ul className="space-y-2 text-sm text-slate-300">
-                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-brand-400 mt-0.5 shrink-0" /> Questions adapt to your demonstrated skill level</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-brand-400 mt-0.5 shrink-0" /> Multiple question types: conceptual, scenario-based, practical</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-brand-400 mt-0.5 shrink-0" /> Results show proficiency with confidence levels</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-brand-400 mt-0.5 shrink-0" /> Gap analysis identifies areas for improvement</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#FF4103] mt-0.5 shrink-0" /> Questions adapt to your demonstrated skill level</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#FF4103] mt-0.5 shrink-0" /> Multiple question types: conceptual, scenario-based, practical</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#FF4103] mt-0.5 shrink-0" /> Results show proficiency with confidence levels</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#FF4103] mt-0.5 shrink-0" /> Gap analysis identifies areas for improvement</li>
                 </ul>
               </div>
 
               <div className="p-4 bg-blue-950/20 border border-blue-900/50 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <ShieldCheck className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                  <ShieldCheck className="w-4 h-4 text-[#FF4103] mt-0.5 shrink-0" />
                   <p className="text-sm text-blue-300">Your responses are evaluated against structured rubrics. AI scoring confidence is tracked separately from your performance.</p>
                 </div>
               </div>
@@ -297,7 +297,7 @@ export default function AssessmentV2() {
                   id="blueprint-select"
                   value={selectedBlueprint || ''}
                   onChange={e => setSelectedBlueprint(e.target.value || null)}
-                  className="w-full p-3 bg-slate-950 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-brand-500 focus:outline-none"
+                  className="w-full p-3 bg-[#001621] border border-[#002f47] rounded-lg text-white focus:ring-2 focus:ring-[#FF4103] focus:outline-none"
                 >
                   <option value="">Auto-generate from your profile</option>
                   {blueprints.map(bp => (
@@ -309,7 +309,7 @@ export default function AssessmentV2() {
 
             <button 
               onClick={startAttempt}
-              className="w-full py-3.5 rounded-lg font-medium text-white bg-brand-600 hover:bg-brand-500 transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-lg font-medium text-white bg-[#FF4103] hover:bg-[#e03200] transition-colors flex items-center justify-center gap-2"
               aria-label="Begin adaptive assessment"
             >
               <Sparkles className="w-5 h-5" /> Begin Assessment
@@ -322,12 +322,12 @@ export default function AssessmentV2() {
 
   if (state === 'completed') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8">
+      <div className="min-h-screen bg-[#001621] text-slate-200 p-4 md:p-8">
         <div className="max-w-3xl mx-auto mt-12">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-            <div className="p-8 border-b border-slate-800 text-center">
+          <div className="bg-[#001f2e] border border-[#063750] rounded-2xl overflow-hidden">
+            <div className="p-8 border-b border-[#063750] text-center">
               <div className="w-16 h-16 bg-brand-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Target className="w-8 h-8 text-brand-400" />
+                <Target className="w-8 h-8 text-[#FF4103]" />
               </div>
               <h1 className="text-2xl font-bold text-white mb-2">Assessment Complete</h1>
               <p className="text-slate-400">Your skill proficiency has been updated based on verified evidence.</p>
@@ -336,17 +336,17 @@ export default function AssessmentV2() {
 
             {/* Proficiency Results */}
             {proficiency.length > 0 && (
-              <div className="p-8 border-b border-slate-800">
+              <div className="p-8 border-b border-[#063750]">
                 <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-brand-400" /> Skill Proficiency
+                  <BarChart3 className="w-5 h-5 text-[#FF4103]" /> Skill Proficiency
                 </h2>
                 <div className="space-y-4">
                   {proficiency.map(p => (
-                    <div key={p.skill_id} className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                    <div key={p.skill_id} className="p-4 bg-[#001621] border border-[#063750] rounded-lg">
                       <div className="flex justify-between items-center mb-2">
                         <span className="font-medium text-white">{p.skill_name}</span>
                         <div className="flex items-center gap-3">
-                          <span className="text-brand-400 font-bold">{(p.proficiency_estimate * 100).toFixed(0)}%</span>
+                          <span className="text-[#FF4103] font-bold">{(p.proficiency_estimate * 100).toFixed(0)}%</span>
                           <span className={`text-xs ${confidenceColor(p.uncertainty_estimate)}`}>
                             ±{(p.uncertainty_estimate * 100).toFixed(0)}%
                           </span>
@@ -369,13 +369,13 @@ export default function AssessmentV2() {
 
             {/* Gap Analysis */}
             {gaps.length > 0 && (
-              <div className="p-8 border-b border-slate-800">
+              <div className="p-8 border-b border-[#063750]">
                 <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-yellow-400" /> Gap Analysis
                 </h2>
                 <div className="space-y-3">
                   {gaps.map(g => (
-                    <div key={g.skill_id} className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                    <div key={g.skill_id} className="p-4 bg-[#001621] border border-[#063750] rounded-lg">
                       <div className="flex justify-between items-start">
                         <div>
                           <span className="font-medium text-white">{g.skill_name}</span>
@@ -404,7 +404,7 @@ export default function AssessmentV2() {
               </div>
               <button 
                 onClick={() => navigate('/dashboard')}
-                className="w-full py-3 rounded-lg font-medium text-white bg-brand-600 hover:bg-brand-500"
+                className="w-full py-3 rounded-lg font-medium text-white bg-[#FF4103] hover:bg-[#e03200]"
               >
                 Return to Command Center
               </button>
@@ -417,7 +417,7 @@ export default function AssessmentV2() {
 
   // --- IN PROGRESS / EVALUATING ---
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8">
+    <div className="min-h-screen bg-[#001621] text-slate-200 p-4 md:p-8">
       <div className="max-w-2xl mx-auto mt-8">
         {/* Header bar */}
         <div className="flex items-center justify-between mb-6">
@@ -438,17 +438,17 @@ export default function AssessmentV2() {
         {currentItem && (
           <div className="flex gap-2 mb-4 flex-wrap">
             {currentItem.skill_name && (
-              <span className="text-xs px-2.5 py-1 bg-brand-500/10 text-brand-400 rounded-full border border-brand-500/20">
+              <span className="text-xs px-2.5 py-1 bg-brand-500/10 text-[#FF4103] rounded-full border border-[#FF4103]/20">
                 {currentItem.skill_name}
               </span>
             )}
             {currentItem.difficulty_level && (
-              <span className="text-xs px-2.5 py-1 bg-slate-800 text-slate-400 rounded-full border border-slate-700">
+              <span className="text-xs px-2.5 py-1 bg-slate-800 text-slate-400 rounded-full border border-[#002f47]">
                 {difficultyLabel(currentItem.difficulty_level)}
               </span>
             )}
             {currentItem.selection_reason && (
-              <span className="text-xs px-2.5 py-1 bg-slate-800 text-slate-500 rounded-full border border-slate-700">
+              <span className="text-xs px-2.5 py-1 bg-slate-800 text-slate-500 rounded-full border border-[#002f47]">
                 {currentItem.selection_reason}
               </span>
             )}
@@ -456,19 +456,19 @@ export default function AssessmentV2() {
         )}
 
         {/* Question card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-          <div className="p-8 border-b border-slate-800">
+        <div className="bg-[#001f2e] border border-[#063750] rounded-2xl overflow-hidden shadow-xl">
+          <div className="p-8 border-b border-[#063750]">
             <h2 className="text-xl font-medium text-white leading-relaxed" id="question-text">
               {itemContent?.question || itemContent?.text || 'Loading question...'}
             </h2>
             {itemContent?.context && (
-              <div className="mt-4 p-3 bg-slate-950 border border-slate-800 rounded-lg">
+              <div className="mt-4 p-3 bg-[#001621] border border-[#063750] rounded-lg">
                 <p className="text-sm text-slate-400">{itemContent.context}</p>
               </div>
             )}
           </div>
 
-          <div className="p-8 bg-slate-900/50">
+          <div className="p-8 bg-[#001f2e]/50">
             {/* Multiple choice */}
             {currentItem?.item_type === 'multiple_choice' && itemContent?.options && (
               <div className="space-y-3" role="radiogroup" aria-labelledby="question-text">
@@ -479,14 +479,14 @@ export default function AssessmentV2() {
                     onClick={() => setSelectedOption(opt)}
                     role="radio"
                     aria-checked={selectedOption === opt}
-                    className={`w-full text-left p-4 rounded-xl border transition-all focus:ring-2 focus:ring-brand-500 focus:outline-none ${
+                    className={`w-full text-left p-4 rounded-xl border transition-all focus:ring-2 focus:ring-[#FF4103] focus:outline-none ${
                       selectedOption === opt
-                        ? 'border-brand-500 bg-brand-500/10 text-white'
-                        : 'border-slate-700 bg-slate-800/30 text-slate-300 hover:border-slate-600'
+                        ? 'border-[#FF4103] bg-brand-500/10 text-white'
+                        : 'border-[#002f47] bg-slate-800/30 text-slate-300 hover:border-slate-600'
                     } ${lastEvaluation ? 'opacity-70 cursor-default' : ''}`}
                   >
                     <div className="flex gap-4">
-                      <span className={`font-mono font-medium ${selectedOption === opt ? 'text-brand-400' : 'text-slate-500'}`}>
+                      <span className={`font-mono font-medium ${selectedOption === opt ? 'text-[#FF4103]' : 'text-slate-500'}`}>
                         {String.fromCharCode(65 + i)}
                       </span>
                       <span>{opt}</span>
@@ -507,7 +507,7 @@ export default function AssessmentV2() {
                   disabled={lastEvaluation !== null || submitting}
                   placeholder="Type your response here..."
                   rows={6}
-                  className="w-full p-4 bg-slate-950 border border-slate-700 rounded-xl text-white placeholder-slate-600 focus:ring-2 focus:ring-brand-500 focus:outline-none resize-y"
+                  className="w-full p-4 bg-[#001621] border border-[#002f47] rounded-xl text-white placeholder-slate-600 focus:ring-2 focus:ring-[#FF4103] focus:outline-none resize-y"
                 />
                 <p className="text-xs text-slate-500 mt-2">{freeTextResponse.length} characters</p>
               </div>
@@ -553,7 +553,7 @@ export default function AssessmentV2() {
                     (currentItem?.item_type !== 'multiple_choice' && !freeTextResponse.trim())
                   }
                   onClick={submitResponse}
-                  className="px-6 py-3 rounded-lg font-medium text-white bg-brand-600 hover:bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                  className="px-6 py-3 rounded-lg font-medium text-white bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
                   aria-label="Submit your answer"
                 >
                   {submitting ? (
@@ -578,3 +578,4 @@ export default function AssessmentV2() {
     </div>
   );
 }
+

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
+import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function CandidateWorkspace({ profileName }: { profileName: string }) {
   const [profile, setProfile] = useState<any>(null);
@@ -57,7 +58,14 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
     finally { setApplyingId(null); }
   };
 
-  if (loading) return <div className="text-white">Loading your workspace...</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center py-20 text-slate-400">
+      <div className="flex items-center gap-3">
+        <Flame className="w-6 h-6 text-[#FF4103] animate-spin" />
+        <span>Loading your candidate workspace...</span>
+      </div>
+    </div>
+  );
 
   const readiness = Number(profile?.readiness_score || 0);
   const skills = (() => { try { return JSON.parse(profile?.skills_json || '[]'); } catch { return []; } })();
@@ -68,69 +76,277 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
 
   return (
     <div className="space-y-8">
-      <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+      {/* Workspace Header */}
+      <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5 pb-6 border-b border-[#063750]">
         <div>
-          <div className="flex items-center gap-2 text-brand-400 text-sm font-medium mb-2"><Sparkles className="w-4 h-4"/> Candidate Command Center</div>
-          <h1 className="text-3xl font-bold text-white">Welcome back, {profileName.split(' ')[0]}.</h1>
-          <p className="text-slate-400 mt-2">Build evidence, verify skills and improve readiness for your target role.</p>
+          <div className="flex items-center gap-2 text-[#FF4103] text-xs font-bold uppercase tracking-wider mb-2">
+            <Flame className="w-4 h-4 text-[#FF4103]" /> 
+            <span>Candidate Command Center</span>
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+            Welcome back, {profileName.split(' ')[0]}.
+          </h1>
+          <p className="text-slate-300 text-sm mt-1.5">
+            Build authentic evidence, verify competency proficiency, and improve verified readiness.
+          </p>
         </div>
-        <button onClick={()=>load()} className="self-start lg:self-auto p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
+        
+        <div className="flex items-center gap-3">
+          <Link
+            to="/assess"
+            className="px-4 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/20 transition-all"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Take M2 Assessment</span>
+          </Link>
+          <button 
+            onClick={() => load()} 
+            className="p-2.5 rounded-xl bg-[#001f2e] border border-[#063750] text-slate-300 hover:text-white hover:bg-[#00273c] transition-colors" 
+            title="Refresh"
+            aria-label="Refresh workspace"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </header>
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4"><div><h2 className="text-lg font-semibold text-white">Profile & Evidence Readiness</h2><p className="text-sm text-slate-500">Context completeness is separate from verified proficiency.</p></div><span className="text-brand-400 font-bold">{completeness}%</span></div>
-          <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-brand-500 rounded-full transition-all" style={{width:`${completeness}%`}}/></div>
-          <div className="grid sm:grid-cols-2 gap-3 mt-5">
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800"><span className="text-xs text-slate-500">Target role</span><div className="text-white mt-1">{profile?.target_role || 'Not set'}</div></div>
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800"><span className="text-xs text-slate-500">Domain</span><div className="text-white mt-1">{profile?.primary_domain || 'Not set'}</div></div>
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800"><span className="text-xs text-slate-500">Resume</span><div className="text-white mt-1">{resumeStatus?.resume_uploaded ? resumeStatus.resume.filename : 'Not uploaded'}</div></div>
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800"><span className="text-xs text-slate-500">Extracted claims</span><div className="text-white mt-1">{claims.length}</div></div>
+      {/* Readiness & Profile Gauges */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-white">Profile & Evidence Readiness</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Context completeness is maintained separate from verified proficiency.</p>
+            </div>
+            <span className="text-[#FF4103] font-black text-xl">{completeness}%</span>
+          </div>
+          
+          <div className="h-2.5 bg-[#001824] rounded-full overflow-hidden border border-[#002b40]">
+            <div 
+              className="h-full bg-gradient-to-r from-[#FF4103] to-[#ff7847] rounded-full transition-all duration-500" 
+              style={{ width: `${completeness}%` }}
+            />
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3 mt-6">
+            <div className="p-3.5 bg-[#001824] rounded-xl border border-[#002f47]">
+              <span className="text-xs text-slate-400 uppercase font-semibold">Target role</span>
+              <div className="text-white font-bold text-sm mt-1">{profile?.target_role || 'Not set'}</div>
+            </div>
+            <div className="p-3.5 bg-[#001824] rounded-xl border border-[#002f47]">
+              <span className="text-xs text-slate-400 uppercase font-semibold">Domain</span>
+              <div className="text-white font-bold text-sm mt-1">{profile?.primary_domain || 'Not set'}</div>
+            </div>
+            <div className="p-3.5 bg-[#001824] rounded-xl border border-[#002f47]">
+              <span className="text-xs text-slate-400 uppercase font-semibold">Resume Source</span>
+              <div className="text-white font-bold text-sm mt-1 truncate">
+                {resumeStatus?.resume_uploaded ? resumeStatus.resume.filename : 'Not uploaded'}
+              </div>
+            </div>
+            <div className="p-3.5 bg-[#001824] rounded-xl border border-[#002f47]">
+              <span className="text-xs text-slate-400 uppercase font-semibold">Extracted Claims</span>
+              <div className="text-[#FF4103] font-bold text-sm mt-1">{claims.length} verified assertions</div>
+            </div>
           </div>
         </div>
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center gap-2 text-slate-300 mb-3"><Target className="w-5 h-5 text-brand-400"/><span>Readiness</span></div>
-          <div className="text-4xl font-bold text-white">{(readiness * 100).toFixed(0)}%</div>
-          <p className="text-xs text-slate-500 mt-2">Current synthesized score. Complete evidence and assessments to update it.</p>
+
+        <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-slate-300 mb-3">
+              <Target className="w-5 h-5 text-[#FF4103]" />
+              <span className="font-bold text-sm text-white">Synthesized Readiness</span>
+            </div>
+            <div className="text-5xl font-black text-white tracking-tight">
+              {(readiness * 100).toFixed(0)}%
+            </div>
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+              Synthesized score from verified M1 claim extraction and M2 adaptive assessments. Complete more assessments to reduce uncertainty.
+            </p>
+          </div>
+
+          <div className="pt-4 border-t border-[#002a40] mt-4">
+            <Link
+              to="/assess"
+              className="w-full py-2.5 rounded-xl bg-[#FF4103]/15 border border-[#FF4103]/40 text-[#FF4103] hover:bg-[#FF4103] hover:text-white text-xs font-bold flex items-center justify-center gap-2 transition-all"
+            >
+              <span>Verify Next Competency</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       </div>
 
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div><h2 className="text-xl font-semibold text-white flex items-center gap-2"><FileText className="w-5 h-5 text-brand-400"/> Resume Intelligence</h2><p className="text-slate-400 text-sm mt-1">Upload PDF, DOCX, TXT or TEX. Your original document remains the source of truth.</p></div>
-          <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.tex" className="hidden" onChange={e=>{const file=e.target.files?.[0]; if(file) uploadResume(file); e.currentTarget.value='';}}/>
-          <button disabled={uploading} onClick={()=>fileRef.current?.click()} className="px-4 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 font-medium">{uploading ? 'Extracting…' : <><Upload className="w-4 h-4"/> Upload Resume</>}</button>
+      {/* Resume Intelligence Section */}
+      <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[#002a40]">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-[#FF4103]" /> 
+              <span>M1 · Resume Intelligence & Extraction</span>
+            </h2>
+            <p className="text-slate-400 text-xs sm:text-sm mt-1">
+              Supports PDF, DOCX, TXT or TEX. Original document remains the immutable evidence source.
+            </p>
+          </div>
+          
+          <input 
+            ref={fileRef} 
+            type="file" 
+            accept=".pdf,.docx,.txt,.tex" 
+            className="hidden" 
+            onChange={e => {
+              const file = e.target.files?.[0]; 
+              if (file) uploadResume(file); 
+              e.currentTarget.value = '';
+            }}
+          />
+          
+          <div className="flex gap-2">
+            <Link
+              to="/resume"
+              className="px-4 py-2.5 bg-[#001824] hover:bg-[#002538] border border-[#002f47] text-slate-200 text-xs font-bold rounded-xl flex items-center gap-2 transition-colors"
+            >
+              Open Studio
+            </Link>
+            <button 
+              disabled={uploading} 
+              onClick={() => fileRef.current?.click()} 
+              className="px-4 py-2.5 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white rounded-xl flex items-center gap-2 text-xs font-bold shadow-md shadow-[#FF4103]/20 transition-all"
+            >
+              {uploading ? 'Extracting…' : <><Upload className="w-4 h-4"/> Upload Resume</>}
+            </button>
+          </div>
         </div>
-        {uploadMessage && <div className="mt-4 p-3 rounded-lg bg-slate-950 border border-slate-800 text-sm text-slate-300">{uploadMessage}</div>}
-        <div className="grid md:grid-cols-3 gap-3 mt-5">
-          <div className="p-4 rounded-lg bg-slate-950 border border-slate-800"><ShieldCheck className="w-5 h-5 text-brand-400 mb-2"/><div className="text-sm text-white">Source integrity</div><div className="text-xs text-slate-500 mt-1">Original resume evidence is kept separate from inferred analysis.</div></div>
-          <div className="p-4 rounded-lg bg-slate-950 border border-slate-800"><ClipboardCheck className="w-5 h-5 text-brand-400 mb-2"/><div className="text-sm text-white">Claim extraction</div><div className="text-xs text-slate-500 mt-1">{claims.length ? `${claims.length} extracted claims available` : 'Upload a resume to begin extraction.'}</div></div>
-          <div className="p-4 rounded-lg bg-slate-950 border border-slate-800"><CheckCircle2 className="w-5 h-5 text-brand-400 mb-2"/><div className="text-sm text-white">Assessment evidence</div><div className="text-xs text-slate-500 mt-1">Use the assessment workflow to verify claimed skills.</div></div>
-        </div>
-      </section>
 
-      <section>
-        <div className="flex items-center justify-between mb-4"><h2 className="text-xl font-semibold text-white">Next Actions</h2></div>
-        <div className="grid md:grid-cols-3 gap-4">
-          <button onClick={()=>window.location.href='/assess'} className="text-left bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-brand-500/50 transition-colors"><ClipboardCheck className="w-6 h-6 text-brand-400 mb-3"/><h3 className="font-semibold text-white">Take Assessment</h3><p className="text-sm text-slate-500 mt-1">Adaptive skill verification with evidence-based proficiency.</p></button>
-          <button onClick={()=>fileRef.current?.click()} className="text-left bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-brand-500/50 transition-colors"><Upload className="w-6 h-6 text-brand-400 mb-3"/><h3 className="font-semibold text-white">Update Resume</h3><p className="text-sm text-slate-500 mt-1">Keep your source context current.</p></button>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5"><Briefcase className="w-6 h-6 text-brand-400 mb-3"/><h3 className="font-semibold text-white">Explore Jobs</h3><p className="text-sm text-slate-500 mt-1">Review roles below and apply when ready.</p></div>
-        </div>
-      </section>
+        {uploadMessage && (
+          <div className="mt-4 p-3.5 rounded-xl bg-[#001824] border border-[#002f47] text-xs text-slate-300">
+            {uploadMessage}
+          </div>
+        )}
 
-      <section>
-        <h2 className="text-xl font-semibold text-white mb-4">Job Board</h2>
-        <div className="grid md:grid-cols-2 gap-6">
-          {jobs.length === 0 ? <p className="text-slate-500">No open jobs posted yet.</p> : jobs.map(job => (
-            <div key={job.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 flex flex-col">
-              <div className="flex justify-between items-start mb-4"><div><h3 className="text-lg font-semibold text-white">{job.title}</h3><p className="text-slate-400 text-sm">{job.department}</p></div><Briefcase className="w-5 h-5 text-brand-400"/></div>
-              <button disabled={applyingId === job.id} onClick={()=>applyToJob(job.id)} className="w-full mt-auto py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-medium rounded-lg">{applyingId === job.id ? 'Applying...' : 'Apply with IntelliHire'}</button>
+        <div className="grid md:grid-cols-3 gap-4 mt-6">
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <ShieldCheck className="w-5 h-5 text-[#FF4103] mb-2" />
+            <div className="text-sm font-bold text-white">Source Integrity</div>
+            <div className="text-xs text-slate-400 mt-1">
+              Original resume evidence is stored in KV with SHA-256 integrity hashes.
             </div>
-          ))}
+          </div>
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <ClipboardCheck className="w-5 h-5 text-[#FF4103] mb-2" />
+            <div className="text-sm font-bold text-white">Claim Extraction</div>
+            <div className="text-xs text-slate-400 mt-1">
+              {claims.length ? `${claims.length} claims extracted with character provenance.` : 'Upload a resume to begin extraction.'}
+            </div>
+          </div>
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <CheckCircle2 className="w-5 h-5 text-[#FF4103] mb-2" />
+            <div className="text-sm font-bold text-white">Assessment Proof</div>
+            <div className="text-xs text-slate-400 mt-1">
+              Use M2 Universal Assessment to convert unverified claims into proven capability.
+            </div>
+          </div>
         </div>
       </section>
 
-      {claims.length > 0 && <section className="bg-slate-900 border border-slate-800 rounded-xl p-6"><h2 className="text-xl font-semibold text-white mb-4">Evidence Snapshot</h2><div className="grid md:grid-cols-2 gap-3">{claims.slice(0,8).map((c,i)=><div key={i} className="p-3 bg-slate-950 border border-slate-800 rounded-lg"><span className="text-xs uppercase text-brand-400">{c.claim_type}</span><div className="text-sm text-slate-200 mt-1">{c.claim_value}</div><div className="text-xs text-slate-600 mt-1">State: extracted</div></div>)}</div></section>}
+      {/* Next Actions Grid */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-white">Recommended Next Actions</h2>
+        </div>
+        <div className="grid md:grid-cols-3 gap-4">
+          <button 
+            onClick={() => window.location.href = '/assess'} 
+            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg"
+          >
+            <ClipboardCheck className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Take Assessment</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Adaptive skill verification with evidence-based proficiency and uncertainty tracking.
+            </p>
+          </button>
+          
+          <button 
+            onClick={() => fileRef.current?.click()} 
+            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg"
+          >
+            <Upload className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Update Resume</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Upload a new version to trigger multi-pass extraction and hybrid ATS re-scoring.
+            </p>
+          </button>
+          
+          <Link 
+            to="/candidate" 
+            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg block"
+          >
+            <Briefcase className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Evidence Portfolio</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              View your full competency radar, verified claims, and exportable Evidence Package.
+            </p>
+          </Link>
+        </div>
+      </section>
+
+      {/* Job Board Requisitions */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-white">Live Requisitions & Match Engine</h2>
+          <span className="text-xs text-slate-400">{jobs.length} open roles</span>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          {jobs.length === 0 ? (
+            <div className="p-8 bg-[#001f2e] border border-[#063750] rounded-2xl text-slate-400 text-sm text-center md:col-span-2">
+              No active job requisitions posted yet. Check back soon.
+            </div>
+          ) : (
+            jobs.map(job => (
+              <div key={job.id} className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 flex flex-col justify-between hover:border-[#FF4103]/50 transition-colors shadow-lg">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">{job.title}</h3>
+                    <p className="text-slate-400 text-xs mt-0.5">{job.department || 'General'}</p>
+                  </div>
+                  <Briefcase className="w-5 h-5 text-[#FF4103]" />
+                </div>
+                <button 
+                  disabled={applyingId === job.id} 
+                  onClick={() => applyToJob(job.id)} 
+                  className="w-full mt-4 py-2.5 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md shadow-[#FF4103]/20 transition-all"
+                >
+                  {applyingId === job.id ? 'Submitting Application...' : 'Apply with Evidence Portfolio'}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* Extracted Claims Snapshot */}
+      {claims.length > 0 && (
+        <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-white">Extracted Claim Provenance Snapshot</h2>
+            <span className="text-xs text-[#FF4103] font-semibold">{claims.length} claims</span>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {claims.slice(0, 8).map((c, i) => (
+              <div key={i} className="p-3.5 bg-[#001824] border border-[#002f47] rounded-xl">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-[#FF4103] bg-[#FF4103]/10 px-2 py-0.5 rounded">
+                  {c.claim_type}
+                </span>
+                <div className="text-sm font-medium text-slate-200 mt-2">{c.claim_value}</div>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                  <span>State: {c.verification_state || 'extracted'}</span>
+                  <span>Conf: {((c.confidence_score || 0.85) * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

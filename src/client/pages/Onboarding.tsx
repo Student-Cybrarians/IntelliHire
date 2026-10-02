@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, ArrowRight, Code, Loader2, Search } from 'lucide-react';
+import { Briefcase, ArrowRight, Loader2, Search, Flame, CheckCircle2 } from 'lucide-react';
 
 interface Domain {
   id: string;
@@ -87,44 +87,62 @@ export default function Onboarding() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-        <div className="bg-slate-800/50 p-6 border-b border-slate-800 flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold text-white">Complete Your Profile</h2>
-            <p className="text-sm text-slate-400">Step {step} of 3</p>
+    <div className="min-h-screen bg-[#001621] flex flex-col items-center justify-center p-4 sm:p-6 selection:bg-[#FF4103] selection:text-white relative overflow-hidden">
+      
+      {/* Background Glow */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[400px] bg-[#FF4103]/10 rounded-full blur-[140px] pointer-events-none" />
+
+      <div className="w-full max-w-2xl bg-[#001f2e] border border-[#063750] rounded-3xl shadow-2xl overflow-hidden relative z-10">
+        
+        {/* Top Accent Strip */}
+        <div className="h-1.5 bg-gradient-to-r from-[#FF4103] via-[#ff7847] to-[#e03200]" />
+
+        {/* Header */}
+        <div className="bg-[#001824] p-6 border-b border-[#063750] flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF4103] to-[#b82500] flex items-center justify-center shadow-md">
+              <Flame className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Complete Your Profile</h2>
+              <p className="text-xs text-slate-400">Step {step} of 3</p>
+            </div>
           </div>
+          
           <div className="flex gap-2">
-            <div className={`w-12 h-1 rounded-full ${step >= 1 ? 'bg-brand-500' : 'bg-slate-700'}`}></div>
-            <div className={`w-12 h-1 rounded-full ${step >= 2 ? 'bg-brand-500' : 'bg-slate-700'}`}></div>
-            <div className={`w-12 h-1 rounded-full ${step >= 3 ? 'bg-brand-500' : 'bg-slate-700'}`}></div>
+            <div className={`w-10 h-1.5 rounded-full transition-all ${step >= 1 ? 'bg-[#FF4103]' : 'bg-[#002f47]'}`} />
+            <div className={`w-10 h-1.5 rounded-full transition-all ${step >= 2 ? 'bg-[#FF4103]' : 'bg-[#002f47]'}`} />
+            <div className={`w-10 h-1.5 rounded-full transition-all ${step >= 3 ? 'bg-[#FF4103]' : 'bg-[#002f47]'}`} />
           </div>
         </div>
 
-        <div className="p-8">
+        {/* Step Content */}
+        <div className="p-6 sm:p-8">
           {step === 1 && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-white">Select your domain</h3>
-              <p className="text-slate-400">Which broad field are you focusing on?</p>
+              <div>
+                <h3 className="text-2xl font-bold text-white">Select your domain</h3>
+                <p className="text-slate-400 text-sm mt-1">Which broad occupational field are you focusing on?</p>
+              </div>
               
               {loadingDomains ? (
                 <div className="flex justify-center py-12">
-                  <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+                  <Loader2 className="w-8 h-8 text-[#FF4103] animate-spin" />
                 </div>
               ) : (
-                <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                   {domains.map((domain) => (
                     <button
                       key={domain.id}
                       onClick={() => setTargetDomainId(domain.id)}
                       className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all ${
                         targetDomainId === domain.id 
-                          ? 'bg-brand-500/10 border-brand-500 text-white' 
-                          : 'bg-slate-800/30 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
+                          ? 'bg-[#FF4103]/15 border-[#FF4103] text-white shadow-md shadow-[#FF4103]/10' 
+                          : 'bg-[#001824] border-[#002f47] text-slate-300 hover:bg-[#002538] hover:border-[#063750]'
                       }`}
                     >
-                      <Briefcase className={`w-6 h-6 ${targetDomainId === domain.id ? 'text-brand-500' : 'text-slate-500'}`} />
-                      <span className="font-medium">{domain.name}</span>
+                      <Briefcase className={`w-5 h-5 ${targetDomainId === domain.id ? 'text-[#FF4103]' : 'text-slate-500'}`} />
+                      <span className="font-semibold text-sm">{domain.name}</span>
                     </button>
                   ))}
                   {domains.length === 0 && (
@@ -133,11 +151,11 @@ export default function Onboarding() {
                 </div>
               )}
 
-              <div className="pt-6 flex justify-end">
+              <div className="pt-6 border-t border-[#00283d] flex justify-end">
                 <button 
                   onClick={() => setStep(2)}
                   disabled={!targetDomainId}
-                  className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-medium rounded-lg flex items-center gap-2"
+                  className="px-6 py-3 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-[#FF4103]/25 transition-all"
                 >
                   Continue <ArrowRight className="w-4 h-4" />
                 </button>
@@ -147,17 +165,19 @@ export default function Onboarding() {
 
           {step === 2 && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-white">What is your specific occupation?</h3>
-              <p className="text-slate-400">Search and select your target role.</p>
+              <div>
+                <h3 className="text-2xl font-bold text-white">What is your specific occupation?</h3>
+                <p className="text-slate-400 text-sm mt-1">Search and select your target role.</p>
+              </div>
               
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
                   type="text"
                   placeholder="Search occupations..."
                   value={occupationSearch}
                   onChange={(e) => setOccupationSearch(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
+                  className="w-full bg-[#001824] border border-[#002f47] rounded-xl pl-11 pr-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:border-[#FF4103] focus:ring-2 focus:ring-[#FF4103]/30 transition-all text-sm"
                   aria-autocomplete="list"
                   role="combobox"
                   aria-expanded="true"
@@ -166,42 +186,44 @@ export default function Onboarding() {
 
               {loadingOccupations ? (
                 <div className="flex justify-center py-12">
-                  <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+                  <Loader2 className="w-8 h-8 text-[#FF4103] animate-spin" />
                 </div>
               ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-2" role="listbox">
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1" role="listbox">
                   {filteredOccupations.map((occ) => (
                     <button
                       key={occ.id}
                       onClick={() => setTargetOccupationId(occ.id)}
                       role="option"
                       aria-selected={targetOccupationId === occ.id}
-                      className={`w-full flex items-center p-3 rounded-lg border text-left transition-all ${
+                      className={`w-full flex items-center p-3.5 rounded-xl border text-left transition-all ${
                         targetOccupationId === occ.id 
-                          ? 'bg-brand-500/10 border-brand-500 text-white' 
-                          : 'bg-transparent border-transparent text-slate-300 hover:bg-slate-800'
+                          ? 'bg-[#FF4103]/15 border-[#FF4103] text-white shadow-sm' 
+                          : 'bg-transparent border-transparent text-slate-300 hover:bg-[#002538]'
                       }`}
                     >
-                      <span className="font-medium">{occ.name}</span>
+                      <span className="font-semibold text-sm">{occ.name}</span>
                     </button>
                   ))}
                   {filteredOccupations.length === 0 && (
-                    <div className="text-slate-400 text-center py-8">No occupations found matching "{occupationSearch}".</div>
+                    <div className="text-slate-400 text-center py-8 text-sm">
+                      No occupations found matching "{occupationSearch}".
+                    </div>
                   )}
                 </div>
               )}
 
-              <div className="pt-6 flex justify-between">
+              <div className="pt-6 border-t border-[#00283d] flex justify-between">
                 <button 
                   onClick={() => setStep(1)}
-                  className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg"
+                  className="px-6 py-3 bg-[#001824] hover:bg-[#002538] border border-[#002f47] text-white font-semibold rounded-xl transition-colors"
                 >
                   Back
                 </button>
                 <button 
                   onClick={() => setStep(3)}
                   disabled={!targetOccupationId}
-                  className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-medium rounded-lg flex items-center gap-2"
+                  className="px-6 py-3 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-[#FF4103]/25 transition-all"
                 >
                   Continue <ArrowRight className="w-4 h-4" />
                 </button>
@@ -211,8 +233,10 @@ export default function Onboarding() {
 
           {step === 3 && (
             <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-white">Experience Level</h3>
-              <p className="text-slate-400">We calibrate the difficulty of your simulations based on your seniority.</p>
+              <div>
+                <h3 className="text-2xl font-bold text-white">Experience Level</h3>
+                <p className="text-slate-400 text-sm mt-1">We calibrate the difficulty and ambiguity of your simulations based on your seniority.</p>
+              </div>
               
               <div className="grid grid-cols-2 gap-4">
                 {[
@@ -224,29 +248,29 @@ export default function Onboarding() {
                   <button
                     key={exp.id}
                     onClick={() => setExperience(exp.id)}
-                    className={`flex flex-col items-center justify-center p-6 rounded-xl border text-center transition-all ${
+                    className={`flex flex-col items-center justify-center p-6 rounded-2xl border text-center transition-all ${
                       experience === exp.id 
-                        ? 'bg-brand-500/10 border-brand-500 text-white' 
-                        : 'bg-slate-800/30 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
+                        ? 'bg-[#FF4103]/15 border-[#FF4103] text-white shadow-md shadow-[#FF4103]/15' 
+                        : 'bg-[#001824] border-[#002f47] text-slate-300 hover:bg-[#002538] hover:border-[#063750]'
                     }`}
                   >
-                    <span className="font-semibold text-lg">{exp.label}</span>
-                    <span className="text-sm opacity-70 mt-1">{exp.sub}</span>
+                    <span className="font-bold text-lg text-white">{exp.label}</span>
+                    <span className="text-xs text-slate-400 mt-1">{exp.sub}</span>
                   </button>
                 ))}
               </div>
 
-              <div className="pt-6 flex justify-between">
+              <div className="pt-6 border-t border-[#00283d] flex justify-between">
                 <button 
                   onClick={() => setStep(2)}
-                  className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg"
+                  className="px-6 py-3 bg-[#001824] hover:bg-[#002538] border border-[#002f47] text-white font-semibold rounded-xl transition-colors"
                 >
                   Back
                 </button>
                 <button 
                   onClick={handleComplete}
                   disabled={!experience}
-                  className="px-6 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-medium rounded-lg flex items-center gap-2"
+                  className="px-6 py-3 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg shadow-[#FF4103]/25 transition-all"
                 >
                   Generate Blueprint <ArrowRight className="w-4 h-4" />
                 </button>

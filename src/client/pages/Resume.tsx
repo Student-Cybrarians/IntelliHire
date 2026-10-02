@@ -173,11 +173,11 @@ export default function Resume() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-8">
+    <div className="min-h-screen bg-[#001621] p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <FileText className="w-8 h-8 text-brand-500" />
+            <FileText className="w-8 h-8 text-[#FF4103]" />
             Resume Intelligence & ATS Matching
           </h1>
           <button 
@@ -201,15 +201,15 @@ export default function Resume() {
 
         <div className="grid lg:grid-cols-2 gap-6">
           {/* LEFT: Resume */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6 flex flex-col">
+          <div className="bg-[#001f2e] border border-[#063750] rounded-xl p-6 space-y-6 flex flex-col">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-              <FileText className="w-6 h-6 text-brand-500" />
+              <FileText className="w-6 h-6 text-[#FF4103]" />
               Source Evidence
             </h2>
             
             {!resumeData && !extracting ? (
               <form onSubmit={handleUpload} className="space-y-4">
-                <div className="border-2 border-dashed border-slate-700 rounded-lg p-8 text-center hover:border-brand-500 transition-colors cursor-pointer">
+                <div className="border-2 border-dashed border-[#002f47] rounded-lg p-8 text-center hover:border-[#FF4103] transition-colors cursor-pointer">
                   <input
                     type="file"
                     accept=".pdf,.docx,.txt"
@@ -225,14 +225,14 @@ export default function Resume() {
                 <button
                   type="submit"
                   disabled={!file || uploading}
-                  className="w-full py-3 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold disabled:opacity-50"
+                  className="w-full py-3 px-4 bg-[#FF4103] hover:bg-brand-700 text-white rounded-lg font-semibold disabled:opacity-50"
                 >
                   {uploading ? 'Uploading...' : 'Extract Evidence'}
                 </button>
               </form>
             ) : extracting ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-brand-400 space-y-4 py-12">
-                <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <div className="flex-1 flex flex-col items-center justify-center text-[#FF4103] space-y-4 py-12">
+                <div className="w-8 h-8 border-4 border-[#FF4103] border-t-transparent rounded-full animate-spin" />
                 <p>Analyzing document context...</p>
               </div>
             ) : (
@@ -245,7 +245,7 @@ export default function Resume() {
                     <h3 className="text-sm font-semibold text-slate-400 uppercase mb-2">Verified Skills</h3>
                     <div className="flex flex-wrap gap-2">
                       {resumeData.skills.map((skill: string, i: number) => (
-                        <span key={i} className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-sm border border-slate-700">
+                        <span key={i} className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-sm border border-[#002f47]">
                           {skill}
                         </span>
                       ))}
@@ -257,9 +257,9 @@ export default function Resume() {
           </div>
 
           {/* RIGHT: JD */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6 flex flex-col">
+          <div className="bg-[#001f2e] border border-[#063750] rounded-xl p-6 space-y-6 flex flex-col">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-              <Briefcase className="w-6 h-6 text-brand-500" />
+              <Briefcase className="w-6 h-6 text-[#FF4103]" />
               Target Requirements
             </h2>
 
@@ -269,19 +269,19 @@ export default function Resume() {
                   value={jdText}
                   onChange={(e) => setJdText(e.target.value)}
                   placeholder="Paste Job Description here..."
-                  className="flex-1 w-full p-4 bg-slate-950 border border-slate-700 rounded-lg text-slate-300 focus:outline-none focus:border-brand-500 resize-none min-h-[200px]"
+                  className="flex-1 w-full p-4 bg-[#001621] border border-[#002f47] rounded-lg text-slate-300 focus:outline-none focus:border-[#FF4103] resize-none min-h-[200px]"
                 />
                 <button
                   type="submit"
                   disabled={!jdText.trim()}
-                  className="w-full py-3 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold disabled:opacity-50"
+                  className="w-full py-3 px-4 bg-[#FF4103] hover:bg-brand-700 text-white rounded-lg font-semibold disabled:opacity-50"
                 >
                   Analyze Job Description
                 </button>
               </form>
             ) : jdAnalyzing ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-brand-400 space-y-4 py-12">
-                <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <div className="flex-1 flex flex-col items-center justify-center text-[#FF4103] space-y-4 py-12">
+                <div className="w-8 h-8 border-4 border-[#FF4103] border-t-transparent rounded-full animate-spin" />
                 <p>Extracting target requirements...</p>
               </div>
             ) : (
@@ -292,7 +292,7 @@ export default function Resume() {
                 {jdData?.requirements && (
                   <ul className="space-y-2">
                     {jdData.requirements.map((req: any, i: number) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-slate-300 p-2 bg-slate-950 rounded border border-slate-800">
+                      <li key={i} className="flex items-start gap-2 text-sm text-slate-300 p-2 bg-[#001621] rounded border border-[#063750]">
                         <ChevronRight className="w-4 h-4 mt-0.5 text-slate-500" />
                         <span>{req.requirement} {req.mandatory && <span className="text-red-400 text-xs font-bold ml-1">REQUIRED</span>}</span>
                       </li>
@@ -306,16 +306,16 @@ export default function Resume() {
 
         {/* BOTTOM: Match Analysis */}
         {resumeData && jdData && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+          <div className="bg-[#001f2e] border border-[#063750] rounded-xl p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                <Bot className="w-8 h-8 text-brand-500" />
+                <Bot className="w-8 h-8 text-[#FF4103]" />
                 ATS & Match Analysis
               </h2>
               {!matchData && !matchRunning && (
                 <button
                   onClick={handleMatch}
-                  className="px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold"
+                  className="px-6 py-3 bg-[#FF4103] hover:bg-brand-700 text-white rounded-lg font-semibold"
                 >
                   Run Intelligence Match
                 </button>
@@ -323,8 +323,8 @@ export default function Resume() {
             </div>
 
             {matchRunning && (
-              <div className="flex flex-col items-center justify-center text-brand-400 space-y-4 py-12">
-                <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <div className="flex flex-col items-center justify-center text-[#FF4103] space-y-4 py-12">
+                <div className="w-8 h-8 border-4 border-[#FF4103] border-t-transparent rounded-full animate-spin" />
                 <p>Correlating evidence against requirements...</p>
               </div>
             )}
@@ -332,7 +332,7 @@ export default function Resume() {
             {matchData && (
               <div className="space-y-8">
                 {/* ATS Score */}
-                <div className="flex items-center gap-4 p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                <div className="flex items-center gap-4 p-4 bg-[#001621] border border-[#063750] rounded-lg">
                   <div className="text-4xl font-bold text-white">{matchData.ats_score}<span className="text-lg text-slate-500">/100</span></div>
                   <div>
                     <h3 className="font-semibold text-white">Parseability & Alignment</h3>
@@ -345,15 +345,15 @@ export default function Resume() {
                   <h3 className="text-lg font-semibold text-white mb-4">Evidence Gap Analysis</h3>
                   <div className="space-y-3">
                     {matchData.gap_analysis?.map((gap: any, i: number) => (
-                      <div key={i} className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
+                      <div key={i} className="p-4 bg-[#001621] border border-[#063750] rounded-lg">
                         <div className="flex items-start gap-3">
                           {getStatusIcon(gap.status)}
                           <div>
                             <p className="font-medium text-slate-200">{gap.requirement}</p>
                             {gap.candidate_evidence && (
-                              <p className="text-sm text-slate-400 mt-1"><span className="text-brand-400 font-semibold">Evidence:</span> {gap.candidate_evidence}</p>
+                              <p className="text-sm text-slate-400 mt-1"><span className="text-[#FF4103] font-semibold">Evidence:</span> {gap.candidate_evidence}</p>
                             )}
-                            <p className="text-sm text-slate-500 mt-2 bg-slate-900 p-2 rounded">{gap.explanation}</p>
+                            <p className="text-sm text-slate-500 mt-2 bg-[#001f2e] p-2 rounded">{gap.explanation}</p>
                               {gap.status === 'CONTRADICTORY' && (
                                 <div className="mt-2 text-xs font-semibold text-orange-400 bg-orange-950/50 inline-block px-2 py-1 rounded">
                                   NEEDS HUMAN REVIEW - PLEASE VERIFY
@@ -379,9 +379,9 @@ export default function Resume() {
                     </div>
                     <div className="space-y-4" role="group" aria-label="Optimization Suggestions">
                       {matchData.improvement_suggestions.map((sugg: any, i: number) => (
-                        <div key={i} className="flex gap-4 p-4 bg-slate-950 border border-slate-800 rounded-lg items-start">
+                        <div key={i} className="flex gap-4 p-4 bg-[#001621] border border-[#063750] rounded-lg items-start">
                           <label className="sr-only" htmlFor={`opt-sugg-${i}`}>Accept suggestion {i+1}</label>
-                          <input type="checkbox" id={`opt-sugg-${i}`} className="mt-1 w-5 h-5 rounded border-slate-700 bg-slate-800 text-brand-600 focus:ring-brand-500 focus:ring-offset-slate-950" 
+                          <input type="checkbox" id={`opt-sugg-${i}`} className="mt-1 w-5 h-5 rounded border-[#002f47] bg-slate-800 text-brand-600 focus:ring-[#FF4103] focus:ring-offset-slate-950" 
                                  checked={acceptedSuggestions.has(i)} onChange={() => toggleSuggestion(i)} />
                           <div className="grid md:grid-cols-2 gap-4 flex-1">
                             <div>
@@ -389,7 +389,7 @@ export default function Resume() {
                               <p className="text-sm text-slate-400 mt-1">{sugg.source_evidence}</p>
                             </div>
                             <div>
-                              <span className="text-xs font-bold text-brand-500 uppercase">Suggested Rewrite</span>
+                              <span className="text-xs font-bold text-[#FF4103] uppercase">Suggested Rewrite</span>
                               <p className="text-sm text-slate-200 mt-1">{sugg.suggested_text}</p>
                               <p className="text-xs text-slate-500 mt-2 italic">{sugg.rationale}</p>
                             </div>
@@ -420,5 +420,6 @@ export default function Resume() {
     </div>
   );
 }
+
 
 
