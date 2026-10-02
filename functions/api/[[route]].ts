@@ -1,3 +1,4 @@
+import { freeInfrastructureRouter } from './freeInfrastructure';
 import { Hono } from 'hono';
 import { handle } from 'hono/cloudflare-pages';
 import { sign, verify } from 'hono/jwt';
@@ -2206,6 +2207,8 @@ app.get('/m2/modalities/:id', async (c) => {
   }
   return c.json({ modality });
 });
+
+app.route('/free-infrastructure', freeInfrastructureRouter);
 
 export const onRequest = handle(app);
 
