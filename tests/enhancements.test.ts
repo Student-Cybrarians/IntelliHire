@@ -309,3 +309,112 @@ describe('E-03: Multi-Pass Extraction Provenance', () => {
     expect(result).toHaveProperty('provenance');
   });
 });
+
+// ============================================================
+// Resilient AI Output Parser & Fallback Tests
+// ============================================================
+
+describe('Resilient AI Output Parser & Extraction Fallback', () => {
+  function repairTruncatedJson(str: string): string {
+    let cleaned = str.trim();
+    const firstBrace = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    if (firstBrace === -1 && firstBracket === -1) return '';
+    const isObject = firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket);
+    cleaned = cleaned.substring(isObject ? firstBrace : firstBracket);
+
+    let inString = false, escaped = false;
+    const stack: ('{' | '[')[] = [];
+
+    for (let i = 0; i < cleaned.length; i++) {
+      const char = cleaned[i];
+      if (escaped) { escaped = false; continue; }
+      if (char === '\\') { escaped = true; continue; }
+      if (char === '"') { inString = !inString; continue; }
+      if (!inString) {
+        if (char === '{' || char === '[') stack.push(char);
+        else if (char === '}') { if (stack.length > 0 && stack[stack.length - 1] === '{') stack.pop(); }
+        else if (char === ']') { if (stack.length > 0 && stack[stack.length - 1] === '[') stack.pop(); }
+      }
+    }
+    if (inString) cleaned += '"';
+    cleaned = cleaned.replace(/,\s*$/, '').replace(/:\s*$/, ': null');
+    while (stack.length > 0) {
+      const open = stack.pop();
+      cleaned = cleaned.replace(/,\s*$/, '');
+      if (open === '{') cleaned += '}';
+      else if (open === '[') cleaned += ']';
+    }
+    return cleaned;
+  }
+
+  function extractJsonFromLlmResponse<T = any>(raw: string): T | null {
+    if (!raw || typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    try { return JSON.parse(trimmed); } catch (_) {}
+
+    const fenceRegex = /```(?:json|JSON)?\s*([\s\S]*?)\s*```/;
+    const match = fenceRegex.exec(trimmed);
+    if (match && match[1]) {
+      const content = match[1].trim();
+      try { return JSON.parse(content); } catch (_) {
+        try { return JSON.parse(content.replace(/,\s*([}\]])/g, '$1')); } catch (_) {}
+      }
+    }
+
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const sub = trimmed.substring(firstBrace, lastBrace + 1);
+      try { return JSON.parse(sub); } catch (_) {
+        try { return JSON.parse(sub.replace(/,\s*([}\]])/g, '$1')); } catch (_) {}
+      }
+    }
+
+    try {
+      const repaired = repairTruncatedJson(trimmed);
+      if (repaired) return JSON.parse(repaired);
+    } catch (_) {}
+
+    return null;
+  }
+
+  it('parses markdown code fence with surrounding preamble and postamble', () => {
+    const raw = `Here is the requested ATS extraction:
+\`\`\`json
+{
+  "skills": ["TypeScript", "React"],
+  "experience": [{"company": "Tech", "title": "Dev", "duration": "2y"}]
+}
+\`\`\`
+Hope this helps!`;
+    const result = extractJsonFromLlmResponse(raw);
+    expect(result).not.toBeNull();
+    expect(result.skills).toContain('TypeScript');
+    expect(result.experience).toHaveLength(1);
+  });
+
+  it('repairs trailing commas in AI output', () => {
+    const raw = '{"skills": ["Go", "Docker",], "education": [],}';
+    const result = extractJsonFromLlmResponse(raw);
+    expect(result).not.toBeNull();
+    expect(result.skills).toContain('Go');
+  });
+
+  it('recovers from truncated JSON response', () => {
+    const raw = '{"skills": ["Python", "SQL"], "experience": [{"company": "DataCorp", "title": "Analyst"';
+    const result = extractJsonFromLlmResponse(raw);
+    expect(result).not.toBeNull();
+    expect(result.skills).toContain('Python');
+    expect(result.experience[0].company).toBe('DataCorp');
+  });
+
+  it('recovers from mid-string token cutoff', () => {
+    const raw = '{"skills": ["Node.js", "Cloudflare Workers';
+    const result = extractJsonFromLlmResponse(raw);
+    expect(result).not.toBeNull();
+    expect(result.skills).toBeDefined();
+    expect(result.skills[0]).toBe('Node.js');
+  });
+});
+

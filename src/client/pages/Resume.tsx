@@ -190,12 +190,43 @@ export default function Resume() {
         </div>
 
         {error && (
-          <div className="p-4 bg-red-950/50 border border-red-900 rounded-lg flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="text-red-200 text-sm">
-              <p className="font-semibold text-red-400">Error</p>
-              {error}
+          <div className="p-4 bg-red-950/50 border border-red-900 rounded-lg flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="text-red-200 text-sm">
+                <p className="font-semibold text-red-400">Error</p>
+                <p>{error}</p>
+                {resumeId && !resumeData && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setError(null);
+                      setExtracting(true);
+                      try {
+                        const extractRes = await fetch(`/api/resume/extract/${resumeId}`, { method: 'POST' });
+                        const extractData = await extractRes.json() as any;
+                        if (!extractRes.ok) throw new Error(extractData.error || 'Extraction failed');
+                        setResumeData(extractData.data);
+                      } catch (e: any) {
+                        setError(e.message);
+                      } finally {
+                        setExtracting(false);
+                      }
+                    }}
+                    className="mt-2 px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
+                  >
+                    Retry Extraction
+                  </button>
+                )}
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300 text-sm font-medium"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
