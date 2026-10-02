@@ -4,6 +4,7 @@ import { sign, verify } from 'hono/jwt';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { globalModalityRegistry } from '../../src/shared/modalityRegistry';
 import { getAllPurposeBehaviors, getPurposeBehavior, generatePurposeProvenance } from '../../src/shared/purposeEngine';
+import { getAllSeniorityProfiles, getSeniorityProfile } from '../../src/shared/seniorityEngine';
 
 type Bindings = {
   DB: D1Database;
@@ -1415,6 +1416,25 @@ app.get('/m2/purposes/:code', async (c) => {
   try {
     const behavior = getPurposeBehavior(code);
     return c.json({ purpose: behavior });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 404);
+  }
+});
+
+// Prompt 15: Seniority Engine Endpoints
+app.get('/m2/seniorities', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  return c.json({ seniorities: getAllSeniorityProfiles() });
+});
+
+app.get('/m2/seniorities/:level', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const level = c.req.param('level') as any;
+  try {
+    const profile = getSeniorityProfile(level);
+    return c.json({ seniority: profile });
   } catch (err: any) {
     return c.json({ error: err.message }, 404);
   }
