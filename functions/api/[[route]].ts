@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { handle } from 'hono/cloudflare-pages';
 import { sign, verify } from 'hono/jwt';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
+import { globalModalityRegistry } from '../../src/shared/modalityRegistry';
 
 type Bindings = {
   DB: D1Database;
@@ -1843,6 +1844,29 @@ app.get('/m2/role-mapping/:role', async (c) => {
   return c.json({ status: 'Not implemented' });
 });
 
+
+// Prompt 12: Modality Registry Endpoints
+app.get('/m2/modalities', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  return c.json({
+    version: globalModalityRegistry.version,
+    modalities: globalModalityRegistry.getAll(),
+    enabled_count: globalModalityRegistry.getEnabled().length,
+    planned_count: globalModalityRegistry.getPlanned().length,
+  });
+});
+
+app.get('/m2/modalities/:id', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const id = c.req.param('id');
+  const modality = globalModalityRegistry.get(id);
+  if (!modality) {
+    return c.json({ error: `Modality '${id}' not found in registry` }, 404);
+  }
+  return c.json({ modality });
+});
 
 export const onRequest = handle(app);
 
