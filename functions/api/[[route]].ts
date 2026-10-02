@@ -5,6 +5,7 @@ import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { globalModalityRegistry } from '../../src/shared/modalityRegistry';
 import { getAllPurposeBehaviors, getPurposeBehavior, generatePurposeProvenance } from '../../src/shared/purposeEngine';
 import { getAllSeniorityProfiles, getSeniorityProfile } from '../../src/shared/seniorityEngine';
+import { globalOccupationRegistry } from '../../src/shared/occupationAdapters';
 
 type Bindings = {
   DB: D1Database;
@@ -1438,6 +1439,35 @@ app.get('/m2/seniorities/:level', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 404);
   }
+});
+
+// Prompt 16: Pluggable Occupation Adapters Endpoints
+app.get('/m2/occupations/adapters', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const adapters = globalOccupationRegistry.getAll().map((a) => ({
+    domainId: a.domainId,
+    displayName: a.displayName,
+    description: a.description,
+    standardTaxonomies: a.standardTaxonomies,
+    regulatoryFrameworks: a.regulatoryFrameworks,
+  }));
+  return c.json({ adapters });
+});
+
+app.post('/m2/occupations/resolve', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json();
+  const adapter = globalOccupationRegistry.resolveAdapter(body);
+  return c.json({
+    domainId: adapter.domainId,
+    displayName: adapter.displayName,
+    description: adapter.description,
+    standardTaxonomies: adapter.standardTaxonomies,
+    regulatoryFrameworks: adapter.regulatoryFrameworks,
+    accommodations: adapter.getAccessibilityAccommodations(),
+  });
 });
 
 // Rubrics
