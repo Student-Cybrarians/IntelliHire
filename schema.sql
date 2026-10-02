@@ -268,3 +268,89 @@ CREATE TABLE IF NOT EXISTS evidence_item (
     FOREIGN KEY (user_id) REFERENCES user_account(id) ON DELETE CASCADE,
     FOREIGN KEY (candidate_context_id) REFERENCES candidate_context(id) ON DELETE CASCADE
 );
+-- SLICE 13: M2 Adaptive AI Assessment & Universal Skill-Proficiency Engine
+
+CREATE TABLE IF NOT EXISTS assessment_purpose (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_blueprint (
+    id TEXT PRIMARY KEY,
+    organization_id TEXT NOT NULL REFERENCES organization(id),
+    target_role TEXT,
+    purpose_id TEXT REFERENCES assessment_purpose(id),
+    configuration_json TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_rubric (
+    id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL REFERENCES skill(id),
+    version INTEGER NOT NULL DEFAULT 1,
+    criteria_json TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_item_v2 (
+    id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL REFERENCES skill(id),
+    rubric_id TEXT REFERENCES assessment_rubric(id),
+    version INTEGER NOT NULL DEFAULT 1,
+    item_type TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    expected_answer_json TEXT,
+    difficulty_level INTEGER,
+    calibration_data_json TEXT,
+    rationale TEXT,
+    validation_status TEXT NOT NULL DEFAULT 'draft' CHECK (validation_status IN ('draft', 'ai_validated', 'human_reviewed', 'published', 'retired')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_attempt (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES user_account(id),
+    blueprint_id TEXT NOT NULL REFERENCES assessment_blueprint(id),
+    status TEXT NOT NULL DEFAULT 'initialized' CHECK (status IN ('initialized', 'in_progress', 'paused', 'completed', 'terminated')),
+    started_at DATETIME,
+    completed_at DATETIME,
+    current_stage TEXT,
+    adaptive_state_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_response_v2 (
+    id TEXT PRIMARY KEY,
+    attempt_id TEXT NOT NULL REFERENCES assessment_attempt(id),
+    item_id TEXT NOT NULL REFERENCES assessment_item_v2(id),
+    response_data_json TEXT NOT NULL,
+    time_taken_seconds INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assessment_evaluation (
+    id TEXT PRIMARY KEY,
+    response_id TEXT NOT NULL REFERENCES assessment_response_v2(id),
+    evaluator_type TEXT NOT NULL CHECK (evaluator_type IN ('ai', 'human', 'objective', 'hybrid')),
+    evaluator_metadata_json TEXT,
+    score_raw REAL,
+    evaluation_json TEXT NOT NULL,
+    confidence_score REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS candidate_skill_proficiency_v2 (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES user_account(id),
+    skill_id TEXT NOT NULL REFERENCES skill(id),
+    proficiency_estimate REAL NOT NULL,
+    uncertainty_estimate REAL NOT NULL,
+    evidence_status TEXT NOT NULL CHECK (evidence_status IN ('assessed', 'inferred', 'missing', 'unassessed', 'outdated')),
+    latest_attempt_id TEXT REFERENCES assessment_attempt(id),
+    last_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, skill_id)
+);
