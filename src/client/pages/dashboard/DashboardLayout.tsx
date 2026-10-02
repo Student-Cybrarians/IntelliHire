@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Flame, CheckCircle, FileText, Target, Users, Briefcase, Settings, LogOut, ShieldCheck, UserCheck, Layers, Brain, BarChart3, Server } from 'lucide-react';
+import { Flame, CheckCircle, FileText, Target, Users, Briefcase, Settings, LogOut, ShieldCheck, UserCheck, Layers, Brain, BarChart3 } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 export default function DashboardLayout({ children, role, userFullName }: { children: ReactNode, role: string, userFullName: string }) {
@@ -201,22 +201,6 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
               </Link>
             </>
           )}
-
-          {/* Infrastructure Intelligence - Common across all roles */}
-          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-3 pb-1 border-t border-[#063750]/40 mt-2">
-            Intelligence
-          </div>
-          <Link 
-            to="/dashboard/free-infrastructure" 
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-              isActive('/dashboard/free-infrastructure') || isActive('/free-infrastructure')
-                ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-[#002538]'
-            }`}
-          >
-            <Server className={`w-4 h-4 ${isActive('/dashboard/free-infrastructure') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
-            <span>Free Infra Catalog</span>
-          </Link>
         </nav>
 
         {/* Profile Card & Logout */}

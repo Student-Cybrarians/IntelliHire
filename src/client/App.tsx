@@ -14,7 +14,6 @@ import Module3Pipeline from './pages/Module3Pipeline';
 import Module4Interviews from './pages/Module4Interviews';
 import Module5Analytics from './pages/Module5Analytics';
 import FeaturePlaceholder from './pages/FeaturePlaceholder';
-import FreeInfrastructureDashboard from './pages/FreeInfrastructureDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
@@ -58,10 +57,6 @@ export default function App() {
       <Route path="/settings" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />
       <Route path="/technical-sandbox" element={<ProtectedRoute><FeaturePlaceholder title="Technical Sandbox" description="Technical and domain simulation workspace." /></ProtectedRoute>} />
-
-      {/* Free Infrastructure Intelligence Dashboard */}
-      <Route path="/dashboard/free-infrastructure" element={<ProtectedRoute><FreeInfrastructureDashboard /></ProtectedRoute>} />
-      <Route path="/free-infrastructure" element={<ProtectedRoute><FreeInfrastructureDashboard /></ProtectedRoute>} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -90,11 +90,6 @@ export default function Navbar() {
                   <span className="w-2 h-2 rounded-full bg-[#FF4103]"></span>
                   M5 · Talent Intelligence & Governance
                 </Link>
-                <div className="my-1 border-t border-[#063750]"></div>
-                <Link to="/dashboard/free-infrastructure" className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-[#00273c] hover:text-[#FF4103]">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                  Free Infra Intelligence (Phase 1)
-                </Link>
               </div>
             </div>
           </nav>
