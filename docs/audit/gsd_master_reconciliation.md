@@ -19,16 +19,13 @@ This audit reconciles the current implementation of IntelliHire against the `int
 | 11-12 | M02 Competency & Adaptive Assessment | **Complete** | Adaptive engine, blueprinting, and evaluation logic implemented in `AssessmentV2.tsx` and `[[route]].ts`. |
 | 13 | M02 Explanation/Teaching Engine | **Complete** | Implemented in Iteration 2 via `evaluateAndTeach` (Why-chain, How-chain, Misconception remediation, follow-ups). |
 | 14 | M02 Interview Preparation Engine | **Complete** | Implemented in Iteration 3 via `/api/m2/prep/*`, `InterviewPrep.tsx`, question dynamics, and DOCX prep guide export. |
-| 15 | M03 Simulation Framework | **GAP / Next Priority** | Domain simulations for technical and non-technical occupations (coding, writing, data analysis, operational workflows). |
-| 16 | M04 Interaction / Interview Simulation | **Quarantined / Stubbed** | Recruiter-facing structured interview protocols stubbed in `Module4Interviews.tsx`. |
+| 15 | M03 Simulation Framework | **Complete** | Implemented in Iteration 4 via `/api/m3/simulations/*`, `Module3Simulation.tsx`, dynamic constraint shifts, multi-dimensional rubrics, and M02 feedback loop. |
+| 16 | M04 Interaction / Interview Simulation | **GAP / Next Priority** | Enterprise structured interview intelligence for interviewers and candidate panels; anchored rubrics, calibrated scoring, probe protocols. |
 | 17 | M05 Readiness & Evidence Synthesis | **Quarantined / Stubbed** | Analytics dashboard stubbed in `Module5Analytics.tsx`. |
 | 18-21 | Training, Institution & Placement Intelligence | **Planned** | Downstream ecosystem expansion. |
 
-## Immediate Next Step (Iteration 4)
-**Plan:** Implement **M03 Technical / Domain / Professional Simulation Intelligence Framework** (Priority 15).
-1. Create domain-appropriate task execution sandbox supporting multiple occupational disciplines:
-   - Technical / Coding tasks (safe client/Worker execution)
-   - Analytical / Data tasks (spreadsheet/dataset scenario evaluation)
-   - Operational / Communication / Written tasks (scenario memo/brief with rubric evaluation)
-2. Build observable task performance evaluation logging (process, decisions, trade-offs).
-3. Connect simulation evidence directly into the candidate evidence package.
+## Immediate Next Step (Iteration 5)
+**Plan:** Implement **M04 Interaction / Interview Simulation & Structured Interview Protocols** (Priority 16).
+1. Transform `Module4Interviews.tsx` from static prototype into an active interview intelligence cockpit.
+2. Ingest candidate evidence packages, diagnosed M02 gaps, and M03 simulation performance into dynamic interviewer guides.
+3. Provide calibrated question protocols, anchored scoring rubrics, and live interviewer notes with bias mitigation.
