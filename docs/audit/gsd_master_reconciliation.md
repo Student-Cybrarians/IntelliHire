@@ -20,12 +20,13 @@ This audit reconciles the current implementation of IntelliHire against the `int
 | 13 | M02 Explanation/Teaching Engine | **Complete** | Implemented in Iteration 2 via `evaluateAndTeach` (Why-chain, How-chain, Misconception remediation, follow-ups). |
 | 14 | M02 Interview Preparation Engine | **Complete** | Implemented in Iteration 3 via `/api/m2/prep/*`, `InterviewPrep.tsx`, question dynamics, and DOCX prep guide export. |
 | 15 | M03 Simulation Framework | **Complete** | Implemented in Iteration 4 via `/api/m3/simulations/*`, `Module3Simulation.tsx`, dynamic constraint shifts, multi-dimensional rubrics, and M02 feedback loop. |
-| 16 | M04 Interaction / Interview Simulation | **GAP / Next Priority** | Enterprise structured interview intelligence for interviewers and candidate panels; anchored rubrics, calibrated scoring, probe protocols. |
-| 17 | M05 Readiness & Evidence Synthesis | **Quarantined / Stubbed** | Analytics dashboard stubbed in `Module5Analytics.tsx`. |
+| 16 | M04 Interaction / Interview Simulation & Enterprise Protocols | **Complete** | Implemented in Iteration 4 via `/api/m4/interviews/*`, `Module4Interviews.tsx`, multi-panel coordination, anchored rubrics, candidate dossier ingestion (M01-M03), independent human rating isolation, and post-session M05 evidence synthesis. |
+| 17 | M05 Readiness & Evidence Synthesis / Decision Support | **GAP / Next Priority** | Enterprise hiring committee cockpit, auditable multi-module evidence package aggregation, human authority decision support, adverse impact analysis, calibration reviews. |
 | 18-21 | Training, Institution & Placement Intelligence | **Planned** | Downstream ecosystem expansion. |
 
 ## Immediate Next Step (Iteration 5)
-**Plan:** Implement **M04 Interaction / Interview Simulation & Structured Interview Protocols** (Priority 16).
-1. Transform `Module4Interviews.tsx` from static prototype into an active interview intelligence cockpit.
-2. Ingest candidate evidence packages, diagnosed M02 gaps, and M03 simulation performance into dynamic interviewer guides.
-3. Provide calibrated question protocols, anchored scoring rubrics, and live interviewer notes with bias mitigation.
+**Plan:** Implement **M05 Readiness & Evidence Synthesis / Enterprise Decision Support Cockpit** (Priority 17).
+1. Transform `Module5Analytics.tsx` from stub/analytics into the Enterprise Readiness, Governance, and Evidence Synthesis Cockpit.
+2. Aggregate verified candidate evidence across M01 (claims, resume/JD match), M02 (proficiencies, misconceptions, prep), M03 (simulation problem-solving, stress tests), and M04 (structured panel observations, human ratings).
+3. Provide auditable evidence synthesis, multi-assessor calibration matrix, hiring committee recommendation dossier, and strict human authority decision gates (ensuring AI provides observable evidence without automated hire/no-hire mandates).
+
