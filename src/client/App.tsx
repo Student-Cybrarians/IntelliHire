@@ -14,6 +14,7 @@ import Module3Pipeline from './pages/Module3Pipeline';
 import Module4Interviews from './pages/Module4Interviews';
 import Module5Analytics from './pages/Module5Analytics';
 import FeaturePlaceholder from './pages/FeaturePlaceholder';
+import InterviewPrep from './pages/InterviewPrep';
 import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
@@ -37,6 +38,8 @@ export default function App() {
       {/* Module 2: Universal Adaptive Evidence Engine */}
       <Route path="/assess" element={<ProtectedRoute><AssessmentV2 /></ProtectedRoute>} />
       <Route path="/module-2" element={<ProtectedRoute><AssessmentV2 /></ProtectedRoute>} />
+      <Route path="/interview-prep" element={<ProtectedRoute><InterviewPrep /></ProtectedRoute>} />
+      <Route path="/prep" element={<ProtectedRoute><InterviewPrep /></ProtectedRoute>} />
       <Route path="/assessment/:skill_id" element={<ProtectedRoute><Assessment /></ProtectedRoute>} />
 
       {/* Module 3: Requisition Match & Pipeline */}

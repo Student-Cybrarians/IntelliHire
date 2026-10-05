@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight } from 'lucide-react';
+import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function CandidateWorkspace({ profileName }: { profileName: string }) {
@@ -254,7 +254,18 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-white">Recommended Next Actions</h2>
         </div>
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Link 
+            to="/interview-prep" 
+            className="text-left bg-[#001f2e] border border-[#063750] hover:border-[#FF4103] rounded-2xl p-6 transition-all hover:-translate-y-0.5 group shadow-lg block"
+          >
+            <Brain className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Interview Prep</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Targeted simulation, adaptive questioning, diagnosed gaps, and exportable preparation guide.
+            </p>
+          </Link>
+
           <button 
             onClick={() => window.location.href = '/assess'} 
             className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg"

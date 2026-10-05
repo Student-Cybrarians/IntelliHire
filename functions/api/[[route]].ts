@@ -10,7 +10,7 @@ import { globalOccupationRegistry } from '../../src/shared/occupationAdapters';
 import { validateStrategy } from '../../src/shared/strategyValidator';
 import { selectEvidenceStrategy } from '../../src/shared/runtimeStrategySelector';
 
-type Bindings = {
+export type Bindings = {
   DB: D1Database;
   SESSION_KV: KVNamespace;
   RESUME_KV: KVNamespace;
@@ -23,7 +23,7 @@ type Bindings = {
   NVIDIA_MODEL?: string;
 };
 
-type UserSession = {
+export type UserSession = {
   id: string;
   email: string;
   full_name: string;
@@ -169,7 +169,7 @@ app.post('/auth/logout', async (c) => {
   return c.json({ success: true });
 });
 
-const getSessionUser = async (c: any): Promise<UserSession | null> => {
+export const getSessionUser = async (c: any): Promise<UserSession | null> => {
   const sessionId = getCookie(c, 'intellihire_session');
   if (!sessionId) return null;
   const jwt = await c.env.SESSION_KV.get(`session:${sessionId}`);
@@ -1884,7 +1884,7 @@ app.get('/match/status/:jobId', async (c) => {
 // ==========================================
 
 // Audit Event Helper
-async function logAuditEvent(c: any, orgId: string, userId: string, eventType: string, entityType: string, entityId: string, details: any = {}) {
+export async function logAuditEvent(c: any, orgId: string, userId: string, eventType: string, entityType: string, entityId: string, details: any = {}) {
   await c.env.DB.prepare(
     'INSERT INTO m2_audit_event (id, organization_id, user_id, event_type, entity_type, entity_id, details_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).bind(crypto.randomUUID(), orgId, userId, eventType, entityType, entityId, JSON.stringify(details)).run();
@@ -1892,7 +1892,7 @@ async function logAuditEvent(c: any, orgId: string, userId: string, eventType: s
 
 // Assessment Blueprint & Purpose
 
-async function evaluateAndTeach(env: Bindings, responseRec: any, item: any, attempt: any, responseData: any, rubric_id?: string) {
+export async function evaluateAndTeach(env: Bindings, responseRec: any, item: any, attempt: any, responseData: any, rubric_id?: string) {
   let score = 0;
   let confidence = 1.0;
   let evaluatorType = 'hybrid';
@@ -2776,6 +2776,10 @@ app.get('/m2/modalities/:id', async (c) => {
   }
   return c.json({ modality });
 });
+
+// Priority 14: M02 Interview Preparation Engine
+import { registerInterviewPrepRoutes } from './interviewPrep';
+registerInterviewPrepRoutes(app);
 
 export const onRequest = handle(app);
 
