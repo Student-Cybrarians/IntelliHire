@@ -581,7 +581,6 @@ export default function AssessmentV2() {
                       </div>
                     </div>
                   </div>
-                  </div>
                 ) : (
                   <div className="p-4">
                     {lastEvaluation.feedback && <p className="text-sm text-slate-300">{lastEvaluation.feedback}</p>}
