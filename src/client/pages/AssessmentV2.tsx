@@ -562,11 +562,25 @@ export default function AssessmentV2() {
                         <p className="text-slate-400 text-sm">{lastEvaluation.teaching_payload.how_to_arrive}</p>
                       </div>
 
-                      <div className="bg-slate-800/30 p-4 rounded-lg border border-slate-700/30">
-                        <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Why Alternatives Fail</h4>
-                        <p className="text-slate-400 text-sm leading-relaxed">{lastEvaluation.teaching_payload.analysis_of_alternatives}</p>
+                      <div className="space-y-4">
+                        <div className="bg-slate-800/30 p-4 rounded-lg border border-slate-700/30">
+                          <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Why Alternatives Fail</h4>
+                          <p className="text-slate-400 text-sm leading-relaxed">{lastEvaluation.teaching_payload.analysis_of_alternatives}</p>
+                        </div>
+                        {(lastEvaluation.teaching_payload.follow_up_question && lastEvaluation.teaching_payload.follow_up_question !== "N/A") && (
+                          <div className="bg-indigo-950/20 p-4 rounded-lg border border-indigo-500/20">
+                            <h4 className="text-sm font-semibold text-indigo-400 uppercase tracking-wider mb-2">Follow-up / Adapt</h4>
+                            <p className="text-indigo-200 text-sm leading-relaxed font-medium mb-2">{lastEvaluation.teaching_payload.follow_up_question}</p>
+                            {lastEvaluation.teaching_payload.adaptation_recommendation && (
+                              <span className="inline-block px-2 py-1 bg-indigo-900/50 text-indigo-300 text-xs rounded border border-indigo-800/50">
+                                Adaptation: {lastEvaluation.teaching_payload.adaptation_recommendation.replace('_', ' ')}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
+                  </div>
                   </div>
                 ) : (
                   <div className="p-4">

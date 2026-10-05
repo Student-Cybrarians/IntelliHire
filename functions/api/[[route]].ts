@@ -1891,6 +1891,124 @@ async function logAuditEvent(c: any, orgId: string, userId: string, eventType: s
 }
 
 // Assessment Blueprint & Purpose
+
+async function evaluateAndTeach(env: Bindings, responseRec: any, item: any, attempt: any, responseData: any, rubric_id?: string) {
+  let score = 0;
+  let confidence = 1.0;
+  let evaluatorType = 'hybrid';
+  let evaluatorMetadata: any = {};
+  
+  const content = JSON.parse((item.content_json as string) || '{}');
+  const criteria = 'General correctness';
+
+  let deterministicScore: number | null = null;
+  if (item.item_type === 'mcq' || item.item_type === 'multiple_choice') {
+    const isCorrect = String(responseData.selected_option || responseData.answer) === String(content.correct_answer);
+    deterministicScore = isCorrect ? 100 : 0;
+    score = deterministicScore;
+  }
+
+  const prompt = `As an expert AI tutor and assessor, evaluate the candidate's response and provide a comprehensive teaching explanation.
+  Item Type: ${item.item_type}
+  Question/Task: ${content.question || content.text}
+  ${content.options ? 'Options: ' + JSON.stringify(content.options) : ''}
+  ${content.correct_answer ? 'Correct Answer: ' + content.correct_answer : ''}
+  Evaluation Criteria: ${criteria}
+  Candidate Response: ${JSON.stringify(responseData)}
+  
+  You MUST return ONLY a valid JSON object matching exactly this schema:
+  {
+    "score": <integer 0-100, use ${deterministicScore !== null ? deterministicScore : 'your evaluation based on criteria'}>,
+    "is_correct": <boolean>,
+    "explanation_of_correct_answer": "<Explain what the ideal answer is and WHY it is correct>",
+    "how_to_arrive": "<Step-by-step logic to arrive at the solution>",
+    "analysis_of_candidate_answer": "<Explain WHY the candidate's answer is incorrect, partially correct, or incomplete. If fully correct, praise the specific correct reasoning.>",
+    "analysis_of_alternatives": "<Explain WHY similar/alternative answers or distractors are incorrect or when they might be valid under different constraints>",
+    "misconception_remediation": "<Identify any underlying misconception and explain how to remember or understand the concept correctly>",
+    "follow_up_question": "<A short follow-up question to test if they have understood the remediation>",
+    "adaptation_recommendation": "<'increase_difficulty', 'maintain', or 'revisit_concept'>",
+    "reassess_focus": "<Specific sub-topic to reassess>"
+  }`;
+  
+  try {
+    const aiResp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.NVIDIA_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "meta/muse-glimmer-30b",
+        messages: [{ role: "system", content: "You are a JSON-only evaluation and teaching engine. Return strict JSON without markdown formatting." }, { role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1500
+      })
+    });
+    const aiResult = await aiResp.json() as any;
+    const text = aiResult.choices?.[0]?.message?.content || '{}';
+    
+    const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+    const parsedContent = JSON.parse(jsonStr);
+
+    if (deterministicScore === null) {
+      score = parsedContent.score || 0;
+    }
+    
+    evaluatorMetadata = { 
+      model: "meta/muse-glimmer-30b",
+      teaching_payload: parsedContent
+    };
+    confidence = 0.9;
+  } catch (e) {
+    evaluatorMetadata = { error: 'Failed to generate teaching explanation' };
+    if (deterministicScore === null) score = 0;
+  }
+
+  const evalId = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO assessment_evaluation (id, response_id, evaluator_type, evaluator_metadata_json, score_raw, evaluation_json, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(evalId, responseRec.id, evaluatorType, JSON.stringify({ model: evaluatorMetadata.model }), score, JSON.stringify(evaluatorMetadata.teaching_payload || evaluatorMetadata), confidence).run();
+
+  const currentProf = await env.DB.prepare('SELECT * FROM candidate_skill_proficiency_v2 WHERE user_id = ? AND skill_id = ?').bind(attempt?.user_id, item.skill_id).first();
+  const idProf = currentProf ? currentProf.id : crypto.randomUUID();
+  
+  let newProficiency = (score / 100);
+  let newUncertainty = 0.5;
+  let evidenceStatus = 'assessed';
+  
+  if (currentProf) {
+    const oldProf = currentProf.proficiency_estimate as number;
+    const oldUnc = currentProf.uncertainty_estimate as number;
+    const kalmanGain = oldUnc / (oldUnc + 0.2);
+    newProficiency = oldProf + kalmanGain * (newProficiency - oldProf);
+    newUncertainty = (1 - kalmanGain) * oldUnc;
+  }
+
+  // Update adaptive state with the reassess focus if they failed
+  let newAdaptiveStateJson = attempt.adaptive_state_json;
+  if (score < 70 && evaluatorMetadata.teaching_payload?.reassess_focus) {
+    try {
+      const state = JSON.parse(attempt.adaptive_state_json as string || '{}');
+      state.reassess_focus = evaluatorMetadata.teaching_payload.reassess_focus;
+      state.adaptation = evaluatorMetadata.teaching_payload.adaptation_recommendation;
+      newAdaptiveStateJson = JSON.stringify(state);
+      await env.DB.prepare('UPDATE assessment_attempt SET adaptive_state_json = ? WHERE id = ?').bind(newAdaptiveStateJson, attempt.id).run();
+    } catch(e) {}
+  }
+  
+  await env.DB.prepare(
+    'INSERT INTO candidate_skill_proficiency_v2 (id, user_id, skill_id, proficiency_estimate, uncertainty_estimate, evidence_status, latest_attempt_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, skill_id) DO UPDATE SET proficiency_estimate = excluded.proficiency_estimate, uncertainty_estimate = excluded.uncertainty_estimate, evidence_status = excluded.evidence_status, latest_attempt_id = excluded.latest_attempt_id'
+  ).bind(idProf, attempt?.user_id, item.skill_id, newProficiency, newUncertainty, evidenceStatus, attempt?.id).run();
+
+  return {
+    evaluation_id: evalId,
+    score_raw: score / 100,
+    confidence_score: confidence,
+    evaluator_type: evaluatorType,
+    teaching_payload: evaluatorMetadata.teaching_payload
+  };
+}
+
 app.post('/m2/blueprints', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -2533,133 +2651,35 @@ app.get('/m2/attempts/:id/next', async (c) => {
 });
 
 app.post('/m2/attempts/:id/respond', async (c) => {
-  const user = await getSessionUser(c);
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
-
-  const attemptId = c.req.param('id');
-  const body = await c.req.json();
-  // Support both new UI (response_data) and old UI (response_data_json)
-  const item_id = body.item_id;
-  const response_data_json = body.response_data || body.response_data_json;
-  const responseId = crypto.randomUUID();
-
-  // 1. Save response
-  await c.env.DB.prepare(
-    'INSERT INTO assessment_response_v2 (id, attempt_id, item_id, response_data_json) VALUES (?, ?, ?, ?)'
-  ).bind(responseId, attemptId, item_id, JSON.stringify(response_data_json)).run();
-
-  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'RESPOND', 'ATTEMPT', attemptId, { response_id: responseId });
-
-  // 2. Evaluate immediately (M02 Adaptive Teaching Engine)
-  const item = await c.env.DB.prepare('SELECT * FROM assessment_item_v2 WHERE id = ?').bind(item_id).first();
-  const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ?').bind(attemptId).first();
-  if (!item || !attempt) return c.json({ success: true, id: responseId });
-
-  let score = 0;
-  let confidence = 1.0;
-  let evaluatorType = 'hybrid';
-  let evaluatorMetadata: any = {};
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+    if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
   
-  const content = JSON.parse((item.content_json as string) || '{}');
-  const criteria = 'General correctness';
-
-  let deterministicScore: number | null = null;
-  if (item.item_type === 'mcq' || item.item_type === 'multiple_choice') {
-    const isCorrect = String(response_data_json.selected_option || response_data_json.answer) === String(content.correct_answer);
-    deterministicScore = isCorrect ? 100 : 0;
-    score = deterministicScore;
-  }
-
-  const prompt = `As an expert AI tutor and assessor, evaluate the candidate's response and provide a comprehensive teaching explanation.
-  Item Type: ${item.item_type}
-  Question/Task: ${content.question || content.text}
-  ${content.options ? 'Options: ' + JSON.stringify(content.options) : ''}
-  ${content.correct_answer ? 'Correct Answer: ' + content.correct_answer : ''}
-  Evaluation Criteria: ${criteria}
-  Candidate Response: ${JSON.stringify(response_data_json)}
+    const attemptId = c.req.param('id');
+    const body = await c.req.json();
+    const item_id = body.item_id;
+    const response_data_json = body.response_data || body.response_data_json;
+    const responseId = crypto.randomUUID();
   
-  You MUST return ONLY a valid JSON object matching exactly this schema:
-  {
-    "score": <integer 0-100, use ${deterministicScore !== null ? deterministicScore : 'your evaluation based on criteria'}>,
-    "is_correct": <boolean>,
-    "explanation_of_correct_answer": "<Explain what the ideal answer is and WHY it is correct>",
-    "how_to_arrive": "<Step-by-step logic to arrive at the solution>",
-    "analysis_of_candidate_answer": "<Explain WHY the candidate's answer is incorrect, partially correct, or incomplete. If fully correct, praise the specific correct reasoning.>",
-    "analysis_of_alternatives": "<Explain WHY similar/alternative answers or distractors are incorrect or when they might be valid under different constraints>",
-    "misconception_remediation": "<Identify any underlying misconception and explain how to remember or understand the concept correctly>"
-  }`;
+    await c.env.DB.prepare(
+      'INSERT INTO assessment_response_v2 (id, attempt_id, item_id, response_data_json) VALUES (?, ?, ?, ?)'
+    ).bind(responseId, attemptId, item_id, JSON.stringify(response_data_json)).run();
   
-  try {
-    const aiResp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${c.env.NVIDIA_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "meta/muse-glimmer-30b",
-        messages: [{ role: "system", content: "You are a JSON-only evaluation and teaching engine. Return strict JSON without markdown formatting." }, { role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens: 1500
-      })
+    await logAuditEvent(c, dbUser.organization_id as string, user.id, 'RESPOND', 'ATTEMPT', attemptId, { response_id: responseId });
+  
+    const item = await c.env.DB.prepare('SELECT * FROM assessment_item_v2 WHERE id = ?').bind(item_id).first();
+    const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ?').bind(attemptId).first();
+    if (!item || !attempt) return c.json({ success: true, id: responseId });
+  
+    const evaluation = await evaluateAndTeach(c.env, { id: responseId, ...body }, item, attempt, response_data_json);
+  
+    return c.json({ 
+      success: true, 
+      id: responseId,
+      evaluation
     });
-    const aiResult = await aiResp.json() as any;
-    const text = aiResult.choices?.[0]?.message?.content || '{}';
-    
-    const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
-    const parsedContent = JSON.parse(jsonStr);
-
-    if (deterministicScore === null) {
-      score = parsedContent.score || 0;
-    }
-    
-    evaluatorMetadata = { 
-      model: "meta/muse-glimmer-30b",
-      teaching_payload: parsedContent
-    };
-    confidence = 0.9;
-  } catch (e) {
-    evaluatorMetadata = { error: 'Failed to generate teaching explanation' };
-    if (deterministicScore === null) score = 0;
-  }
-
-  const evalId = crypto.randomUUID();
-  await c.env.DB.prepare(
-    'INSERT INTO assessment_evaluation (id, response_id, evaluator_type, evaluator_metadata_json, score_raw, evaluation_json, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).bind(evalId, responseId, evaluatorType, JSON.stringify({ model: evaluatorMetadata.model }), score, JSON.stringify(evaluatorMetadata.teaching_payload || evaluatorMetadata), confidence).run();
-
-  const currentProf = await c.env.DB.prepare('SELECT * FROM candidate_skill_proficiency_v2 WHERE user_id = ? AND skill_id = ?').bind(attempt?.user_id, item.skill_id).first();
-  const idProf = currentProf ? currentProf.id : crypto.randomUUID();
-  
-  let newProficiency = (score / 100);
-  let newUncertainty = 0.5;
-  let evidenceStatus = 'assessed';
-  
-  if (currentProf) {
-    const oldProf = currentProf.proficiency_estimate as number;
-    const oldUnc = currentProf.uncertainty_estimate as number;
-    const kalmanGain = oldUnc / (oldUnc + 0.2);
-    newProficiency = oldProf + kalmanGain * (newProficiency - oldProf);
-    newUncertainty = (1 - kalmanGain) * oldUnc;
-  }
-  
-  await c.env.DB.prepare(
-    'INSERT INTO candidate_skill_proficiency_v2 (id, user_id, skill_id, proficiency_estimate, uncertainty_estimate, evidence_status, latest_attempt_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, skill_id) DO UPDATE SET proficiency_estimate = excluded.proficiency_estimate, uncertainty_estimate = excluded.uncertainty_estimate, evidence_status = excluded.evidence_status, latest_attempt_id = excluded.latest_attempt_id'
-  ).bind(idProf, attempt?.user_id, item.skill_id, newProficiency, newUncertainty, evidenceStatus, attempt?.id).run();
-
-  return c.json({ 
-    success: true, 
-    id: responseId,
-    evaluation: {
-      score_raw: score / 100,
-      confidence_score: confidence,
-      evaluator_type: evaluatorType,
-      teaching_payload: evaluatorMetadata.teaching_payload
-    }
   });
-});
 
   app.post('/m2/attempts/:id/complete', async (c) => {
   const user = await getSessionUser(c);
@@ -2686,105 +2706,10 @@ app.post('/m2/evaluate', async (c) => {
   
     const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ?').bind(responseRec.attempt_id).first();
     
-    let score = 0;
-    let confidence = 1.0;
-    let evaluatorType = 'hybrid';
-    let evaluatorMetadata: any = {};
-    
-    const content = JSON.parse((item.content_json as string) || '{}');
     const responseData = JSON.parse((responseRec.response_data_json as string) || '{}');
-    const rubric = rubric_id ? await c.env.DB.prepare('SELECT * FROM assessment_rubric WHERE id = ?').bind(rubric_id).first() : null;
-    const criteria = rubric ? rubric.evaluation_criteria_json : 'General correctness';
-
-    let deterministicScore: number | null = null;
-    if (item.item_type === 'mcq') {
-      deterministicScore = responseData.answer === content.correct_answer ? 100 : 0;
-      score = deterministicScore;
-    }
-
-    // M02 Adaptive Teaching Engine (Generates explanation regardless of type)
-    const prompt = `As an expert AI tutor and assessor, evaluate the candidate's response and provide a comprehensive teaching explanation.
-    Item Type: ${item.item_type}
-    Question/Task: ${content.question || content.text}
-    ${content.options ? 'Options: ' + JSON.stringify(content.options) : ''}
-    ${content.correct_answer ? 'Correct Answer: ' + content.correct_answer : ''}
-    Evaluation Criteria: ${criteria}
-    Candidate Response: ${JSON.stringify(responseData)}
+    const evaluation = await evaluateAndTeach(c.env, responseRec, item, attempt, responseData, rubric_id);
     
-    You MUST return ONLY a valid JSON object matching exactly this schema:
-    {
-      "score": <integer 0-100, use ${deterministicScore !== null ? deterministicScore : 'your evaluation based on criteria'}>,
-      "is_correct": <boolean>,
-      "explanation_of_correct_answer": "<Explain what the ideal answer is and WHY it is correct>",
-      "how_to_arrive": "<Step-by-step logic to arrive at the solution>",
-      "analysis_of_candidate_answer": "<Explain WHY the candidate's answer is incorrect, partially correct, or incomplete. If fully correct, praise the specific correct reasoning.>",
-      "analysis_of_alternatives": "<Explain WHY similar/alternative answers or distractors are incorrect or when they might be valid under different constraints>",
-      "misconception_remediation": "<Identify any underlying misconception and explain how to remember or understand the concept correctly>"
-    }`;
-    
-    try {
-      const aiResp = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${c.env.NVIDIA_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "meta/muse-glimmer-30b",
-          messages: [{ role: "system", content: "You are a JSON-only evaluation and teaching engine. Return strict JSON without markdown formatting." }, { role: "user", content: prompt }],
-          temperature: 0.1,
-          max_tokens: 1500
-        })
-      });
-      const aiResult = await aiResp.json() as any;
-      const text = aiResult.choices?.[0]?.message?.content || '{}';
-      
-      const jsonStr = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
-      const parsedContent = JSON.parse(jsonStr);
-  
-      if (deterministicScore === null) {
-        score = parsedContent.score || 0;
-      }
-      
-      evaluatorMetadata = { 
-        model: "meta/muse-glimmer-30b",
-        teaching_payload: parsedContent
-      };
-      confidence = 0.9;
-    } catch (e) {
-      evaluatorMetadata = { error: 'Failed to generate teaching explanation' };
-      if (deterministicScore === null) score = 0;
-    }
-  
-    const evalId = crypto.randomUUID();
-    // Use the correct schema columns for assessment_evaluation table
-    // It has: id, response_id, evaluator_type, evaluator_metadata_json, score_raw, evaluation_json, confidence_score
-    await c.env.DB.prepare(
-      'INSERT INTO assessment_evaluation (id, response_id, evaluator_type, evaluator_metadata_json, score_raw, evaluation_json, confidence_score) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(evalId, response_id, evaluatorType, JSON.stringify({ model: evaluatorMetadata.model }), score, JSON.stringify(evaluatorMetadata.teaching_payload || evaluatorMetadata), confidence).run();
-  
-    // Proficiency update (Bayesian-ish / Weighted average)
-    const currentProf = await c.env.DB.prepare('SELECT * FROM candidate_skill_proficiency_v2 WHERE user_id = ? AND skill_id = ?').bind(attempt?.user_id, item.skill_id).first();
-    const idProf = currentProf ? currentProf.id : crypto.randomUUID();
-    
-    let newProficiency = (score / 100);
-    let newUncertainty = 0.5;
-    let evidenceStatus = 'assessed';
-    
-    if (currentProf) {
-      const oldProf = currentProf.proficiency_estimate as number;
-      const oldUnc = currentProf.uncertainty_estimate as number;
-      // Simple Kalman-like update
-      const kalmanGain = oldUnc / (oldUnc + 0.2); // 0.2 is measurement noise
-      newProficiency = oldProf + kalmanGain * (newProficiency - oldProf);
-      newUncertainty = (1 - kalmanGain) * oldUnc;
-    }
-    
-    await c.env.DB.prepare(
-      'INSERT INTO candidate_skill_proficiency_v2 (id, user_id, skill_id, proficiency_estimate, uncertainty_estimate, evidence_status, latest_attempt_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, skill_id) DO UPDATE SET proficiency_estimate = excluded.proficiency_estimate, uncertainty_estimate = excluded.uncertainty_estimate, evidence_status = excluded.evidence_status, latest_attempt_id = excluded.latest_attempt_id'
-    ).bind(idProf, attempt?.user_id, item.skill_id, newProficiency, newUncertainty, evidenceStatus, attempt?.id).run();
-  
-    return c.json({ success: true, evaluation_id: evalId, score, teaching_explanation: evaluatorMetadata.teaching_payload });
+    return c.json({ success: true, ...evaluation });
   });
 
 app.post('/m2/role-mapping', async (c) => {
