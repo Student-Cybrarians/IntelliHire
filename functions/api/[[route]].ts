@@ -2785,6 +2785,10 @@ registerInterviewPrepRoutes(app);
 import { registerSimulationRoutes } from './simulationEngine';
 registerSimulationRoutes(app);
 
+// Priority 16: M04 Interaction / Interview Simulation & Enterprise Interview Protocols
+import { registerInterviewIntelligenceRoutes } from './interviewIntelligence';
+registerInterviewIntelligenceRoutes(app);
+
 export const onRequest = handle(app);
 
 
