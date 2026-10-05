@@ -89,6 +89,18 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
                 <UserCheck className={`w-4 h-4 ${isActive('/candidate') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
                 <span>Evidence Portfolio</span>
               </Link>
+
+              <Link 
+                to="/readiness" 
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                  isActive('/readiness') || isActive('/module-5')
+                    ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
+                    : 'text-slate-300 hover:text-white hover:bg-[#002538]'
+                }`}
+              >
+                <ShieldCheck className={`w-4 h-4 ${isActive('/readiness') || isActive('/module-5') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
+                <span>M5 · Readiness Synthesis</span>
+              </Link>
             </>
           )}
 
@@ -136,13 +148,13 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
               <Link 
                 to="/module-5" 
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  isActive('/module-5') || isActive('/analytics')
+                  isActive('/module-5') || isActive('/analytics') || isActive('/readiness')
                     ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
                     : 'text-slate-300 hover:text-white hover:bg-[#002538]'
                 }`}
               >
-                <BarChart3 className={`w-4 h-4 ${isActive('/module-5') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
-                <span>M5 · Talent Analytics</span>
+                <ShieldCheck className={`w-4 h-4 ${isActive('/module-5') || isActive('/analytics') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
+                <span>M5 · Decision Cockpit</span>
               </Link>
             </>
           )}

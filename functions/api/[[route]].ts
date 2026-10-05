@@ -2789,6 +2789,10 @@ registerSimulationRoutes(app);
 import { registerInterviewIntelligenceRoutes } from './interviewIntelligence';
 registerInterviewIntelligenceRoutes(app);
 
+// Priority 17: M05 Candidate Readiness + Evidence Synthesis + Human Decision Support + Governance
+import { registerReadinessEvidenceRoutes } from './readinessEvidence';
+registerReadinessEvidenceRoutes(app);
+
 export const onRequest = handle(app);
 
 

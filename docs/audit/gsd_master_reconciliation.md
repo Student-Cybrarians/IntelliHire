@@ -21,12 +21,14 @@ This audit reconciles the current implementation of IntelliHire against the `int
 | 14 | M02 Interview Preparation Engine | **Complete** | Implemented in Iteration 3 via `/api/m2/prep/*`, `InterviewPrep.tsx`, question dynamics, and DOCX prep guide export. |
 | 15 | M03 Simulation Framework | **Complete** | Implemented in Iteration 4 via `/api/m3/simulations/*`, `Module3Simulation.tsx`, dynamic constraint shifts, multi-dimensional rubrics, and M02 feedback loop. |
 | 16 | M04 Interaction / Interview Simulation & Enterprise Protocols | **Complete** | Implemented in Iteration 4 via `/api/m4/interviews/*`, `Module4Interviews.tsx`, multi-panel coordination, anchored rubrics, candidate dossier ingestion (M01-M03), independent human rating isolation, and post-session M05 evidence synthesis. |
-| 17 | M05 Readiness & Evidence Synthesis / Decision Support | **GAP / Next Priority** | Enterprise hiring committee cockpit, auditable multi-module evidence package aggregation, human authority decision support, adverse impact analysis, calibration reviews. |
-| 18-21 | Training, Institution & Placement Intelligence | **Planned** | Downstream ecosystem expansion. |
+| 17 | M05 Readiness & Evidence Synthesis / Decision Support | **Complete** | Implemented in Iteration 5 via `/api/m5/*`, `Module5Analytics.tsx`, 5-layer auditable evidence ledger, multi-dimensional Bayesian readiness calibration, transparent decision matrix, human committee review records, EEOC 4/5ths adverse impact governance, and closed-loop remediation pathways. |
+| 18 | Training Curriculum & Learning Pathway Engine | **GAP / Next Priority** | Automated personalized learning curriculum and skill remediation compiler consuming diagnosed gaps and misconceptions from M01–M05. |
+| 19-21 | Institutional Cohort Intelligence & Enterprise Placement | **Planned** | Placement matching, accreditation reporting, and enterprise credentialing. |
 
-## Immediate Next Step (Iteration 5)
-**Plan:** Implement **M05 Readiness & Evidence Synthesis / Enterprise Decision Support Cockpit** (Priority 17).
-1. Transform `Module5Analytics.tsx` from stub/analytics into the Enterprise Readiness, Governance, and Evidence Synthesis Cockpit.
-2. Aggregate verified candidate evidence across M01 (claims, resume/JD match), M02 (proficiencies, misconceptions, prep), M03 (simulation problem-solving, stress tests), and M04 (structured panel observations, human ratings).
-3. Provide auditable evidence synthesis, multi-assessor calibration matrix, hiring committee recommendation dossier, and strict human authority decision gates (ensuring AI provides observable evidence without automated hire/no-hire mandates).
+## Immediate Next Step (Iteration 6)
+**Plan:** Implement **Training Curriculum & Learning Pathway Engine** (Priority 18).
+1. Design automated personalized curriculum generation bridging diagnosed competencies, misconceptions, and practical simulation gaps.
+2. Structure micro-learning modules, hands-on lab exercises, and reassessment checkpoints feeding directly back into M02/M03.
+3. Integrate learning pathways with the M05 Action Remediation loop.
+
 
