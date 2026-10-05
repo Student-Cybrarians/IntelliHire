@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain } from 'lucide-react';
+import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain, Laptop } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function CandidateWorkspace({ profileName }: { profileName: string }) {
@@ -266,16 +266,27 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             </p>
           </Link>
 
-          <button 
-            onClick={() => window.location.href = '/assess'} 
-            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg"
+          <Link 
+            to="/simulation" 
+            className="text-left bg-[#001f2e] border border-[#063750] hover:border-[#FF4103] rounded-2xl p-6 transition-all hover:-translate-y-0.5 group shadow-lg block"
+          >
+            <Laptop className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Simulation Sandbox</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Technical & domain practical tasks with dynamic constraint shifts and multi-dimensional scoring.
+            </p>
+          </Link>
+
+          <Link
+            to="/assess" 
+            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg block"
           >
             <ClipboardCheck className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
             <h3 className="font-bold text-white text-base">Take Assessment</h3>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
               Adaptive skill verification with evidence-based proficiency and uncertainty tracking.
             </p>
-          </button>
+          </Link>
           
           <button 
             onClick={() => fileRef.current?.click()} 

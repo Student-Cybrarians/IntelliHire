@@ -2781,6 +2781,10 @@ app.get('/m2/modalities/:id', async (c) => {
 import { registerInterviewPrepRoutes } from './interviewPrep';
 registerInterviewPrepRoutes(app);
 
+// Priority 15: M03 Technical / Domain / Professional Simulation Intelligence Framework
+import { registerSimulationRoutes } from './simulationEngine';
+registerSimulationRoutes(app);
+
 export const onRequest = handle(app);
 
 
