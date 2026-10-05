@@ -51,6 +51,16 @@ export default function Resume() {
     }
   };
 
+  
+  const exportATSResume = async (type: 'global' | 'tailored') => {
+    if (!resumeId) return;
+    try {
+      window.location.href = `/api/resume/${resumeId}/export?type=${type}`;
+    } catch (e: any) {
+      setError('Failed to export: ' + e.message);
+    }
+  };
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
