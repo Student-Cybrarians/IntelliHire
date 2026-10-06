@@ -31,6 +31,7 @@ export default function Resume() {
   const [acceptedSuggestions, setAcceptedSuggestions] = useState<Set<number>>(new Set());
   const [optimizing, setOptimizing] = useState(false);
   const [optimizedResumeId, setOptimizedResumeId] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
   // Persistence, Identity & Reset State
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -96,6 +97,7 @@ export default function Resume() {
 
             // Check if there is an in-flight pending job
             if (stateData.pending_job && (stateData.pending_job.status === 'PENDING' || stateData.pending_job.status === 'PROCESSING')) {
+              setCurrentJobId(stateData.pending_job.id);
               pollMatchJob(stateData.pending_job.id);
             }
           }
@@ -384,15 +386,52 @@ export default function Resume() {
       const data = await res.json() as any;
       if (!res.ok) throw new Error(data.error || 'Match analysis failed to start');
 
-      pollMatchJob(data.job_id, reqId);
+      if (data.job_id) {
+        setCurrentJobId(data.job_id);
+      }
+
+      if (data.status === 'READY' && data.result) {
+        setMatchData(data.result);
+        setMatchStale(false);
+        setMatchRunning(false);
+        setStatusMessage('Intelligence match analysis completed and saved.');
+      } else {
+        pollMatchJob(data.job_id, reqId);
+      }
     } catch (err: any) {
       clearTimeout(timeout);
       if (err.name === 'AbortError') {
-        setError('Match analysis request timed out. Please retry.');
+        setError('Match analysis request timed out. Previous evidence is preserved. Please retry.');
       } else {
         setError(err.message || 'Match analysis failed');
       }
       setMatchRunning(false);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    const jobIdToCheck = currentJobId;
+    if (!jobIdToCheck) return;
+
+    setError(null);
+    setStatusMessage('Checking match status in background...');
+    try {
+      const res = await fetch(`/api/match/status/${jobIdToCheck}`);
+      const data = await res.json() as any;
+      if (data.status === 'READY' && data.result) {
+        setMatchData(data.result);
+        setMatchStale(false);
+        setMatchRunning(false);
+        setStatusMessage('Match analysis retrieved and saved.');
+      } else if (data.status === 'FAILED') {
+        setError(data.error || 'Match analysis job failed.');
+        setMatchRunning(false);
+      } else {
+        setStatusMessage(`Job is currently ${data.status}. Retrying polling...`);
+        pollMatchJob(jobIdToCheck);
+      }
+    } catch (e: any) {
+      setError('Failed to check status: ' + e.message);
     }
   };
 
@@ -558,6 +597,15 @@ export default function Resume() {
                       className="px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded text-xs font-medium transition-colors"
                     >
                       Retry Match Analysis
+                    </button>
+                  )}
+                  {currentJobId && (
+                    <button
+                      type="button"
+                      onClick={handleCheckStatus}
+                      className="px-3 py-1 bg-amber-800 hover:bg-amber-700 text-white rounded text-xs font-medium transition-colors"
+                    >
+                      Check Status
                     </button>
                   )}
                 </div>

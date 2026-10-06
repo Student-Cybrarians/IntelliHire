@@ -173,14 +173,18 @@ function deterministicMatchAnalysis(resumeText: string, jdRequirementsJson: stri
 
 export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    const { results: jobs } = await env.DB.prepare("SELECT * FROM async_job WHERE status = 'PENDING' LIMIT 5").all();
+    const { results: jobs } = await env.DB.prepare(
+      "SELECT * FROM async_job WHERE status = 'PENDING' OR (status = 'PROCESSING' AND updated_at < datetime('now', '-2 minutes')) ORDER BY created_at ASC LIMIT 5"
+    ).all();
     if (!jobs || jobs.length === 0) return;
 
     for (const job of jobs) {
       const jobId = job.id as string;
       const userId = job.user_id as string;
       
-      const lock = await env.DB.prepare("UPDATE async_job SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'PENDING'").bind(jobId).run();
+      const lock = await env.DB.prepare(
+        "UPDATE async_job SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND (status = 'PENDING' OR (status = 'PROCESSING' AND updated_at < datetime('now', '-2 minutes')))"
+      ).bind(jobId).run();
       if (!lock.success || lock.meta.changes === 0) continue;
 
       if (job.job_type === 'MATCH_ANALYSIS') {
@@ -220,13 +224,14 @@ Output format JSON:
                 model: 'meta/muse-glimmer-30b',
                 messages: [ { role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt } ],
                 temperature: 0,
-                max_tokens: 4096
-              })
+                max_tokens: 3000
+              }),
+              signal: AbortSignal.timeout(8000)
             });
 
             if (aiResponse.ok) {
               const aiData = await aiResponse.json() as any;
-              const aiContent = aiData.choices?.[0]?.message?.content;
+              const aiContent = aiData.choices?.[0]?.message?.content || aiData.choices?.[0]?.message?.reasoning_content;
               if (aiContent) {
                 structuredData = extractJsonFromLlmResponse(aiContent);
               }
@@ -237,28 +242,40 @@ Output format JSON:
             structuredData = deterministicMatchAnalysis(String(resume.raw_text || ''), String(jd.requirements_json || '{}'));
           }
 
+          const batchStatements: any[] = [];
+
           for (const gap of structuredData.gap_analysis || []) {
             const evidenceId = crypto.randomUUID();
-            await env.DB.prepare(`
+            batchStatements.push(env.DB.prepare(`
               INSERT INTO evidence_item (id, user_id, candidate_context_id, category, normalized_value, evidence_status, source_reference)
               VALUES (?, ?, (SELECT id FROM candidate_context WHERE resume_id = ?), 'MATCH', ?, ?, ?)
-            `).bind(evidenceId, userId, resume_id, gap.requirement, gap.status, gap.candidate_evidence).run();
+            `).bind(evidenceId, userId, resume_id, gap.requirement, gap.status, gap.candidate_evidence));
           }
 
           for (const contra of structuredData.contradictions || []) {
             const evidenceId = crypto.randomUUID();
-            await env.DB.prepare(`
+            batchStatements.push(env.DB.prepare(`
               INSERT INTO evidence_item (id, user_id, candidate_context_id, category, normalized_value, evidence_status, source_reference, contradiction_notes, needs_human_review)
               VALUES (?, ?, (SELECT id FROM candidate_context WHERE resume_id = ?), 'CONTRADICTION', ?, 'FLAGGED', ?, ?, 1)
-            `).bind(evidenceId, userId, resume_id, contra.claim, contra.evidence, contra.explanation).run();
+            `).bind(evidenceId, userId, resume_id, contra.claim, contra.evidence, contra.explanation));
           }
 
           for (const sugg of structuredData.improvement_suggestions || []) {
             const evidenceId = crypto.randomUUID();
-            await env.DB.prepare(`
+            batchStatements.push(env.DB.prepare(`
               INSERT INTO evidence_item (id, user_id, candidate_context_id, category, normalized_value, evidence_status, source_reference)
               VALUES (?, ?, (SELECT id FROM candidate_context WHERE resume_id = ?), 'OPTIMIZATION', ?, 'SUGGESTION', ?)
-            `).bind(evidenceId, userId, resume_id, sugg.suggested_text, sugg.source_evidence).run();
+            `).bind(evidenceId, userId, resume_id, sugg.suggested_text, sugg.source_evidence));
+          }
+
+          if (batchStatements.length > 0 && typeof env.DB.batch === 'function') {
+            try {
+              await env.DB.batch(batchStatements);
+            } catch (_) {
+              for (const stmt of batchStatements) {
+                await stmt.run().catch(() => {});
+              }
+            }
           }
 
           // E-05: Hybrid ATS Scoring Model

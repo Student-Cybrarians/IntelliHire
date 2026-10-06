@@ -49,7 +49,7 @@ describe('M1: JD and Matching API', () => {
     expect(data.jd_id).toBeDefined();
   });
 
-  it('Match Analysis: generates pending job', async () => {
+  it('Match Analysis: executes match analysis and returns READY result', async () => {
     const req = new Request('http://localhost/api/match/run', {
       method: 'POST',
       body: JSON.stringify({ resume_id: 'r1', jd_id: 'j1' })
@@ -58,9 +58,9 @@ describe('M1: JD and Matching API', () => {
 
     const res = await app.request(req, {}, createMockEnv() as any);
     const data = await res.json() as any;
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.status).toBe('PENDING');
+    expect(data.status).toBe('READY');
   });
 
 });

@@ -40,7 +40,8 @@ const createMockEnv = (dbOverrides: any = {}) => ({
           return { results: dbOverrides.all ?? [] };
         })
       }))
-    }))
+    })),
+    batch: vi.fn().mockResolvedValue([])
   },
   JWT_SECRET: 'test-secret',
   RESUME_KV: {
@@ -144,6 +145,52 @@ describe('M01 State Persistence & Canonical Restoration Backend API', () => {
     const data = await res.json() as any;
     expect(data.status).toBe('FAILED');
     expect(data.error).toContain('timed out');
+  });
+
+  it('6. POST /match/run executes AI match cascade synchronously and returns status READY', async () => {
+    const env = createMockEnv({
+      resume: { id: 'res-v1', version: 1, raw_text: 'Experienced React and TypeScript engineer with 4 years building web apps.' },
+      jd: { id: 'jd-1', requirements_json: JSON.stringify({ requirements: [{ requirement: 'React and TypeScript', importance: 'MANDATORY' }] }) }
+    });
+
+    const req = new Request('http://localhost/api/match/run', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=cand-1-session',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ resume_id: 'res-v1', jd_id: 'jd-1' })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.status).toBe('READY');
+    expect(data.result).toBeDefined();
+    expect(data.result.ats_score).toBeGreaterThan(0);
+    expect(Array.isArray(data.result.gap_analysis)).toBe(true);
+  });
+
+  it('7. POST /match/run returns 404 if resume or JD does not belong to candidate', async () => {
+    const env = createMockEnv({
+      resume: null,
+      jd: null
+    });
+
+    const req = new Request('http://localhost/api/match/run', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=cand-1-session',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ resume_id: 'non-existent-res', jd_id: 'non-existent-jd' })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(404);
+    const data = await res.json() as any;
+    expect(data.error).toContain('not found');
   });
 
 });
