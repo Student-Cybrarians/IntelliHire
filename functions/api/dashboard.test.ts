@@ -79,7 +79,9 @@ describe('Dashboard APIs (RBAC & Tenant Scoping)', () => {
   });
   
   it('Resume Status - correctly returns 200 after extraction', async () => {
-    const env = createMockEnv();
+    const env = createMockEnv({
+      first: { id: 'res-1', filename: 'resume.pdf', version: 1, extraction_status: 'parsed' }
+    });
     const req = new Request('http://localhost/api/resume/status', {
       headers: { Cookie: 'intellihire_session=cand-session' }
     });
@@ -87,6 +89,18 @@ describe('Dashboard APIs (RBAC & Tenant Scoping)', () => {
     expect(res.status).toBe(200);
     const data = await res.json() as any;
     expect(data.status).toBe('processed');
+    expect(data.data_state).toBe('current');
   });
 
+  it('Resume Status - returns empty data_state when no resume exists', async () => {
+    const env = createMockEnv({ first: null });
+    const req = new Request('http://localhost/api/resume/status', {
+      headers: { Cookie: 'intellihire_session=cand-session' }
+    });
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.status).toBe('empty');
+    expect(data.data_state).toBe('empty');
+  });
 });

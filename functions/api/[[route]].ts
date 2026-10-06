@@ -213,24 +213,42 @@ app.put('/profile', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const body = await c.req.json() as any;
+  const orgId = user.organization_id || 'org_default_public';
+
+  let targetRole = (body.target_role || '').trim();
+  let primaryDomain = (body.primary_domain || '').trim();
+
+  // If taxonomy IDs provided, resolve to names if not directly given
+  if (!targetRole && body.target_occupation_id) {
+    try {
+      const occ = await c.env.DB.prepare('SELECT name FROM taxonomy_occupation WHERE id = ?').bind(body.target_occupation_id).first();
+      if (occ?.name) targetRole = String(occ.name);
+    } catch (_) {}
+  }
+  if (!primaryDomain && body.target_domain_id) {
+    try {
+      const dom = await c.env.DB.prepare('SELECT name FROM taxonomy_domain WHERE id = ?').bind(body.target_domain_id).first();
+      if (dom?.name) primaryDomain = String(dom.name);
+    } catch (_) {}
+  }
   
   await c.env.DB.prepare(`
-    INSERT INTO candidate_profile (id, organization_id, user_id, target_role, experience_level, primary_domain, skills_json, bio)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO candidate_profile (id, organization_id, user_id, target_role, experience_level, primary_domain, skills_json, bio, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT (user_id) DO UPDATE SET
-      target_role = excluded.target_role,
-      experience_level = excluded.experience_level,
-      primary_domain = excluded.primary_domain,
-      skills_json = excluded.skills_json,
-      bio = excluded.bio,
+      target_role = CASE WHEN excluded.target_role != '' THEN excluded.target_role ELSE candidate_profile.target_role END,
+      experience_level = CASE WHEN excluded.experience_level != '' THEN excluded.experience_level ELSE candidate_profile.experience_level END,
+      primary_domain = CASE WHEN excluded.primary_domain != '' THEN excluded.primary_domain ELSE candidate_profile.primary_domain END,
+      skills_json = CASE WHEN excluded.skills_json != '[]' THEN excluded.skills_json ELSE candidate_profile.skills_json END,
+      bio = CASE WHEN excluded.bio != '' THEN excluded.bio ELSE candidate_profile.bio END,
       updated_at = unixepoch()
   `).bind(
     crypto.randomUUID(),
-    user.organization_id,
+    orgId,
     user.id,
-    body.target_role || '',
-    body.experience_level || '',
-    body.primary_domain || '',
+    targetRole,
+    body.experience_level || 'mid',
+    primaryDomain,
     body.skills_json || '[]',
     body.bio || ''
   ).run();
@@ -240,8 +258,8 @@ app.put('/profile', async (c) => {
   // E-11: Pre-compute embedding asynchronously
   c.executionCtx.waitUntil((async () => {
     try {
-      const candidateText = ` |  | `;
-      const aiRes = await (c.env as any).AI.run('@cf/baai/bge-base-en-v1.5', { text: [candidateText] });
+      const candidateText = `${targetRole} | ${primaryDomain} | ${body.bio || ''}`;
+      const aiRes = await (c.env as any).AI?.run?.('@cf/baai/bge-base-en-v1.5', { text: [candidateText] });
       if (aiRes?.data?.[0]) {
         await c.env.DB.prepare('UPDATE candidate_profile SET embedding_json = ? WHERE user_id = ?')
           .bind(JSON.stringify(aiRes.data[0]), user.id).run();
@@ -251,7 +269,7 @@ app.put('/profile', async (c) => {
     }
   })());
 
-  return c.json({ success: true });
+  return c.json({ success: true, target_role: targetRole, primary_domain: primaryDomain });
 });
 
 // 7. Upload Resume (HARDENED)
@@ -709,17 +727,47 @@ app.get('/dashboard/candidate', async (c) => {
   const user = await getSessionUser(c);
   if (!user || user.role !== 'candidate') return c.json({ error: 'Unauthorized' }, 401);
   
-  const profile = await c.env.DB.prepare('SELECT target_role, experience_level, primary_domain, skills_json, bio, readiness_score FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
-  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND organization_id = ? AND is_active = 1').bind(user.id, user.organization_id).first();
+  const orgId = user.organization_id || 'org_default_public';
+  const profile = await c.env.DB.prepare('SELECT target_role, experience_level, primary_domain, skills_json, bio, readiness_score, updated_at FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at, updated_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1').bind(user.id, orgId).first();
+  
+  let activeContext: any = null;
   let claimsCount = 0;
-  try {
-    const claimCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM candidate_claim WHERE context_id IN (SELECT id FROM candidate_context WHERE user_id = ?)').bind(user.id).first();
-    claimsCount = Number(claimCount?.count || 0);
-  } catch (_) {}
+  let extractionStatus = 'none';
+
+  if (resume) {
+    activeContext = await c.env.DB.prepare('SELECT id, extraction_status, extraction_method, created_at, updated_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').bind(resume.id, user.id).first();
+    if (activeContext) {
+      extractionStatus = activeContext.extraction_status || 'uploaded';
+      if (extractionStatus === 'parsed' || extractionStatus === 'SUCCESS') {
+        const claimCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM candidate_claim WHERE context_id = ?').bind(activeContext.id).first();
+        claimsCount = Number(claimCount?.count || 0);
+      }
+    }
+  }
+
+  const dataState = !resume 
+    ? 'empty' 
+    : (extractionStatus === 'parsed' || extractionStatus === 'SUCCESS') 
+      ? 'current' 
+      : extractionStatus === 'failed' 
+        ? 'error' 
+        : 'updating';
+
   return c.json({
     success: true,
     profile: profile || {},
-    modules: { resume_uploaded: !!resume, resume, claims_count: claimsCount, assessment_ready: true }
+    modules: {
+      resume_uploaded: !!resume,
+      resume: resume || null,
+      context_id: activeContext?.id || null,
+      extraction_status: extractionStatus,
+      claims_count: claimsCount,
+      source_version: resume?.version || null,
+      source_filename: resume?.filename || null,
+      data_state: dataState,
+      assessment_ready: true
+    }
   });
 });
 
@@ -738,8 +786,69 @@ app.get('/dashboard/recruiter', async (c) => {
 app.get('/resume/status', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const claims = await c.env.DB.prepare('SELECT claim_type, claim_value, normalized_value FROM candidate_claim WHERE context_id IN (SELECT id FROM candidate_context WHERE user_id = ?)').bind(user.id).all();
-  return c.json({ success: true, status: 'processed', claims: claims.results });
+
+  const orgId = user.organization_id || 'org_default_public';
+  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at, updated_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1').bind(user.id, orgId).first();
+
+  if (!resume) {
+    return c.json({
+      success: true,
+      status: 'empty',
+      data_state: 'empty',
+      claims: [],
+      count: 0,
+      resume: null,
+      message: 'No active resume uploaded yet.'
+    });
+  }
+
+  const activeContext = await c.env.DB.prepare('SELECT id, extraction_status, extraction_method, created_at, updated_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').bind(resume.id, user.id).first();
+
+  if (!activeContext || activeContext.extraction_status === 'uploaded' || activeContext.extraction_status === 'pending' || activeContext.extraction_status === 'processing') {
+    return c.json({
+      success: true,
+      status: 'processing',
+      data_state: 'updating',
+      extraction_status: activeContext?.extraction_status || 'uploaded',
+      claims: [],
+      count: 0,
+      resume,
+      source_version: resume.version,
+      source_filename: resume.filename,
+      message: `Updating evidence profile from Resume v${resume.version}...`
+    });
+  }
+
+  if (activeContext.extraction_status === 'failed') {
+    return c.json({
+      success: true,
+      status: 'failed',
+      data_state: 'error',
+      extraction_status: 'failed',
+      claims: [],
+      count: 0,
+      resume,
+      source_version: resume.version,
+      source_filename: resume.filename,
+      error: `Extraction failed for Resume v${resume.version}.`
+    });
+  }
+
+  // Active parsed claims strictly for current active resume context
+  const claims = await c.env.DB.prepare('SELECT id, context_id, claim_type, claim_value, normalized_value, confidence_score, verification_state, created_at FROM candidate_claim WHERE context_id = ? ORDER BY created_at ASC').bind(activeContext.id).all();
+
+  return c.json({
+    success: true,
+    status: 'processed',
+    data_state: 'current',
+    extraction_status: activeContext.extraction_status,
+    claims: claims.results || [],
+    count: (claims.results || []).length,
+    resume,
+    source_version: resume.version,
+    source_filename: resume.filename,
+    extracted_at: activeContext.updated_at || activeContext.created_at
+  });
 });
 
 // 10. Requisition & Vacancy Mapping (Slice 5)
@@ -767,9 +876,18 @@ app.get('/requisitions', async (c) => {
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
   if (!dbUser) return c.json({ error: 'Tenant missing' }, 403);
-  
-  const reqs = await c.env.DB.prepare(`SELECT id, title, department, status, created_at FROM job_requisition WHERE organization_id = ? AND status = 'open' ORDER BY created_at DESC`).bind(dbUser.organization_id).all();
-  return c.json({ success: true, requisitions: reqs.results });
+  const orgId = dbUser.organization_id || 'org_default_public';
+
+  const reqs = await c.env.DB.prepare(`
+    SELECT r.id, r.title, r.department, r.status, r.description, r.created_at,
+           a.id as application_id, a.status as application_status, a.match_score, a.match_reasoning
+    FROM job_requisition r
+    LEFT JOIN candidate_application a ON r.id = a.requisition_id AND a.candidate_user_id = ?
+    WHERE (r.organization_id = ? OR r.organization_id = 'org_default_public') AND r.status = 'open'
+    ORDER BY r.created_at DESC
+  `).bind(user.id, orgId).all();
+
+  return c.json({ success: true, requisitions: reqs.results || [] });
 });
 
 app.post('/requisitions/:id/apply', async (c) => {
@@ -779,7 +897,7 @@ app.post('/requisitions/:id/apply', async (c) => {
   if (!dbUser) return c.json({ error: 'Tenant missing' }, 403);
   
   const reqId = c.req.param('id');
-  const reqData = await c.env.DB.prepare(`SELECT id, title, description FROM job_requisition WHERE id = ? AND organization_id = ? AND status = 'open'`).bind(reqId, dbUser.organization_id).first();
+  const reqData = await c.env.DB.prepare(`SELECT id, title, description FROM job_requisition WHERE id = ? AND (organization_id = ? OR organization_id = 'org_default_public') AND status = 'open'`).bind(reqId, dbUser.organization_id).first();
   if (!reqData) return c.json({ error: 'Requisition not found or closed' }, 404);
   
   const appId = crypto.randomUUID();
@@ -788,11 +906,17 @@ app.post('/requisitions/:id/apply', async (c) => {
   let matchScore = 0;
   let matchReasoning = "Evaluation pending or failed.";
   try {
-    // 1. Fetch Candidate Claims
-    const claims = await c.env.DB.prepare('SELECT claim_type, claim_value FROM candidate_claim WHERE context_id IN (SELECT id FROM candidate_context WHERE user_id = ?)').bind(user.id).all();
+    // 1. Fetch Candidate Claims strictly from active resume context
+    const claims = await c.env.DB.prepare(`
+      SELECT cl.claim_type, cl.claim_value
+      FROM candidate_claim cl
+      JOIN candidate_context ctx ON cl.context_id = ctx.id
+      JOIN candidate_resume r ON ctx.resume_id = r.id
+      WHERE r.user_id = ? AND r.is_active = 1
+    `).bind(user.id).all();
     
     // 2. Format Context
-    const claimsList = claims.results.map((r: any) => `- [${r.claim_type}] ${r.claim_value}`).join('\n');
+    const claimsList = (claims.results || []).map((r: any) => `- [${r.claim_type}] ${r.claim_value}`).join('\n');
     const prompt = `Evaluate the candidate's extracted skills/experience against the job description.
 Return a STRICT JSON response: { "score": number, "reasoning": "string" }
 Score should be 0-100. Reasoning should be 1-2 sentences.
@@ -805,11 +929,11 @@ ${claimsList || 'No claims found'}
 `;
 
     // 3. Ask LLaMA
-    const aiResponse = await c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+    const aiResponse = await c.env.AI?.run?.('@cf/meta/llama-3-8b-instruct', {
       messages: [{ role: 'user', content: prompt }]
     });
     
-    const jsonMatch = aiResponse.response.match(/\{.*\}/s);
+    const jsonMatch = (aiResponse?.response || '').match(/\{.*\}/s);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       matchScore = typeof parsed.score === 'number' ? parsed.score : 0;
@@ -1389,10 +1513,28 @@ Return ONLY valid JSON matching this schema:
     await c.env.DB.prepare("UPDATE candidate_context SET context_data_json = ?, extraction_status = 'parsed', extraction_method = 'multi_pass_v2' WHERE id = ?").bind(JSON.stringify(finalPayload), resumeData.context_id).run();
 
     if (finalPayload.skills && Array.isArray(finalPayload.skills)) {
+      // Clean up any prior claims for this context_id to prevent duplicates on re-extraction
+      await c.env.DB.prepare('DELETE FROM candidate_claim WHERE context_id = ?').bind(resumeData.context_id).run();
+
       for (const skill of finalPayload.skills) {
         await c.env.DB.prepare(`INSERT INTO candidate_claim (id, context_id, claim_type, claim_value, confidence_score, verification_state) VALUES (?, ?, 'skill', ?, 0.9, 'extracted')`).bind(crypto.randomUUID(), resumeData.context_id, String(skill).substring(0, 255)).run();
       }
     }
+
+    // Auto-populate or sync candidate_profile if skills or target_role are missing
+    try {
+      const existingProf = await c.env.DB.prepare('SELECT target_role, skills_json FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+      const skillsArr = finalPayload.skills || [];
+      const topDomain = finalPayload.taxonomy_alignment?.[0]?.aligned_domain || '';
+      if (!existingProf) {
+        await c.env.DB.prepare(`
+          INSERT INTO candidate_profile (id, organization_id, user_id, target_role, primary_domain, skills_json, readiness_score, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 0.65, unixepoch())
+        `).bind(crypto.randomUUID(), dbUser.organization_id, user.id, topDomain ? `${topDomain} Specialist` : 'Software Specialist', topDomain || 'Technology', JSON.stringify(skillsArr)).run();
+      } else if (!existingProf.skills_json || existingProf.skills_json === '[]') {
+        await c.env.DB.prepare('UPDATE candidate_profile SET skills_json = ?, updated_at = unixepoch() WHERE user_id = ?').bind(JSON.stringify(skillsArr), user.id).run();
+      }
+    } catch (_) {}
 
     return c.json({ success: true, data: finalPayload, cached });
   } catch (error: any) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain, Laptop, GraduationCap } from 'lucide-react';
+import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain, Laptop, GraduationCap, Edit3, X, Check, AlertCircle, Clock, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function CandidateWorkspace({ profileName }: { profileName: string }) {
@@ -12,6 +12,20 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [claims, setClaims] = useState<any[]>([]);
   const [pathways, setPathways] = useState<any[]>([]);
+  const [dataState, setDataState] = useState<'current' | 'updating' | 'empty' | 'error'>('empty');
+  const [resumeMeta, setResumeMeta] = useState<{ version?: number; filename?: string; extracted_at?: string } | null>(null);
+
+  // Edit Profile modal state
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaveMessage, setProfileSaveMessage] = useState('');
+  const [editForm, setEditForm] = useState({
+    target_role: '',
+    primary_domain: '',
+    experience_level: 'entry',
+    bio: ''
+  });
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
@@ -27,9 +41,24 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
       const statusData: any = await statusRes.json().catch(() => ({}));
       const jobsData: any = await jobsRes.json().catch(() => ({}));
       
-      setProfile(profileData.profile || {});
+      const prof = profileData.profile || {};
+      setProfile(prof);
+      setEditForm({
+        target_role: prof.target_role || '',
+        primary_domain: prof.primary_domain || '',
+        experience_level: prof.experience_level || 'entry',
+        bio: prof.bio || ''
+      });
+
       setResumeStatus(profileData.modules || {});
       setClaims(statusData.claims || []);
+      setDataState(statusData.data_state || (statusData.claims?.length ? 'current' : 'empty'));
+      setResumeMeta({
+        version: statusData.source_version || profileData.modules?.source_version,
+        filename: statusData.source_filename || profileData.modules?.source_filename,
+        extracted_at: statusData.extracted_at
+      });
+
       if (jobsData.success) setJobs(jobsData.requisitions || []);
 
       if (pathwaysRes && pathwaysRes.ok) {
@@ -44,18 +73,55 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
   useEffect(() => { load().catch(console.error); }, []);
 
   const uploadResume = async (file: File) => {
-    setUploading(true); setUploadMessage('');
+    setUploading(true); 
+    setUploadMessage('Uploading resume document...');
     try {
       const body = new FormData();
-      body.append('resume', file);
+      body.append('file', file);
       const res = await fetch('/api/resume/upload', { method: 'POST', body });
       const data: any = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Resume upload failed');
-      setUploadMessage(`Resume uploaded successfully (v${data.version || 1}). Extraction status: ${data.status || 'processing'}.`);
+
+      setUploadMessage(`Resume uploaded (v${data.version || 1}). Running multi-pass competency extraction...`);
+      if (data.resumeId) {
+        setDataState('updating');
+        const extractRes = await fetch(`/api/resume/extract/${data.resumeId}`, { method: 'POST' });
+        const extractData: any = await extractRes.json().catch(() => ({}));
+        if (extractRes.ok) {
+          setUploadMessage(`Resume v${data.version} extracted successfully. ${extractData?.data?.skills?.length || 0} skills aligned.`);
+        } else {
+          setUploadMessage(`Resume uploaded (v${data.version}), extraction queued.`);
+        }
+      }
       await load();
     } catch (e: any) {
       setUploadMessage(e.message || 'Resume upload failed');
     } finally { setUploading(false); }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingProfile(true);
+    setProfileSaveMessage('');
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm)
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update profile');
+      setProfileSaveMessage('Profile updated successfully.');
+      await load();
+      setTimeout(() => {
+        setIsEditingProfile(false);
+        setProfileSaveMessage('');
+      }, 700);
+    } catch (err: any) {
+      setProfileSaveMessage(err.message || 'Error saving profile');
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const applyToJob = async (id: string) => {
@@ -63,7 +129,8 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
     try {
       const res = await fetch(`/api/requisitions/${id}/apply`, { method: 'POST' });
       const data: any = await res.json();
-      alert(data.success ? `Application submitted. Match score: ${data.matchScore}` : data.error);
+      alert(data.success ? `Application submitted! Match score: ${data.matchScore}%\nReasoning: ${data.matchReasoning}` : data.error);
+      await load();
     } catch { alert('Network error'); }
     finally { setApplyingId(null); }
   };
@@ -142,7 +209,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             <div className="mt-2">
               <p className="text-xs font-bold text-white group-hover:text-[#FF4103] transition-colors truncate">Resume Intelligence</p>
               <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-                {resumeStatus?.resume_uploaded ? 'Uploaded & Extracted' : 'Upload Resume'}
+                {resumeStatus?.resume_uploaded ? `Active v${resumeMeta?.version || 1}` : 'Upload Resume'}
               </p>
             </div>
           </Link>
@@ -218,10 +285,37 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
         <div className="lg:col-span-2 bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-lg font-bold text-white">Profile & Evidence Readiness</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-white">Profile & Evidence Readiness</h2>
+                {dataState === 'current' && (
+                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold rounded-full flex items-center gap-1">
+                    <Check className="w-3 h-3" /> CANONICAL CURRENT
+                  </span>
+                )}
+                {dataState === 'updating' && (
+                  <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold rounded-full flex items-center gap-1 animate-pulse">
+                    <Clock className="w-3 h-3 animate-spin" /> UPDATING
+                  </span>
+                )}
+                {dataState === 'empty' && (
+                  <span className="px-2 py-0.5 bg-slate-700/50 border border-slate-600 text-slate-400 text-[10px] font-bold rounded-full">
+                    EMPTY PROFILE
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400 mt-0.5">Context completeness is maintained separate from verified proficiency.</p>
             </div>
-            <span className="text-[#FF4103] font-black text-xl">{completeness}%</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsEditingProfile(true)}
+                className="px-2.5 py-1.5 rounded-lg bg-[#001824] border border-[#002f47] hover:border-[#FF4103] text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition-colors"
+                title="Edit Target Role and Profile"
+              >
+                <Edit3 className="w-3 h-3 text-[#FF4103]" />
+                <span>Edit Profile</span>
+              </button>
+              <span className="text-[#FF4103] font-black text-xl">{completeness}%</span>
+            </div>
           </div>
           
           <div className="h-2.5 bg-[#001824] rounded-full overflow-hidden border border-[#002b40]">
@@ -243,12 +337,19 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             <div className="p-3.5 bg-[#001824] rounded-xl border border-[#002f47]">
               <span className="text-xs text-slate-400 uppercase font-semibold">Resume Source</span>
               <div className="text-white font-bold text-sm mt-1 truncate">
-                {resumeStatus?.resume_uploaded ? resumeStatus.resume.filename : 'Not uploaded'}
+                {resumeMeta?.filename ? (
+                  <span>{resumeMeta.filename} <span className="text-xs text-[#FF4103] font-normal">(v{resumeMeta.version})</span></span>
+                ) : (
+                  'Not uploaded'
+                )}
               </div>
             </div>
             <div className="p-3.5 bg-[#001824] rounded-xl border border-[#002f47]">
               <span className="text-xs text-slate-400 uppercase font-semibold">Extracted Claims</span>
-              <div className="text-[#FF4103] font-bold text-sm mt-1">{claims.length} verified assertions</div>
+              <div className="text-[#FF4103] font-bold text-sm mt-1">
+                {claims.length} verified assertions
+                {resumeMeta?.version && <span className="text-xs text-slate-400 font-normal ml-1">· v{resumeMeta.version}</span>}
+              </div>
             </div>
           </div>
         </div>
@@ -316,14 +417,25 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
               onClick={() => fileRef.current?.click()} 
               className="px-4 py-2.5 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white rounded-xl flex items-center gap-2 text-xs font-bold shadow-md shadow-[#FF4103]/20 transition-all"
             >
-              {uploading ? 'Extracting…' : <><Upload className="w-4 h-4"/> Upload Resume</>}
+              {uploading ? (
+                <>
+                  <Flame className="w-4 h-4 animate-spin" />
+                  <span>Processing…</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4"/> 
+                  <span>Upload Resume</span>
+                </>
+              )}
             </button>
           </div>
         </div>
 
         {uploadMessage && (
-          <div className="mt-4 p-3.5 rounded-xl bg-[#001824] border border-[#002f47] text-xs text-slate-300">
-            {uploadMessage}
+          <div className="mt-4 p-3.5 rounded-xl bg-[#001824] border border-[#002f47] text-xs text-slate-300 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#FF4103] shrink-0" />
+            <span>{uploadMessage}</span>
           </div>
         )}
 
@@ -332,14 +444,14 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             <ShieldCheck className="w-5 h-5 text-[#FF4103] mb-2" />
             <div className="text-sm font-bold text-white">Source Integrity</div>
             <div className="text-xs text-slate-400 mt-1">
-              Original resume evidence is stored in KV with SHA-256 integrity hashes.
+              Original resume evidence is stored in KV with SHA-256 integrity hashes and version tracking.
             </div>
           </div>
           <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
             <ClipboardCheck className="w-5 h-5 text-[#FF4103] mb-2" />
-            <div className="text-sm font-bold text-white">Claim Extraction</div>
+            <div className="text-sm font-bold text-white">Active Claim Provenance</div>
             <div className="text-xs text-slate-400 mt-1">
-              {claims.length ? `${claims.length} claims extracted with character provenance.` : 'Upload a resume to begin extraction.'}
+              {claims.length ? `${claims.length} claims extracted from current active resume (v${resumeMeta?.version || 1}).` : 'Upload a resume to begin extraction.'}
             </div>
           </div>
           <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
@@ -350,6 +462,75 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Extracted Claims Snapshot */}
+      <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-white">Extracted Claim Provenance Snapshot</h2>
+              {dataState === 'current' && (
+                <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold rounded-full">
+                  CURRENT
+                </span>
+              )}
+              {dataState === 'updating' && (
+                <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold rounded-full animate-pulse">
+                  UPDATING
+                </span>
+              )}
+              {dataState === 'empty' && (
+                <span className="px-2 py-0.5 bg-slate-700/50 border border-slate-600 text-slate-400 text-[10px] font-bold rounded-full">
+                  EMPTY
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {resumeMeta?.filename ? (
+                <span>Source: <strong className="text-slate-300">{resumeMeta.filename}</strong> (Version {resumeMeta.version}) · Active Evidence Source</span>
+              ) : (
+                'No active resume selected as evidence source'
+              )}
+            </p>
+          </div>
+          <span className="text-xs text-[#FF4103] font-semibold bg-[#FF4103]/10 px-2.5 py-1 rounded-lg border border-[#FF4103]/20 self-start sm:self-auto">
+            {claims.length} verified claims
+          </span>
+        </div>
+
+        {dataState === 'updating' ? (
+          <div className="p-8 bg-[#001824] border border-[#002f47] rounded-xl text-center">
+            <Flame className="w-8 h-8 text-[#FF4103] animate-spin mx-auto mb-2" />
+            <p className="text-sm font-bold text-white">Updating Evidence from Resume v{resumeMeta?.version || 1}...</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Running multi-pass segmentation, skill extraction, and taxonomy alignment. Your verified claims will update automatically.
+            </p>
+          </div>
+        ) : claims.length > 0 ? (
+          <div className="grid md:grid-cols-2 gap-3">
+            {claims.slice(0, 8).map((c, i) => (
+              <div key={i} className="p-3.5 bg-[#001824] border border-[#002f47] rounded-xl">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-[#FF4103] bg-[#FF4103]/10 px-2 py-0.5 rounded">
+                  {c.claim_type}
+                </span>
+                <div className="text-sm font-medium text-slate-200 mt-2">{c.claim_value}</div>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                  <span>State: {c.verification_state || 'extracted'}</span>
+                  <span>Conf: {((c.confidence_score || 0.85) * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 bg-[#001824] border border-[#002f47] rounded-xl text-center">
+            <ClipboardCheck className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+            <p className="text-sm font-bold text-slate-300">No claims extracted yet</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Upload your latest resume to automatically extract structured technical skills, experience claims, and role competencies with character-level provenance.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Learning Pathways Progress Section */}
@@ -497,33 +678,80 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
         </div>
       </section>
 
-      {/* Job Board Requisitions */}
+      {/* Job Board Requisitions & Live Match Engine */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">Live Requisitions & Match Engine</h2>
-          <span className="text-xs text-slate-400">{jobs.length} open roles</span>
+          <div>
+            <h2 className="text-xl font-bold text-white">Live Requisitions & Match Engine</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Matching candidates with active requisitions based on verified evidence.</p>
+          </div>
+          <span className="text-xs text-[#FF4103] font-bold bg-[#FF4103]/10 px-2.5 py-1 rounded-lg border border-[#FF4103]/20">
+            {jobs.length} open {jobs.length === 1 ? 'role' : 'roles'}
+          </span>
         </div>
         <div className="grid md:grid-cols-2 gap-4">
           {jobs.length === 0 ? (
             <div className="p-8 bg-[#001f2e] border border-[#063750] rounded-2xl text-slate-400 text-sm text-center md:col-span-2">
-              No active job requisitions posted yet. Check back soon.
+              <Briefcase className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+              <p className="font-semibold text-slate-300">No active job requisitions posted yet.</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                Requisitions posted by recruiters in your organization will appear here with automated evidence matching. In the meantime, prepare your competencies using Learning Pathways or Interview Prep.
+              </p>
             </div>
           ) : (
             jobs.map(job => (
               <div key={job.id} className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 flex flex-col justify-between hover:border-[#FF4103]/50 transition-colors shadow-lg">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-white">{job.title}</h3>
-                    <p className="text-slate-400 text-xs mt-0.5">{job.department || 'General'}</p>
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="text-lg font-bold text-white">{job.title}</h3>
+                      <p className="text-slate-400 text-xs mt-0.5">{job.department || 'General'}</p>
+                    </div>
+                    <Briefcase className="w-5 h-5 text-[#FF4103] shrink-0" />
                   </div>
-                  <Briefcase className="w-5 h-5 text-[#FF4103]" />
+                  {job.description && (
+                    <p className="text-xs text-slate-300 mt-2 line-clamp-2 leading-relaxed">
+                      {job.description}
+                    </p>
+                  )}
+                  {job.application_status && (
+                    <div className="mt-3 p-3 rounded-xl bg-[#001824] border border-[#002f47] text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Application:</span>
+                        <span className="text-emerald-400 font-bold capitalize">{job.application_status}</span>
+                      </div>
+                      {typeof job.match_score === 'number' && job.match_score > 0 && (
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-slate-400">Match score:</span>
+                          <span className="text-[#FF4103] font-bold">{job.match_score}%</span>
+                        </div>
+                      )}
+                      {job.match_reasoning && (
+                        <p className="text-[11px] text-slate-400 mt-1 italic">
+                          "{job.match_reasoning}"
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button 
-                  disabled={applyingId === job.id} 
+                  disabled={applyingId === job.id || !!job.application_status} 
                   onClick={() => applyToJob(job.id)} 
-                  className="w-full mt-4 py-2.5 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md shadow-[#FF4103]/20 transition-all"
+                  className="w-full mt-4 py-2.5 bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md shadow-[#FF4103]/20 transition-all flex items-center justify-center gap-2"
                 >
-                  {applyingId === job.id ? 'Submitting Application...' : 'Apply with Evidence Portfolio'}
+                  {applyingId === job.id ? (
+                    <>
+                      <Flame className="w-4 h-4 animate-spin" />
+                      <span>Submitting Application...</span>
+                    </>
+                  ) : job.application_status ? (
+                    <>
+                      <Check className="w-4 h-4 text-white" />
+                      <span>Applied with Evidence Portfolio</span>
+                    </>
+                  ) : (
+                    <span>Apply with Evidence Portfolio</span>
+                  )}
                 </button>
               </div>
             ))
@@ -531,28 +759,115 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
         </div>
       </section>
 
-      {/* Extracted Claims Snapshot */}
-      {claims.length > 0 && (
-        <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-white">Extracted Claim Provenance Snapshot</h2>
-            <span className="text-xs text-[#FF4103] font-semibold">{claims.length} claims</span>
-          </div>
-          <div className="grid md:grid-cols-2 gap-3">
-            {claims.slice(0, 8).map((c, i) => (
-              <div key={i} className="p-3.5 bg-[#001824] border border-[#002f47] rounded-xl">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-[#FF4103] bg-[#FF4103]/10 px-2 py-0.5 rounded">
-                  {c.claim_type}
-                </span>
-                <div className="text-sm font-medium text-slate-200 mt-2">{c.claim_value}</div>
-                <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-                  <span>State: {c.verification_state || 'extracted'}</span>
-                  <span>Conf: {((c.confidence_score || 0.85) * 100).toFixed(0)}%</span>
-                </div>
+      {/* Edit Profile Modal */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#001f2e] border border-[#063750] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-4 border-b border-[#002f47]">
+              <div className="flex items-center gap-2 text-white font-bold text-lg">
+                <Edit3 className="w-5 h-5 text-[#FF4103]" />
+                <span>Edit Candidate Profile</span>
               </div>
-            ))}
+              <button 
+                onClick={() => setIsEditingProfile(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[#001824]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfile} className="space-y-4 mt-5">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Target Role
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.target_role}
+                  onChange={e => setEditForm(prev => ({ ...prev, target_role: e.target.value }))}
+                  placeholder="e.g. AI / Machine Learning Engineer"
+                  className="w-full px-3.5 py-2.5 bg-[#001824] border border-[#002f47] rounded-xl text-white text-sm focus:border-[#FF4103] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Primary Domain
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.primary_domain}
+                  onChange={e => setEditForm(prev => ({ ...prev, primary_domain: e.target.value }))}
+                  placeholder="e.g. Artificial Intelligence, Cloud & DevOps, Software Engineering"
+                  className="w-full px-3.5 py-2.5 bg-[#001824] border border-[#002f47] rounded-xl text-white text-sm focus:border-[#FF4103] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Experience Level
+                </label>
+                <select
+                  value={editForm.experience_level}
+                  onChange={e => setEditForm(prev => ({ ...prev, experience_level: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-[#001824] border border-[#002f47] rounded-xl text-white text-sm focus:border-[#FF4103] focus:outline-none"
+                >
+                  <option value="entry">Entry Level (0 - 2 years)</option>
+                  <option value="mid">Mid Level (2 - 5 years)</option>
+                  <option value="senior">Senior Level (5 - 8 years)</option>
+                  <option value="lead">Staff / Lead (8+ years)</option>
+                  <option value="executive">Principal / Executive</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Career Summary / Bio
+                </label>
+                <textarea
+                  rows={3}
+                  value={editForm.bio}
+                  onChange={e => setEditForm(prev => ({ ...prev, bio: e.target.value }))}
+                  placeholder="Summarize your professional background, strengths, and career aspirations..."
+                  className="w-full px-3.5 py-2.5 bg-[#001824] border border-[#002f47] rounded-xl text-white text-sm focus:border-[#FF4103] focus:outline-none resize-none"
+                />
+              </div>
+
+              {profileSaveMessage && (
+                <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${profileSaveMessage.includes('Error') ? 'bg-red-500/10 text-red-400 border border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}`}>
+                  {profileSaveMessage.includes('Error') ? <AlertCircle className="w-4 h-4 shrink-0" /> : <Check className="w-4 h-4 shrink-0" />}
+                  <span>{profileSaveMessage}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#002f47]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingProfile(false)}
+                  className="px-4 py-2.5 rounded-xl bg-[#001824] border border-[#002f47] text-slate-300 hover:text-white text-xs font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-[#FF4103]/20 flex items-center gap-2 transition-all"
+                >
+                  {savingProfile ? (
+                    <>
+                      <Flame className="w-4 h-4 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
-        </section>
+        </div>
       )}
     </div>
   );
