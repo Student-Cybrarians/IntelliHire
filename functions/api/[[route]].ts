@@ -1419,7 +1419,8 @@ Return ONLY valid JSON matching this schema:
           ],
           temperature: 0,
           max_tokens: 4096
-        })
+        }),
+        signal: AbortSignal.timeout(7000)
       });
 
       if (extractRes.status === 429) throw new Error('429');
@@ -1584,27 +1585,47 @@ app.post('/jd/analyze', async (c) => {
     let structuredData: any = null;
 
     try {
+      const model = c.env.NVIDIA_MODEL || 'meta/muse-glimmer-30b';
       const aiResponse = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'meta/muse-glimmer-30b',
-          messages: [ { role: 'system', content: systemPrompt }, { role: 'user', content: `--- JOB DESCRIPTION START ---\n${redactedJD.slice(0, 50000)}\n--- JOB DESCRIPTION END ---` } ],
+          model,
+          messages: [ { role: 'system', content: systemPrompt }, { role: 'user', content: `--- JOB DESCRIPTION START ---\n${redactedJD.slice(0, 30000)}\n--- JOB DESCRIPTION END ---` } ],
           temperature: 0,
-          max_tokens: 4096
-        })
+          max_tokens: 3000
+        }),
+        signal: AbortSignal.timeout(6000)
       });
 
       if (aiResponse.status === 429) throw new Error('429');
       if (aiResponse.ok) {
         const aiData = await aiResponse.json() as any;
-        const aiContent = aiData.choices?.[0]?.message?.content;
+        const aiContent = aiData.choices?.[0]?.message?.content || aiData.choices?.[0]?.message?.reasoning_content;
         if (aiContent) {
           structuredData = extractJsonFromLlmResponse(aiContent);
         }
       }
     } catch (err: any) {
       if (err.message === '429') throw err;
+    }
+
+    if ((!structuredData || !Array.isArray(structuredData.requirements)) && c.env.AI?.run) {
+      try {
+        const cfPromise = c.env.AI.run('@cf/meta/llama-3-8b-instruct', {
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `--- JOB DESCRIPTION START ---\n${redactedJD.slice(0, 30000)}\n--- JOB DESCRIPTION END ---` }
+          ],
+          max_tokens: 2048
+        });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Workers AI timeout')), 4000));
+        const cfResponse: any = await Promise.race([cfPromise, timeoutPromise]);
+        const cfText = cfResponse?.response || (typeof cfResponse === 'string' ? cfResponse : '');
+        if (cfText) {
+          structuredData = extractJsonFromLlmResponse(cfText);
+        }
+      } catch (_) {}
     }
 
     if (!structuredData || !Array.isArray(structuredData.requirements)) {
