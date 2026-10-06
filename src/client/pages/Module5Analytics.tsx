@@ -316,13 +316,15 @@ export default function Module5Analytics() {
           <div>
             <div className="flex items-center gap-2 text-[#FF4103] text-xs font-bold uppercase tracking-wider mb-2">
               <ShieldCheck className="w-4 h-4 text-[#FF4103]" />
-              <span>Priority 17 · Module 5 Enterprise Readiness & Governance</span>
+              <span>{isCandidateRole ? 'Module 5 · Results' : 'Priority 17 · Module 5 Enterprise Readiness & Governance'}</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-              Evidence Synthesis & Human Decision Cockpit
+              {isCandidateRole ? 'Consolidated Candidate Results & Performance Synthesis' : 'Evidence Synthesis & Human Decision Cockpit'}
             </h1>
             <p className="text-slate-300 text-sm mt-1">
-              Cross-module evidence aggregation (M01–M04), Bayesian readiness calibration, transparent decision matrix, and EEOC adverse impact governance.
+              {isCandidateRole
+                ? 'Cross-module performance synthesis across Resume Intelligence, Assessments, Technical Round, and HR Round.'
+                : 'Cross-module evidence aggregation (M01–M04), Bayesian readiness calibration, transparent decision matrix, and EEOC adverse impact governance.'}
             </p>
           </div>
 

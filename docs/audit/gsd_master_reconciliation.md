@@ -22,36 +22,27 @@ This audit reconciles the current implementation of IntelliHire against the `int
 | 15 | M03 Simulation Framework | **Complete** | Implemented in Iteration 4 via `/api/m3/simulations/*`, `Module3Simulation.tsx`, dynamic constraint shifts, multi-dimensional rubrics, and M02 feedback loop. |
 | 16 | M04 Interaction / Interview Simulation & Enterprise Protocols | **Complete** | Implemented in Iteration 4 via `/api/m4/interviews/*`, `Module4Interviews.tsx`, multi-panel coordination, anchored rubrics, candidate dossier ingestion (M01-M03), independent human rating isolation, and post-session M05 evidence synthesis. |
 | 17 | M05 Readiness & Evidence Synthesis / Decision Support | **Complete** | Implemented in Iteration 5 via `/api/m5/*`, `Module5Analytics.tsx`, 5-layer auditable evidence ledger, multi-dimensional Bayesian readiness calibration, transparent decision matrix, human committee review records, EEOC 4/5ths adverse impact governance, and closed-loop remediation pathways. |
-| 18 | Training Curriculum & Learning Pathway Engine | **Complete** | Implemented in Iteration 6 via `m6_training_curriculum_schema.sql` (remote D1 tables: `learning_pathway`, `curriculum_module`, `learning_unit`, `learning_progress_record`), backend engine `functions/api/trainingEngine.ts`, frontend workspace `src/client/pages/TrainingCurriculum.tsx`, dual-persona cockpit (Learner + Trainer Cohort Analytics), strict **Completion ≠ Mastery** enforcement, formative practice with Why/How feedback, module reassessment checkpoint gate updating Bayesian $\theta$ in M02 and writing to M05 Evidence Ledger. Full test suite passing (224 tests across 37 test suites). |
+| 18 | Training Curriculum & Learning Pathway Engine | **Complete** | Implemented in Iteration 6 via `m6_training_curriculum_schema.sql`, backend engine `functions/api/trainingEngine.ts`, frontend workspace `src/client/pages/TrainingCurriculum.tsx`, dual-persona cockpit, strict Completion != Mastery enforcement, formative practice with Why/How feedback, module reassessment checkpoint gate updating Bayesian theta in M02 and writing to M05 Evidence Ledger. |
+| 18.1 | Candidate Sidebar & Navigation Simplification | **Complete** | Standardized candidate primary navigation into 8 unified destinations: (1) IntelliHire Home (`/dashboard`), (2) Dashboard · Learning Progress (`/dashboard`), (3) Module 1 · Resume Intelligence (`/resume`), (4) Module 2 · Aptitude / Assessment Preparation (`/assess`), (5) Module 3 · Technical Round (`/simulation`), (6) Module 4 · HR Round (`/interviews`), (7) Module 5 · Results (`/results`), (8) Candidate Profile / Sign Out (`/candidate`). Cleaned up internal architecture tags (no "M6" labels exposed to candidate), added visual 5-module progression strip to dashboard, integrated active learning pathways, and verified role isolation for recruiter/org_admin sidebars. 38 test suites / 231 tests passing (100%). |
 | 19-21 | Institutional Cohort Intelligence & University Accreditation | **GAP / Next Priority** | University curriculum mapping, accredited competency frameworks (ABET, AACSB), cross-cohort benchmark comparisons, institutional transcript exports, and enterprise cohort placement pipelines. |
 
-## Verification Summary (Priority 18)
-1. **Database Schema (`m6_training_curriculum_schema.sql`)**:
-   - `learning_pathway`: Tracks target role, domain, completion progress, verified mastery score, prerequisite graphs, and M01–M05 evidence attributions.
-   - `curriculum_module`: Sequential capability units linked via prerequisite dependency graphs.
-   - `learning_unit`: Instructional units (`micro_concept`, `misconception_deepdive`, `guided_exercise`, `reassessment_gate`) with Markdown lessons and interactive formative questions.
-   - `learning_progress_record`: Audit log of unit starts, completions, and verified mastery milestones.
-   - Successfully migrated onto remote Cloudflare D1 (`intellihire-db`).
-2. **Backend Engine (`functions/api/trainingEngine.ts`)**:
-   - `GET /training/pathways`: Learner pathway listing and org pool queries.
-   - `GET /training/pathway/:id`: Full pathway hierarchy retrieval with RBAC tenant isolation.
-   - `POST /training/generate`: Evidence-driven curriculum compilation from M01 resume gaps, M02 misconceptions, M03 simulation telemetry, and M04 panel feedback.
-   - `POST /training/unit/:id/progress`: Instructional reading completion (advances completion %, but does not inflate skill proficiency).
-   - `POST /training/unit/:id/submit-exercise`: Formative exercise grading with Why/How explanations and misconception warnings.
-   - `POST /training/module/:id/reassess`: Gate evaluation ($ \ge 75\% $) unlocking sequential modules, updating Bayesian $\theta$ in `candidate_skill_proficiency_v2`, and appending an immutable entry to `readiness_evidence_ledger`.
-   - `GET /training/cohort/analytics`: Trainer and recruiter cohort analytics with completion-mastery gap calculation and top diagnosed cohort weaknesses.
-3. **Frontend Cockpit (`src/client/pages/TrainingCurriculum.tsx`)**:
-   - Learner Cockpit: Prerequisite module sidebar, Markdown lesson viewer, formative practice with instantaneous Explain Why/How feedback, and Reassessment Checkpoint Gate with demonstration notes.
-   - Dual-Persona Tab: Trainer & Institutional Cohort Analytics (learners enrolled, completion vs mastery gap, top diagnosed weaknesses).
-   - Closed-Loop Navigation: Quick actions linking to M02 Adaptive Assessment, M03 Simulation Sandbox, and M04 Panel Interviews.
-4. **Navigation Integration**:
-   - Added `/learning`, `/training`, `/curriculum` routes in `src/client/App.tsx`.
-   - Added "M6 · Learning Pathways" to Candidate and Recruiter sidebars in `src/client/pages/dashboard/DashboardLayout.tsx`.
-   - Added "Learning Pathways" card in Candidate Command Center (`src/client/pages/dashboard/CandidateWorkspace.tsx`).
-5. **Quality Assurance**:
-   - 9 backend unit & integration tests (`functions/api/trainingEngine.test.ts`).
-   - 6 frontend component flow tests (`src/client/pages/TrainingCurriculum.test.tsx`).
-   - Full repository test suite: **37 test files passed, 224 tests passed, 0 failures**.
+## Verification Summary (Priority 18.1 · Candidate Navigation Simplification)
+1. **Candidate Sidebar Invariants Verified**:
+   - Primary candidate navigation contains strictly the 7 core links + bottom profile/logout section.
+   - Removed "Evidence Portfolio", "M6 · Learning Pathways", "M5 · Readiness Synthesis", and internal architecture shorthand from primary candidate navigation.
+   - Bottom profile card links directly to `/candidate` and contains avatar initials, user name, and dedicated Sign Out triggers.
+   - Non-candidate roles (recruiter, org_admin) retain their role-appropriate cockpit navigation without regression.
+2. **Routing & Module Access**:
+   - `/results` route added in `App.tsx` mapped to `Module5Analytics`, presenting candidate-facing "Module 5 · Results" header.
+   - `/interviews`, `/module-4`, and `/hr-round` enabled for candidates to access behavioral interaction simulation.
+   - IntelliHire Home navigates to `/dashboard` for signed-in candidates and `/` for public/signed-out users.
+3. **Dashboard & Learning Progress Integration**:
+   - Dashboard header badge updated to `Dashboard · Learning Progress`.
+   - Visual `Candidate Journey · Module Progression` strip presents real-time status across Module 1, Module 2, Module 3, Module 4, and Module 5.
+   - Direct integration with `/api/training/pathways` to present active pathway progress, module mastery counts, and curriculum milestones cleanly without "M6" labels.
+4. **Test Suite Verification**:
+   - 7 dedicated navigation & layout tests in `src/client/pages/dashboard/CandidateNavigation.test.tsx`.
+   - Full test suite: **38 test files passed, 231 tests passed, 0 failures**.
    - Clean production build (`tsc && vite build`).
 
 ## Immediate Next Step (Iteration 7)

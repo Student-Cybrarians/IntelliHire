@@ -53,16 +53,25 @@ export default function Module4Interviews() {
   // Post-Interview Synthesis
   const [synthesis, setSynthesis] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'cockpit' | 'dossier' | 'synthesis'>('cockpit');
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [protoRes, candRes] = await Promise.all([
+      const [protoRes, candRes, authRes] = await Promise.all([
         fetch('/api/m4/interviews/protocols'),
-        fetch('/api/m4/interviews/candidates')
+        fetch('/api/m4/interviews/candidates'),
+        fetch('/api/auth/me').catch(() => null)
       ]);
       const protoData = await protoRes.json() as any;
       const candData = await candRes.json() as any;
+
+      if (authRes && authRes.ok) {
+        const authData = await authRes.json() as any;
+        if (authData.user) {
+          setCurrentUser(authData.user);
+        }
+      }
 
       if (protoData.success) {
         setProtocols(protoData.protocols || []);
@@ -188,8 +197,12 @@ export default function Module4Interviews() {
     }
   };
 
+  const isCandidateRole = currentUser?.role === 'candidate';
+  const roleName = currentUser?.role || 'candidate';
+  const userDisplayName = currentUser?.full_name || (isCandidateRole ? 'Candidate' : 'Interview Committee Lead');
+
   return (
-    <DashboardLayout role="recruiter" userFullName="Interview Committee Lead">
+    <DashboardLayout role={roleName} userFullName={userDisplayName}>
       <div className="space-y-8">
         
         {/* Header */}
@@ -197,13 +210,15 @@ export default function Module4Interviews() {
           <div>
             <div className="flex items-center gap-2 text-[#FF4103] text-xs font-bold uppercase tracking-wider mb-2">
               <Brain className="w-4 h-4 text-[#FF4103]" />
-              <span>Module 4 · Universal Professional Interaction & Interview Intelligence</span>
+              <span>{isCandidateRole ? 'Module 4 · HR Round' : 'Module 4 · Universal Professional Interaction & Interview Intelligence'}</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-              Calibrated Structured Interview Cockpit
+              {isCandidateRole ? 'HR Round Simulation & Behavioral Interaction' : 'Calibrated Structured Interview Cockpit'}
             </h1>
             <p className="text-slate-300 text-sm mt-1.5 max-w-3xl leading-relaxed">
-              Consumes candidate evidence packages across M01 (Resume & Claims), M02 (Adaptive Gaps & Misconceptions), and M03 (Work Simulations) to drive panel-coordinated questioning with anchored rubrics and bias-free human evaluation.
+              {isCandidateRole 
+                ? 'Interactive calibrated behavioral interview simulation evaluated against anchored competency rubrics.'
+                : 'Consumes candidate evidence packages across M01 (Resume & Claims), M02 (Adaptive Gaps & Misconceptions), and M03 (Work Simulations) to drive panel-coordinated questioning with anchored rubrics and bias-free human evaluation.'}
             </p>
           </div>
 

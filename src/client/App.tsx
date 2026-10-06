@@ -50,10 +50,12 @@ export default function App() {
       <Route path="/candidates" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
 
       {/* Module 4: Structured Interview Intelligence */}
-      <Route path="/module-4" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module4Interviews /></ProtectedRoute>} />
-      <Route path="/interviews" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module4Interviews /></ProtectedRoute>} />
+      <Route path="/module-4" element={<ProtectedRoute><Module4Interviews /></ProtectedRoute>} />
+      <Route path="/interviews" element={<ProtectedRoute><Module4Interviews /></ProtectedRoute>} />
+      <Route path="/hr-round" element={<ProtectedRoute><Module4Interviews /></ProtectedRoute>} />
 
       {/* Module 5: Enterprise Decision Support & Governance */}
+      <Route path="/results" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />
       <Route path="/module-5" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />
       <Route path="/analytics" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />
       <Route path="/readiness" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />

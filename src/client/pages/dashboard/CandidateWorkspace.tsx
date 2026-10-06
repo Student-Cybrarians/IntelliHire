@@ -11,23 +11,33 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
   const [uploadMessage, setUploadMessage] = useState('');
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [claims, setClaims] = useState<any[]>([]);
+  const [pathways, setPathways] = useState<any[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [profileRes, statusRes, jobsRes] = await Promise.all([
+      const [profileRes, statusRes, jobsRes, pathwaysRes] = await Promise.all([
         fetch('/api/dashboard/candidate'),
         fetch('/api/resume/status'),
-        fetch('/api/requisitions')
+        fetch('/api/requisitions'),
+        fetch('/api/training/pathways').catch(() => null)
       ]);
-      const profileData: any = await profileRes.json();
+      const profileData: any = await profileRes.json().catch(() => ({}));
       const statusData: any = await statusRes.json().catch(() => ({}));
-      const jobsData: any = await jobsRes.json();
+      const jobsData: any = await jobsRes.json().catch(() => ({}));
+      
       setProfile(profileData.profile || {});
       setResumeStatus(profileData.modules || {});
       setClaims(statusData.claims || []);
       if (jobsData.success) setJobs(jobsData.requisitions || []);
+
+      if (pathwaysRes && pathwaysRes.ok) {
+        const pData: any = await pathwaysRes.json().catch(() => ({}));
+        if (pData.success && Array.isArray(pData.pathways)) {
+          setPathways(pData.pathways);
+        }
+      }
     } finally { setLoading(false); }
   };
 
@@ -80,14 +90,14 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
       <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5 pb-6 border-b border-[#063750]">
         <div>
           <div className="flex items-center gap-2 text-[#FF4103] text-xs font-bold uppercase tracking-wider mb-2">
-            <Flame className="w-4 h-4 text-[#FF4103]" /> 
-            <span>Candidate Command Center</span>
+            <CheckCircle2 className="w-4 h-4 text-[#FF4103]" /> 
+            <span>Dashboard · Learning Progress</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
             Welcome back, {profileName.split(' ')[0]}.
           </h1>
           <p className="text-slate-300 text-sm mt-1.5">
-            Build authentic evidence, verify competency proficiency, and improve verified readiness.
+            Track your personalized learning pathways, verified competencies, and end-to-end module progression.
           </p>
         </div>
         
@@ -97,7 +107,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             className="px-4 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/20 transition-all"
           >
             <Zap className="w-4 h-4" />
-            <span>Take M2 Assessment</span>
+            <span>Practice Aptitude Assessment</span>
           </Link>
           <button 
             onClick={() => load()} 
@@ -109,6 +119,99 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
           </button>
         </div>
       </header>
+
+      {/* Candidate Module Progression Strip */}
+      <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-5 shadow-lg">
+        <div className="flex items-center justify-between mb-3.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#FF4103] animate-pulse" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300">Candidate Journey · Module Progression</h2>
+          </div>
+          <span className="text-[11px] text-slate-400">5 Continuous Competency Stages</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {/* Module 1 */}
+          <Link 
+            to="/resume"
+            className="p-3 rounded-xl bg-[#001824] border border-[#002f47] hover:border-[#FF4103]/60 transition-all group flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103]">Module 1</span>
+              <FileText className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#FF4103] transition-colors" />
+            </div>
+            <div className="mt-2">
+              <p className="text-xs font-bold text-white group-hover:text-[#FF4103] transition-colors truncate">Resume Intelligence</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {resumeStatus?.resume_uploaded ? 'Uploaded & Extracted' : 'Upload Resume'}
+              </p>
+            </div>
+          </Link>
+
+          {/* Module 2 */}
+          <Link 
+            to="/assess"
+            className="p-3 rounded-xl bg-[#001824] border border-[#002f47] hover:border-[#FF4103]/60 transition-all group flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103]">Module 2</span>
+              <Target className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#FF4103] transition-colors" />
+            </div>
+            <div className="mt-2">
+              <p className="text-xs font-bold text-white group-hover:text-[#FF4103] transition-colors truncate">Aptitude Prep</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {readiness > 0 ? `${(readiness * 100).toFixed(0)}% Assessed` : 'Ready to Start'}
+              </p>
+            </div>
+          </Link>
+
+          {/* Module 3 */}
+          <Link 
+            to="/simulation"
+            className="p-3 rounded-xl bg-[#001824] border border-[#002f47] hover:border-[#FF4103]/60 transition-all group flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103]">Module 3</span>
+              <Laptop className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#FF4103] transition-colors" />
+            </div>
+            <div className="mt-2">
+              <p className="text-xs font-bold text-white group-hover:text-[#FF4103] transition-colors truncate">Technical Round</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">Practical Sandbox</p>
+            </div>
+          </Link>
+
+          {/* Module 4 */}
+          <Link 
+            to="/interviews"
+            className="p-3 rounded-xl bg-[#001824] border border-[#002f47] hover:border-[#FF4103]/60 transition-all group flex flex-col justify-between"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103]">Module 4</span>
+              <Brain className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#FF4103] transition-colors" />
+            </div>
+            <div className="mt-2">
+              <p className="text-xs font-bold text-white group-hover:text-[#FF4103] transition-colors truncate">HR Round</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">Behavioral Cockpit</p>
+            </div>
+          </Link>
+
+          {/* Module 5 */}
+          <Link 
+            to="/results"
+            className="p-3 rounded-xl bg-[#001824] border border-[#002f47] hover:border-[#FF4103]/60 transition-all group flex flex-col justify-between col-span-2 md:col-span-1"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103]">Module 5</span>
+              <ShieldCheck className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#FF4103] transition-colors" />
+            </div>
+            <div className="mt-2">
+              <p className="text-xs font-bold text-white group-hover:text-[#FF4103] transition-colors truncate">Results</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                {readiness > 0 ? `${(readiness * 100).toFixed(0)}% Synthesized` : 'Synthesized Overview'}
+              </p>
+            </div>
+          </Link>
+        </div>
+      </section>
 
       {/* Readiness & Profile Gauges */}
       <div className="grid lg:grid-cols-3 gap-6">
@@ -176,13 +279,13 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
         </div>
       </div>
 
-      {/* Resume Intelligence Section */}
+      {/* Module 1: Resume Intelligence Section */}
       <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[#002a40]">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <FileText className="w-5 h-5 text-[#FF4103]" /> 
-              <span>M1 · Resume Intelligence & Extraction</span>
+              <span>Module 1 · Resume Intelligence & Extraction</span>
             </h2>
             <p className="text-slate-400 text-xs sm:text-sm mt-1">
               Supports PDF, DOCX, TXT or TEX. Original document remains the immutable evidence source.
@@ -243,13 +346,84 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             <CheckCircle2 className="w-5 h-5 text-[#FF4103] mb-2" />
             <div className="text-sm font-bold text-white">Assessment Proof</div>
             <div className="text-xs text-slate-400 mt-1">
-              Use M2 Universal Assessment to convert unverified claims into proven capability.
+              Use Module 2 Assessment Preparation to convert unverified claims into proven capability.
             </div>
           </div>
         </div>
       </section>
 
-      {/* Next Actions Grid */}
+      {/* Learning Pathways Progress Section */}
+      <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#002a40]">
+          <div>
+            <div className="flex items-center gap-2 text-white font-bold text-lg">
+              <GraduationCap className="w-5 h-5 text-[#FF4103]" />
+              <span>Personalized Learning Pathways & Curricula</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Targeted skill remediation, prerequisite graphs, formative practice units, and verified mastery gates.
+            </p>
+          </div>
+          <Link
+            to="/learning"
+            className="px-3.5 py-2 rounded-xl bg-[#FF4103]/15 border border-[#FF4103]/40 hover:bg-[#FF4103] hover:text-white text-[#FF4103] text-xs font-bold transition-all self-start sm:self-auto"
+          >
+            Manage Pathways
+          </Link>
+        </div>
+
+        {pathways.length > 0 ? (
+          <div className="grid md:grid-cols-2 gap-4 mt-5">
+            {pathways.slice(0, 4).map((p) => (
+              <div key={p.id} className="p-4 rounded-xl bg-[#001824] border border-[#002f47] flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103] bg-[#FF4103]/10 px-2 py-0.5 rounded">
+                      {p.target_role || 'General Pathway'}
+                    </span>
+                    <span className="text-xs font-bold text-slate-300">{p.progress_pct || 0}% Complete</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white mt-2 truncate">{p.title}</h4>
+                  <div className="text-xs text-slate-400 mt-1">
+                    {p.mastered_modules || 0} of {p.total_modules || 0} modules mastered
+                  </div>
+                  <div className="h-1.5 bg-[#002538] rounded-full overflow-hidden mt-3">
+                    <div 
+                      className="h-full bg-gradient-to-r from-[#FF4103] to-[#ff7847] rounded-full transition-all duration-300"
+                      style={{ width: `${p.progress_pct || 0}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-[#002f47] flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500 capitalize">Status: {p.status || 'Active'}</span>
+                  <Link 
+                    to="/learning" 
+                    className="text-xs font-bold text-[#FF4103] hover:underline flex items-center gap-1"
+                  >
+                    Continue <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5 p-6 rounded-xl bg-[#001824] border border-[#002f47] text-center">
+            <GraduationCap className="w-8 h-8 text-slate-500 mx-auto mb-2" />
+            <p className="text-sm font-bold text-slate-300">No active learning pathway yet</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Learning pathways convert your detected skill gaps into structured, step-by-step curriculum milestones with interactive practice.
+            </p>
+            <Link 
+              to="/learning" 
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-[#FF4103] text-white text-xs font-bold shadow-md shadow-[#FF4103]/20 hover:bg-[#e03200] transition-colors"
+            >
+              Start Learning Pathway
+            </Link>
+          </div>
+        )}
+      </section>
+
+      {/* Recommended Next Actions Grid */}
       <section>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-white">Recommended Next Actions</h2>
@@ -293,31 +467,31 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg block"
           >
             <ClipboardCheck className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
-            <h3 className="font-bold text-white text-base">Take Assessment</h3>
+            <h3 className="font-bold text-white text-base">Module 2 · Aptitude Assessment</h3>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
               Adaptive skill verification with evidence-based proficiency and uncertainty tracking.
             </p>
           </Link>
           
-          <button 
-            onClick={() => fileRef.current?.click()} 
-            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg"
-          >
-            <Upload className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
-            <h3 className="font-bold text-white text-base">Update Resume</h3>
-            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Upload a new version to trigger multi-pass extraction and hybrid ATS re-scoring.
-            </p>
-          </button>
-          
-          <Link 
-            to="/candidate" 
+          <Link
+            to="/interviews" 
             className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg block"
           >
-            <Briefcase className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
-            <h3 className="font-bold text-white text-base">Evidence Portfolio</h3>
+            <Brain className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Module 4 · HR Round</h3>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              View your full competency radar, verified claims, and exportable Evidence Package.
+              Calibrated behavioral interview simulation evaluated against competency rubrics.
+            </p>
+          </Link>
+          
+          <Link 
+            to="/results" 
+            className="text-left bg-[#001f2e] border border-[#063750] rounded-2xl p-6 hover:border-[#FF4103] transition-all hover:-translate-y-0.5 group shadow-lg block"
+          >
+            <ShieldCheck className="w-6 h-6 text-[#FF4103] mb-3 group-hover:scale-110 transition-transform" />
+            <h3 className="font-bold text-white text-base">Module 5 · Results</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Consolidated readiness across Resume, Aptitude, Technical, and HR rounds.
             </p>
           </Link>
         </div>
