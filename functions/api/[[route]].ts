@@ -1888,7 +1888,141 @@ app.get('/match/status/:jobId', async (c) => {
   const job = await c.env.DB.prepare('SELECT * FROM async_job WHERE id = ? AND user_id = ?').bind(jobId, user.id).first();
   if (!job) return c.json({ error: 'Job not found' }, 404);
 
+  // Hardening: detect stuck pending jobs older than 60 seconds
+  if (job.status === 'PENDING' || job.status === 'PROCESSING') {
+    const jobTime = job.created_at ? new Date(String(job.created_at)).getTime() : 0;
+    if (jobTime > 0 && (Date.now() - jobTime) > 60000) {
+      await c.env.DB.prepare("UPDATE async_job SET status = 'FAILED', error_message = 'Match processing timed out.' WHERE id = ?").bind(jobId).run();
+      return c.json({ success: true, status: 'FAILED', progress: 0, result: null, error: 'Match processing timed out. Please retry.' });
+    }
+  }
+
   return c.json({ success: true, status: job.status, progress: job.progress_percentage, result: job.result_data_json ? JSON.parse(job.result_data_json as string) : null, error: job.error_message });
+});
+
+// ----------------------------------------------------
+// M01 State Persistence & Canonical Restoration
+// ----------------------------------------------------
+
+app.get('/m1/state', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const orgId = user.organization_id || 'org_default_public';
+
+  // 1. Canonical active resume
+  const resume = await c.env.DB.prepare(
+    'SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1 ORDER BY version DESC LIMIT 1'
+  ).bind(user.id, orgId).first();
+
+  let resumeData: any = null;
+  let claims: any[] = [];
+
+  if (resume) {
+    const ctx = await c.env.DB.prepare(
+      'SELECT id, raw_text, extraction_status, extraction_method, context_data_json, created_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1'
+    ).bind(resume.id, user.id).first();
+
+    if (ctx) {
+      if (ctx.context_data_json) {
+        try {
+          resumeData = JSON.parse(ctx.context_data_json as string);
+        } catch (_) {}
+      }
+
+      const claimsRes = await c.env.DB.prepare(
+        'SELECT id, claim_type, claim_value, confidence_score, verification_state, created_at FROM candidate_claim WHERE context_id = ? ORDER BY created_at ASC'
+      ).bind(ctx.id).all();
+
+      claims = claimsRes.results || [];
+
+      if (!resumeData) resumeData = {};
+      if (!resumeData.skills || !Array.isArray(resumeData.skills) || resumeData.skills.length === 0) {
+        resumeData.skills = claims.map((cl: any) => cl.claim_value);
+      }
+    }
+  }
+
+  // 2. Canonical latest JD for candidate
+  const jdRow = await c.env.DB.prepare(
+    'SELECT id, raw_text, requirements_json, created_at FROM job_description_context WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+  ).bind(user.id).first();
+
+  let jdData: any = null;
+  if (jdRow && jdRow.requirements_json) {
+    try {
+      jdData = JSON.parse(jdRow.requirements_json as string);
+    } catch (_) {
+      jdData = null;
+    }
+  }
+
+  // 3. Canonical match analysis
+  let matchData: any = null;
+  let matchStale = false;
+
+  if (resume) {
+    let matchRow: any = null;
+    if (jdRow) {
+      matchRow = await c.env.DB.prepare(
+        'SELECT id, resume_id, jd_id, match_report_json, created_at FROM match_analysis WHERE user_id = ? AND resume_id = ? AND jd_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).bind(user.id, resume.id, jdRow.id).first();
+    }
+
+    if (!matchRow) {
+      matchRow = await c.env.DB.prepare(
+        'SELECT id, resume_id, jd_id, match_report_json, created_at FROM match_analysis WHERE user_id = ? AND resume_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).bind(user.id, resume.id).first();
+    }
+
+    if (matchRow && jdRow && matchRow.jd_id && matchRow.jd_id !== jdRow.id) {
+      matchStale = true;
+    }
+
+    if (matchRow && matchRow.match_report_json) {
+      try {
+        matchData = JSON.parse(matchRow.match_report_json as string);
+      } catch (_) {}
+    }
+  }
+
+  // 4. Any pending or active match job
+  const pendingJob = await c.env.DB.prepare(
+    "SELECT id, job_type, status, progress_percentage, created_at FROM async_job WHERE user_id = ? AND job_type = 'MATCH_ANALYSIS' AND status IN ('PENDING', 'PROCESSING') ORDER BY created_at DESC LIMIT 1"
+  ).bind(user.id).first();
+
+  return c.json({
+    success: true,
+    has_resume: !!resume,
+    resume: resume || null,
+    resume_data: resumeData,
+    claims,
+    has_jd: !!jdRow,
+    jd: jdRow ? { id: jdRow.id, raw_text: jdRow.raw_text, created_at: jdRow.created_at } : null,
+    jd_data: jdData,
+    has_match: !!matchData,
+    match_data: matchData,
+    match_stale: matchStale,
+    pending_job: pendingJob || null,
+    freshness: matchData ? (matchStale ? 'stale' : 'current') : (resume ? 'ready_for_match' : 'empty')
+  });
+});
+
+app.post('/m1/reset', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  // Reset active M01 working/draft state:
+  // Clears current match analysis and current JD context for the candidate
+  // Original immutable candidate_resume and candidate_claim audit records remain safe
+  await c.env.DB.prepare('DELETE FROM match_analysis WHERE user_id = ?').bind(user.id).run();
+  await c.env.DB.prepare('DELETE FROM job_description_context WHERE user_id = ?').bind(user.id).run();
+  await c.env.DB.prepare("UPDATE async_job SET status = 'CANCELLED' WHERE user_id = ? AND status IN ('PENDING', 'PROCESSING')").bind(user.id).run();
+
+  return c.json({
+    success: true,
+    message: 'Module 1 working state, target requirements, and match analysis have been reset. Canonical resume evidence remains protected.'
+  });
 });
 
 

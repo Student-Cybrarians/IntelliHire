@@ -25,7 +25,70 @@ This audit reconciles the current implementation of IntelliHire against the `int
 | 18 | Training Curriculum & Learning Pathway Engine | **Complete** | Implemented in Iteration 6 via `m6_training_curriculum_schema.sql`, backend engine `functions/api/trainingEngine.ts`, frontend workspace `src/client/pages/TrainingCurriculum.tsx`, dual-persona cockpit, strict Completion != Mastery enforcement, formative practice with Why/How feedback, module reassessment checkpoint gate updating Bayesian theta in M02 and writing to M05 Evidence Ledger. |
 | 18.1 | Candidate Sidebar & Navigation Simplification | **Complete** | Standardized candidate primary navigation into 7 primary destinations + profile/logout, cleaned internal architecture tags ("M6" eliminated), added visual 5-module progression strip. |
 | 18.2 | Candidate Dashboard Stale Data & Source-of-Truth Reconciliation | **Complete** | Reconciled canonical Source of Truth across 10 areas. Scoped claims strictly to active resume context (`is_active = 1`), eliminating 226 stale historical claims down to active 27 AIML claims. Added explicit freshness states (`CURRENT`, `UPDATING`, `EMPTY`, `ERROR`), version provenance badges, reactive Edit Profile modal with D1 persistence (`PUT /profile`), and live requisition match engine. Verified live in browser with Playwright. |
+| 18.3 | M01 State Persistence, Resume/Restore Behavior & Stuck Loading Reliability | **Complete** | Implemented canonical M01 state restoration (`GET /m1/state`), candidate-scoped draft auto-save (`intellihire_m1_draft_${userId}`), bounded async polling with AbortController and 15-attempt timeout (clearing infinite spinners and rendering in-place retry), and safe manual "Reset Module 1" workflow with confirmation dialog that cleans working state while strictly preserving immutable source evidence (`candidate_resume`, `candidate_claim`). Verified live in browser with Playwright. |
 | 19-21 | Institutional Cohort Intelligence & University Accreditation | **GAP / Next Priority** | University curriculum mapping, accredited competency frameworks (ABET, AACSB), cross-cohort benchmark comparisons, institutional transcript exports, and enterprise cohort placement pipelines. |
+
+## Verification Summary (Priority 18.3 · M01 State Persistence & Stuck Loading Reliability)
+
+### 1. Root Causes Diagnosed
+1. **M01 State Reset on Navigation / Refresh**:
+   - `src/client/pages/Resume.tsx` previously initialized all state (`resumeData`, `resumeId`, `jdText`, `jdData`, `matchData`) to `null`/empty and had zero mount `useEffect` to fetch canonical server state.
+   - When a candidate navigated to the dashboard or refreshed the page, all in-progress work appeared lost even though records existed in D1.
+   - **Fix Applied**: Added `GET /api/m1/state` endpoint returning canonical active resume (`is_active = 1`), extracted claims, latest `job_description_context`, corresponding `match_analysis`, stale detection flag (`match_stale`), and in-flight `async_job`. Added on-mount restoration hook in `Resume.tsx` combined with candidate-scoped draft caching (`sessionStorage.getItem('intellihire_m1_draft_' + user.id)`).
+2. **Infinite Loading Spinner ("Correlating evidence against requirements...")**:
+   - `handleMatch` previously initiated an unbounded recursive `setTimeout(poll, 2000)` polling loop with no timeout, no error handling inside `poll()`, and no upper bound on poll attempts.
+   - If an async job remained in `PENDING` due to worker backlog or network issues, the spinner ran indefinitely without ever giving the user feedback or a retry option.
+   - **Fix Applied**: Hardened backend `GET /match/status/:jobId` to automatically transition jobs stuck in `PENDING`/`PROCESSING` for > 60 seconds to `status: 'FAILED'` with a descriptive timeout message. Hardened frontend `pollMatchJob` with a strict 15-attempt (30-second) upper bound, request ID concurrency guard (`activeMatchRequestIdRef`), guaranteed `setMatchRunning(false)` on all exit paths, and an in-place "Retry Match Analysis" action.
+3. **Destructive Reset vs Safe Working State Clearance**:
+   - Previous reset implementations either did not exist or risked deleting the candidate's canonical resume documents.
+   - **Fix Applied**: Implemented `POST /api/m1/reset` which safely deletes working state (`match_analysis`, `job_description_context`) and cancels pending async jobs while strictly preserving immutable `candidate_resume` and `candidate_claim` audit records. Added a frontend confirmation modal ("Reset Module 1?") with clear evidence preservation disclaimers and cancel/confirm actions.
+
+### 2. State & Persistence Architecture
+| Layer | Stored Data | Storage Mechanism | Lifecycle & Isolation |
+|---|---|---|---|
+| Authoritative Resume Evidence | Active resume document, filename, format, version | D1 `candidate_resume` (`is_active = 1`) | Preserved across resets; isolated by `user_id` & `organization_id` |
+| Authoritative Claims | Extracted skills & claims, confidence scores, verification state | D1 `candidate_claim` scoped to active `candidate_context` | Read-only audit provenance; preserved on reset |
+| Working Job Description | Target JD raw text & parsed competencies | D1 `job_description_context` | Overwritten on new JD analysis; cleared on manual reset |
+| Working Match Report | ATS score, dimension breakdown, gap analysis, suggestions | D1 `match_analysis` | Updated on new match run; cleared on manual reset |
+| Candidate Draft State | In-progress JD textarea text, accepted suggestion checkboxes | `sessionStorage` (`intellihire_m1_draft_${userId}`) | Auto-saved on input; cleared when empty or on manual reset |
+| Async Job Execution | Job type, status (`PENDING`, `COMPLETED`, `FAILED`), progress | D1 `async_job` | Hardened >60s stuck job timeout; cancelled on manual reset |
+
+### 3. Automated Test Suite
+- `functions/api/m1_state.test.ts` (5 tests):
+  1. GET `/m1/state` returns empty state when candidate has no resume or JD.
+  2. GET `/m1/state` restores active canonical resume, JD, claims, and match analysis.
+  3. GET `/m1/state` identifies stale match when JD was updated after match.
+  4. POST `/m1/reset` safely resets candidate working state without deleting immutable resume.
+  5. GET `/match/status/:jobId` detects jobs stuck in `PENDING` for > 60s and transitions to `FAILED`.
+- `src/client/pages/ResumePersistence.test.tsx` (5 tests):
+  1. Restores canonical active resume, claims, target requirements, and match analysis on initial mount.
+  2. Candidate draft is saved to candidate-scoped sessionStorage and restored on return.
+  3. Stuck loading reliability: stops polling, clears spinner, displays error with in-place retry button.
+  4. Reset Module 1 workflow: confirmation modal, calls `/api/m1/reset`, clears working state, preserves resume.
+  5. Candidate Isolation: prevents draft leakage between different candidates.
+- Full test suite: **41 test files passed, 246 tests passed, 0 failures (100% pass rate)**.
+- Clean production TypeScript build: `tsc && vite build` succeeded in 6.09s.
+
+### 4. Live Cloudflare Pages Deployment & Playwright Browser Verification
+- **Live URL**: `https://intellihire-v3.pages.dev/resume` (Deployment `608f545f`)
+- Real headless Chromium browser verification executed via `verify_m1_persistence.mjs`:
+  - **Step 1 (Canonical Restoration)**: Direct navigation restored active resume `[Tailored] Frontend Engineer - AI Tr...` and 33 verified skills; restored target requirements with mandatory badges; displayed timed out match error banner with in-place `Retry Match Analysis` button.
+  - **Step 2 (Draft Auto-Save)**: Verified draft textarea auto-save to scoped sessionStorage key.
+  - **Step 3 (Cross-Route Navigation)**: Navigated from `/resume` to `/dashboard`, verified dashboard header, navigated back to `/resume`, verified state remained 100% intact.
+  - **Step 4 (Hard Refresh)**: Executed `page.reload()`, verified state restored seamlessly without blank screen.
+  - **Step 5 (Reset Module 1 Workflow)**: Opened confirmation modal, verified evidence preservation disclaimer, tested modal cancel, confirmed reset, verified green toast notification, verified target requirements and match analysis cleared while all 33 canonical verified skills and resume document remained safely protected.
+  - Concrete screenshots captured:
+    - `m1_verification_step1_restored.png`
+    - `m1_verification_step3_navigation_preserved.png`
+    - `m1_verification_step4_reload_preserved.png`
+    - `m1_verification_step5_reset_modal.png`
+    - `m1_verification_step5_after_reset.png`
+
+## Immediate Next Step (Iteration 7)
+**Plan:** Implement **Institutional Cohort Intelligence & University Accreditation** (Priority 19-21).
+1. Multi-institution and university program curriculum alignments.
+2. Accredited competency frameworks (ABET, AACSB) and transcript verification records.
+3. Employer cohort talent placement pipelines and benchmark distribution analytics.
 
 ## Verification Summary (Priority 18.2 · Candidate Dashboard Stale Data & Source of Truth Reconciliation)
 
