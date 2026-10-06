@@ -729,14 +729,14 @@ app.get('/dashboard/candidate', async (c) => {
   
   const orgId = user.organization_id || 'org_default_public';
   const profile = await c.env.DB.prepare('SELECT target_role, experience_level, primary_domain, skills_json, bio, readiness_score, updated_at FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
-  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at, updated_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1').bind(user.id, orgId).first();
+  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1').bind(user.id, orgId).first();
   
   let activeContext: any = null;
   let claimsCount = 0;
   let extractionStatus = 'none';
 
   if (resume) {
-    activeContext = await c.env.DB.prepare('SELECT id, extraction_status, extraction_method, created_at, updated_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').bind(resume.id, user.id).first();
+    activeContext = await c.env.DB.prepare('SELECT id, extraction_status, extraction_method, created_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').bind(resume.id, user.id).first();
     if (activeContext) {
       extractionStatus = activeContext.extraction_status || 'uploaded';
       if (extractionStatus === 'parsed' || extractionStatus === 'SUCCESS') {
@@ -788,7 +788,7 @@ app.get('/resume/status', async (c) => {
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
   const orgId = user.organization_id || 'org_default_public';
-  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at, updated_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1').bind(user.id, orgId).first();
+  const resume = await c.env.DB.prepare('SELECT id, version, filename, file_format, created_at FROM candidate_resume WHERE user_id = ? AND (organization_id = ? OR organization_id IS NULL) AND is_active = 1').bind(user.id, orgId).first();
 
   if (!resume) {
     return c.json({
@@ -802,7 +802,7 @@ app.get('/resume/status', async (c) => {
     });
   }
 
-  const activeContext = await c.env.DB.prepare('SELECT id, extraction_status, extraction_method, created_at, updated_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').bind(resume.id, user.id).first();
+  const activeContext = await c.env.DB.prepare('SELECT id, extraction_status, extraction_method, created_at FROM candidate_context WHERE resume_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').bind(resume.id, user.id).first();
 
   if (!activeContext || activeContext.extraction_status === 'uploaded' || activeContext.extraction_status === 'pending' || activeContext.extraction_status === 'processing') {
     return c.json({
