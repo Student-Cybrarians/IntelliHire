@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Flame, CheckCircle, FileText, Target, Users, Briefcase, Settings, LogOut, ShieldCheck, UserCheck, Layers, Brain, BarChart3 } from 'lucide-react';
+import { Flame, CheckCircle, FileText, Target, Users, Briefcase, Settings, LogOut, ShieldCheck, UserCheck, Layers, Brain, BarChart3, GraduationCap } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 export default function DashboardLayout({ children, role, userFullName }: { children: ReactNode, role: string, userFullName: string }) {
@@ -79,6 +79,18 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
               </Link>
 
               <Link 
+                to="/learning" 
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                  isActive('/learning') || isActive('/training') || isActive('/curriculum')
+                    ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
+                    : 'text-slate-300 hover:text-white hover:bg-[#002538]'
+                }`}
+              >
+                <GraduationCap className={`w-4 h-4 ${isActive('/learning') || isActive('/training') || isActive('/curriculum') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
+                <span>M6 · Learning Pathways</span>
+              </Link>
+
+              <Link 
                 to="/candidate" 
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                   isActive('/candidate')
@@ -155,6 +167,18 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
               >
                 <ShieldCheck className={`w-4 h-4 ${isActive('/module-5') || isActive('/analytics') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
                 <span>M5 · Decision Cockpit</span>
+              </Link>
+
+              <Link 
+                to="/learning" 
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                  isActive('/learning') || isActive('/training') || isActive('/curriculum')
+                    ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
+                    : 'text-slate-300 hover:text-white hover:bg-[#002538]'
+                }`}
+              >
+                <GraduationCap className={`w-4 h-4 ${isActive('/learning') || isActive('/training') || isActive('/curriculum') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
+                <span>M6 · Cohort Pathways</span>
               </Link>
             </>
           )}

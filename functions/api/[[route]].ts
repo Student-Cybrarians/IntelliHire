@@ -2793,6 +2793,10 @@ registerInterviewIntelligenceRoutes(app);
 import { registerReadinessEvidenceRoutes } from './readinessEvidence';
 registerReadinessEvidenceRoutes(app);
 
+// Priority 18: Training Curriculum & Learning Pathway Engine
+import { registerTrainingEngineRoutes } from './trainingEngine';
+registerTrainingEngineRoutes(app);
+
 export const onRequest = handle(app);
 
 

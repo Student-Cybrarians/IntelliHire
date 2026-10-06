@@ -16,6 +16,7 @@ import Module5Analytics from './pages/Module5Analytics';
 import FeaturePlaceholder from './pages/FeaturePlaceholder';
 import InterviewPrep from './pages/InterviewPrep';
 import Module3Simulation from './pages/Module3Simulation';
+import TrainingCurriculum from './pages/TrainingCurriculum';
 import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
@@ -56,6 +57,11 @@ export default function App() {
       <Route path="/module-5" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />
       <Route path="/analytics" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />
       <Route path="/readiness" element={<ProtectedRoute><Module5Analytics /></ProtectedRoute>} />
+
+      {/* Priority 18: Training Curriculum & Learning Pathways */}
+      <Route path="/learning" element={<ProtectedRoute><TrainingCurriculum /></ProtectedRoute>} />
+      <Route path="/training" element={<ProtectedRoute><TrainingCurriculum /></ProtectedRoute>} />
+      <Route path="/curriculum" element={<ProtectedRoute><TrainingCurriculum /></ProtectedRoute>} />
 
       {/* Admin Control Center */}
       <Route path="/admin" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />
