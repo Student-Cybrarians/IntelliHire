@@ -325,6 +325,7 @@ CREATE TABLE IF NOT EXISTS assessment_attempt (
     completed_at DATETIME,
     current_stage TEXT,
     adaptive_state_json TEXT,
+    context_data_json TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
