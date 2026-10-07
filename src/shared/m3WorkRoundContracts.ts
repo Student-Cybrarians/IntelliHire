@@ -977,3 +977,119 @@ export function validateUniversalTaskDefinition(task: Partial<TaskDefinition>): 
     task.rubric.dimensions.length > 0
   );
 }
+
+// -----------------------------------------------------------------------------
+// 13. Phase 5: Observable Evidence, Provenance & Data Integrity Contracts
+// -----------------------------------------------------------------------------
+
+export interface ObservableFact {
+  id: string;
+  fact: string;
+  category: 'action' | 'execution_result' | 'constraint_handling' | 'timing' | 'artifact_structure';
+  timestamp: string;
+  verifiedBy: 'sandbox_execution' | 'telemetry_stream' | 'heuristic_parser' | 'human';
+  metrics?: Record<string, any>;
+}
+
+export interface ModelInterpretationRecord {
+  strengths: string;
+  gaps: string;
+  rationale: string;
+  speculative: true; // Explicitly marked as subjective/inferred model interpretation
+  evaluatedAt: string;
+}
+
+export interface EvidenceProvenance {
+  taskId: string;
+  taskVersion: string;
+  taskDifficulty: number;
+  submissionHash: string;
+  submissionTimestamp: string;
+  evaluator: {
+    type: 'ai_model' | 'deterministic_rubric' | 'hybrid' | 'human';
+    model?: string;
+    provider?: string;
+    promptVersion?: string;
+  };
+  environment: {
+    runtime: string;
+    timestamp: string;
+    ipRedacted: boolean;
+  };
+  retainedTelemetryCount: number;
+  privacyGuarantee: 'pii_stripped_no_protected_traits';
+}
+
+export interface M3EvidencePackage {
+  packageId: string;
+  sessionId: string;
+  candidateId: string;
+  organizationId: string;
+  requisitionId?: string;
+  targetRole: string;
+  occupationCode?: string;
+  domain: string;
+  competencyName: string;
+  skillName: string;
+  taskTitle: string;
+  taskModality: string;
+  overallScore: number;
+  dimensionScores: Record<string, number>;
+  confidenceScore: number;
+  uncertaintyScore: number;
+  sourceEvidence: {
+    candidateWork: any;
+    notes?: string;
+    actionCount: number;
+    durationMs?: number;
+  };
+  observedFacts: ObservableFact[];
+  modelInterpretation: ModelInterpretationRecord;
+  humanJudgment: {
+    status: 'unreviewed' | 'confirmed' | 'overridden';
+    reviewedBy?: string;
+    reviewerNotes?: string;
+  };
+  provenance: EvidenceProvenance;
+  m05LedgerSynced: boolean;
+  m02FeedbackLoop: {
+    skillTarget: string;
+    recommendedStudy: string;
+    recommendedPractice: string;
+  };
+  autonomousDecisionProhibited: true; // M03 explicitly does NOT decide hire/reject
+}
+
+export function validateObservableFact(fact: Partial<ObservableFact>): fact is ObservableFact {
+  return Boolean(
+    fact &&
+    typeof fact.id === 'string' &&
+    typeof fact.fact === 'string' &&
+    typeof fact.category === 'string' &&
+    typeof fact.verifiedBy === 'string' &&
+    // Guard against subjective language in observed facts
+    !fact.fact.toLowerCase().includes('candidate feels') &&
+    !fact.fact.toLowerCase().includes('likely thinks') &&
+    !fact.fact.toLowerCase().includes('seems to know')
+  );
+}
+
+export function validateEvidencePackage(pkg: Partial<M3EvidencePackage>): pkg is M3EvidencePackage {
+  return Boolean(
+    pkg &&
+    typeof pkg.packageId === 'string' &&
+    typeof pkg.sessionId === 'string' &&
+    typeof pkg.candidateId === 'string' &&
+    typeof pkg.organizationId === 'string' &&
+    typeof pkg.competencyName === 'string' &&
+    typeof pkg.skillName === 'string' &&
+    typeof pkg.overallScore === 'number' &&
+    typeof pkg.confidenceScore === 'number' &&
+    typeof pkg.uncertaintyScore === 'number' &&
+    Array.isArray(pkg.observedFacts) &&
+    pkg.modelInterpretation &&
+    pkg.provenance &&
+    pkg.autonomousDecisionProhibited === true
+  );
+}
+

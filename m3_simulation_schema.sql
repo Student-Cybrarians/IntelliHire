@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS simulation_evaluation (
   model_interpretation_json TEXT NOT NULL,
   remediation_recommendation_json TEXT NOT NULL,
   confidence_score REAL NOT NULL DEFAULT 0.85,
+  uncertainty_score REAL NOT NULL DEFAULT 0.15,
+  observed_facts_json TEXT NOT NULL DEFAULT '[]',
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  submission_hash TEXT,
+  submission_version INTEGER NOT NULL DEFAULT 1,
   human_review_status TEXT NOT NULL DEFAULT 'unreviewed',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
