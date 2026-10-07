@@ -10,6 +10,9 @@
 import type { CanonicalModalityId } from './modalityRegistry';
 import type { SeniorityLevel } from './evidenceStrategy';
 
+export type { AssessmentPurpose } from './evidenceStrategy';
+import type { AssessmentPurpose } from './evidenceStrategy';
+
 // -----------------------------------------------------------------------------
 // 1. Provenance & Uncertainty Primitives
 // -----------------------------------------------------------------------------
@@ -32,7 +35,7 @@ export interface UncertaintyEstimate {
 }
 
 // -----------------------------------------------------------------------------
-// 2. Candidate & Job Context Contracts
+// 2. Candidate, Job & Role Context Contracts
 // -----------------------------------------------------------------------------
 
 export interface CandidateContext {
@@ -82,9 +85,91 @@ export interface JobContext {
   };
 }
 
+export interface RoleContext {
+  roleTitle: string;
+  domain: string;
+  occupationCode?: string; // O*NET code e.g. '15-1252.00'
+  occupationTitle?: string;
+  seniorityLevel: SeniorityLevel | string;
+  expectedProficiencyBaseline?: number;
+  seniorityExpectations: {
+    complexityCeiling: string;
+    autonomyLevel: string;
+    decisionScope: string;
+    expectedProficiencyBaseline: number;
+  };
+  requiredCompetencies: Array<{
+    name: string;
+    priority: 'mandatory' | 'preferred' | 'bonus';
+    weight: number;
+  }>;
+}
+
 // -----------------------------------------------------------------------------
-// 3. Competency Target Contract
+// 3. Evidence Reference & Gap Signal Contracts (5-Layer Distinction)
 // -----------------------------------------------------------------------------
+
+export type EvidenceCategory =
+  | 'source_evidence'       // Raw text snippets from resume, logs, or interview transcripts
+  | 'extracted_fact'        // Validated facts e.g. executed tests, code syntax, answers
+  | 'model_interpretation'  // Inferred reasoning e.g. ATS score, LLM rubric feedback
+  | 'human_judgment';       // Hiring manager / committee review ratings
+
+export interface EvidenceReference {
+  id: string;
+  sourceModule: 'm01_resume' | 'm02_assessment' | 'm03_simulation' | 'm04_interview' | 'm05_ledger' | 'human_review';
+  sourceRecordId?: string;
+  evidenceCategory: EvidenceCategory;
+  statement: string;
+  competencyOrSkill: string;
+  confidenceScore: number;     // 0.0 - 1.0 (calibrated confidence)
+  uncertaintyScore: number;    // 0.0 - 1.0 (Bayesian/Kalman variance)
+  isDirectObservation: boolean; // true if authenticated work product, false if self-claim
+  observedAt: string;
+  humanVerificationState?: 'unreviewed' | 'verified' | 'disputed' | 'overridden';
+}
+
+export interface GapSignal {
+  id: string;
+  skillName: string;
+  competencyName: string;
+  sourceModule: 'm01_ats_match' | 'm02_assessment' | 'm02_misconception' | 'm03_simulation';
+  gapOriginType: 'confirmed_weakness' | 'high_uncertainty' | 'unassessed_critical' | 'misconception_flag' | 'missing_claim';
+  severity: 'critical' | 'moderate' | 'low';
+  observedDeficit: string;
+  misconceptionDetails?: {
+    remediationAdvice: string;
+    divergencePattern: string;
+  };
+  confidence: number;
+  uncertainty: number;
+  detectedAt: string;
+}
+
+// -----------------------------------------------------------------------------
+// 4. Competency & Skill Target Contracts
+// -----------------------------------------------------------------------------
+
+export interface SkillTarget {
+  id: string;
+  skillName: string;
+  competencyName: string;
+  domain: string;
+  targetProficiency: number;
+  currentProficiency: number;
+  uncertaintyEstimate: number;
+  observationCount: number;
+  gapSignal?: GapSignal;
+  targetingPriorityScore: number; // 0.0 - 1.0 (composite rank)
+  priorityBreakdown: {
+    jobRelevanceWeight: number;
+    uncertaintyDeficitWeight: number;
+    gapSeverityWeight: number;
+    coverageDeficitWeight: number;
+    recencyFatiguePenalty: number;
+    rationale: string;
+  };
+}
 
 export interface CompetencyTarget {
   id: string;
@@ -95,8 +180,36 @@ export interface CompetencyTarget {
   targetProficiency: number; // 0.0 - 1.0 (threshold sought)
   currentProficiency: number; // 0.0 - 1.0 (prior belief)
   uncertaintyEstimate: number; // 0.0 - 1.0 (uncertainty in belief)
-  diagnosisSource: 'm01_ats_gap' | 'm02_assessment_gap' | 'job_requirement' | 'baseline_target';
+  observationCount?: number;
+  diagnosisSource: 'm01_ats_gap' | 'm02_assessment_gap' | 'm02_misconception' | 'm03_simulation_gap' | 'job_requirement' | 'baseline_target';
   rationale: string;
+  targetingScore?: number; // Composite rank score
+  skills?: SkillTarget[];
+}
+
+// -----------------------------------------------------------------------------
+// 5. Unified Assessment Context Contract
+// -----------------------------------------------------------------------------
+
+export interface AssessmentContext {
+  contextId: string;
+  candidateContext: CandidateContext;
+  jobContext: JobContext;
+  roleContext: RoleContext;
+  assessmentPurpose: AssessmentPurpose;
+  evidenceLedger: EvidenceReference[];
+  gapSignals: GapSignal[];
+  prioritizedTargets: CompetencyTarget[];
+  primaryRecommendedTarget: CompetencyTarget;
+  activeWorkModality: WorkRoundModality;
+  securityGovernance: {
+    tenantId: string;
+    organizationId: string;
+    candidateUserId: string;
+    sensitiveAttributesExcluded: boolean;
+    exclusionAudit: string[];
+    createdAt: string;
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -451,3 +564,107 @@ export function seedSimulationToTaskDefinition(
     }
   };
 }
+
+// -----------------------------------------------------------------------------
+// 13. Sensitive Attribute Exclusion & Fairness Safeguards
+// -----------------------------------------------------------------------------
+
+export const SENSITIVE_ATTRIBUTES = [
+  'age', 'date_of_birth', 'birth_year', 'graduation_year',
+  'gender', 'sex', 'pronouns',
+  'race', 'ethnicity', 'nationality', 'citizenship_status',
+  'religion', 'creed', 'caste',
+  'sexual_orientation',
+  'marital_status', 'parental_status', 'pregnancy',
+  'disability', 'medical_condition', 'genetic_information',
+  'veteran_status', 'postal_address', 'zip_code', 'financial_background'
+] as const;
+
+export function sanitizeContextForTaskTargeting<T>(payload: T): { sanitized: T; sensitiveTraitsFound: string[] } {
+  const sensitiveTraitsFound: string[] = [];
+
+  function recursiveSanitize(obj: any, path: string = ''): any {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string') {
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map((item, idx) => recursiveSanitize(item, `${path}[${idx}]`));
+    }
+    if (typeof obj === 'object') {
+      const sanitizedObj: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        const lowerKey = key.toLowerCase();
+        const currentPath = path ? `${path}.${key}` : key;
+        if (SENSITIVE_ATTRIBUTES.some(attr => lowerKey === attr || lowerKey.includes(`_${attr}`) || lowerKey.includes(`${attr}_`))) {
+          sensitiveTraitsFound.push(currentPath);
+          continue; // Strip key completely
+        }
+        sanitizedObj[key] = recursiveSanitize(value, currentPath);
+      }
+      return sanitizedObj;
+    }
+    return obj;
+  }
+
+  const sanitized = recursiveSanitize(payload);
+  if (sanitized && typeof sanitized === 'object' && (sanitized as any).securityGovernance) {
+    (sanitized as any).securityGovernance.sensitiveAttributesExcluded = true;
+    (sanitized as any).securityGovernance.exclusionAudit = sensitiveTraitsFound;
+  }
+  return { sanitized, sensitiveTraitsFound };
+}
+
+// -----------------------------------------------------------------------------
+// 14. Phase 2 Validation Predicates
+// -----------------------------------------------------------------------------
+
+export function validateRoleContext(role: Partial<RoleContext>): role is RoleContext {
+  return Boolean(
+    role &&
+    typeof role.roleTitle === 'string' &&
+    typeof role.domain === 'string' &&
+    role.seniorityExpectations &&
+    Array.isArray(role.requiredCompetencies)
+  );
+}
+
+export function validateEvidenceReference(ev: Partial<EvidenceReference>): ev is EvidenceReference {
+  return Boolean(
+    ev &&
+    typeof ev.id === 'string' &&
+    typeof ev.sourceModule === 'string' &&
+    typeof ev.evidenceCategory === 'string' &&
+    typeof ev.statement === 'string' &&
+    typeof ev.confidenceScore === 'number' &&
+    typeof ev.uncertaintyScore === 'number'
+  );
+}
+
+export function validateGapSignal(gap: Partial<GapSignal>): gap is GapSignal {
+  return Boolean(
+    gap &&
+    typeof gap.id === 'string' &&
+    typeof gap.skillName === 'string' &&
+    typeof gap.sourceModule === 'string' &&
+    typeof gap.gapOriginType === 'string' &&
+    typeof gap.severity === 'string'
+  );
+}
+
+export function validateAssessmentContext(ctx: Partial<AssessmentContext>): ctx is AssessmentContext {
+  return Boolean(
+    ctx &&
+    typeof ctx.contextId === 'string' &&
+    ctx.candidateContext &&
+    ctx.jobContext &&
+    ctx.roleContext &&
+    Array.isArray(ctx.evidenceLedger) &&
+    Array.isArray(ctx.gapSignals) &&
+    Array.isArray(ctx.prioritizedTargets) &&
+    ctx.primaryRecommendedTarget &&
+    ctx.securityGovernance &&
+    ctx.securityGovernance.sensitiveAttributesExcluded === true
+  );
+}
+

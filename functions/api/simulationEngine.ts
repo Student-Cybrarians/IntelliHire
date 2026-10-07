@@ -6,9 +6,18 @@ export * from '../../src/shared/m3WorkRoundContracts';
 import {
   CandidateContext,
   JobContext,
+  RoleContext,
+  EvidenceReference,
+  GapSignal,
+  SkillTarget,
   CompetencyTarget,
+  AssessmentContext,
+  AssessmentPurpose,
   TaskDefinition,
-  seedSimulationToTaskDefinition
+  WorkRoundModality,
+  seedSimulationToTaskDefinition,
+  sanitizeContextForTaskTargeting,
+  validateAssessmentContext
 } from '../../src/shared/m3WorkRoundContracts';
 
 export interface SimulationScenario {
@@ -342,15 +351,22 @@ async function ensureDefinitionInDb(db: any, def: (typeof SEED_SIMULATIONS)[0], 
 }
 
 /**
- * Phase 1 Foundation: Context Aggregator Helper
- * Resolves CandidateContext and JobContext from D1 database
+ * Phase 2 Intelligence: Comprehensive Context Aggregator & Target Engine
+ * Resolves CandidateContext, JobContext, RoleContext, EvidenceReferences, GapSignals,
+ * and builds structured AssessmentContext with multi-objective explainable ranking.
  */
 export async function resolveCandidateJobContext(
   db: any,
   userId: string,
   organizationId: string,
-  requisitionId?: string
-): Promise<{ candidateContext: CandidateContext; jobContext: JobContext; targets: CompetencyTarget[] }> {
+  requisitionId?: string,
+  assessmentPurpose: AssessmentPurpose = 'practice'
+): Promise<{
+  candidateContext: CandidateContext;
+  jobContext: JobContext;
+  targets: CompetencyTarget[];
+  assessmentContext: AssessmentContext;
+}> {
   // 1. Fetch Candidate Profile
   const profileRow = await db.prepare(
     `SELECT headline, target_role, experience_level, primary_domain, skills_json, bio, readiness_score, target_domain_id, target_occupation_id
@@ -360,6 +376,7 @@ export async function resolveCandidateJobContext(
   const targetRole = (profileRow?.target_role as string) || 'Senior Software Engineer';
   const seniority = (profileRow?.experience_level as string) || 'senior';
   const readiness = Number(profileRow?.readiness_score || 0.5);
+  const primaryDomain = (profileRow?.primary_domain as string) || 'software';
 
   let extractedSkills: string[] = [];
   try {
@@ -376,44 +393,201 @@ export async function resolveCandidateJobContext(
   const activeResumeId = (activeContext?.resume_id as string) || undefined;
   const contextId = activeContext?.id as string | undefined;
 
-  // 3. Fetch Claims
+  // 3. 5-Layer Evidence Ledger Initialization
+  const evidenceLedger: EvidenceReference[] = [];
+  const gapSignals: GapSignal[] = [];
+
+  // Ingest Claims (Layer 1: Source Evidence)
   const verifiedClaims: Array<{ claim: string; category?: string; source: string; confidence: number }> = [];
   if (contextId) {
     try {
       const claims = await db.prepare(
-        `SELECT claim_type, claim_value, confidence_score FROM candidate_claim WHERE context_id = ? LIMIT 20`
+        `SELECT claim_type, claim_value, confidence_score, verification_state, created_at FROM candidate_claim WHERE context_id = ? LIMIT 20`
       ).bind(contextId).all();
       for (const cl of (claims?.results || [])) {
+        const claimVal = (cl.claim_value as string) || '';
         verifiedClaims.push({
-          claim: cl.claim_value as string,
+          claim: claimVal,
           category: cl.claim_type as string,
           source: 'm01_resume',
           confidence: Number(cl.confidence_score || 0.85)
         });
-        if (cl.claim_type === 'skill' && !extractedSkills.includes(cl.claim_value as string)) {
-          extractedSkills.push(cl.claim_value as string);
+        if (cl.claim_type === 'skill' && !extractedSkills.includes(claimVal)) {
+          extractedSkills.push(claimVal);
         }
+
+        // Add to 5-layer Evidence Ledger
+        evidenceLedger.push({
+          id: `ev-claim-${crypto.randomUUID().slice(0, 8)}`,
+          sourceModule: 'm01_ats_match',
+          sourceRecordId: activeResumeId,
+          evidenceCategory: 'extracted_fact',
+          evidenceLayer: 'extracted_facts',
+          statement: `Candidate claimed: '${claimVal}'`,
+          competencyOrSkill: (cl.claim_type as string) || 'Skill',
+          confidenceScore: Number(cl.confidence_score || 0.75),
+          uncertaintyScore: 0.35, // Self-claim carries high uncertainty
+          isDirectObservation: false,
+          observedAt: (cl.created_at as string) || new Date().toISOString(),
+          humanVerificationState: (cl.verification_state as any) || 'unreviewed'
+        });
       }
     } catch (_) {}
   }
 
-  // 4. Fetch Diagnosed Gaps & Proficiency Estimates
+  // 4. Ingest M02 Assessment Responses & Misconceptions (Layer 2: Extracted Facts, Layer 3: Model Interpretations)
+  try {
+    const m02Evals = await db.prepare(
+      `SELECT e.score_raw, e.evaluation_json, i.skill_id, s.name as skill_name, c.name as competency_name, r.created_at
+       FROM assessment_evaluation e
+       JOIN assessment_response_v2 r ON e.response_id = r.id
+       JOIN assessment_item_v2 i ON r.item_id = i.id
+       JOIN assessment_attempt a ON r.attempt_id = a.id
+       LEFT JOIN skill s ON i.skill_id = s.id
+       LEFT JOIN competency c ON s.competency_id = c.id
+       WHERE a.user_id = ?
+       ORDER BY r.created_at DESC LIMIT 10`
+    ).bind(userId).all();
+
+    for (const ev of (m02Evals?.results || [])) {
+      let parsedEval: any = {};
+      try { parsedEval = JSON.parse((ev.evaluation_json || ev.feedback_json || '{}') as string); } catch (_) {}
+      const skillName = (ev.skill_name as string) || (ev.skill_id as string) || (parsedEval.skill as string) || 'Core Skill';
+      const score = Number(ev.score_raw !== undefined ? ev.score_raw : (ev.score !== undefined ? ev.score : 0.0));
+
+      // Extracted Fact: Objective Test Result
+      evidenceLedger.push({
+        id: `ev-m02-fact-${crypto.randomUUID().slice(0, 8)}`,
+        sourceModule: 'm02_assessment',
+        evidenceCategory: 'extracted_fact',
+        statement: `Scored ${Math.round(score * 100)}% on assessment probe for '${skillName}'`,
+        competencyOrSkill: skillName,
+        confidenceScore: 0.95,
+        uncertaintyScore: 0.15,
+        isDirectObservation: true,
+        observedAt: (ev.created_at as string) || new Date().toISOString()
+      });
+
+      // Model Interpretation: Pedagogical Critique
+      if (parsedEval.explanation_of_correct_answer || parsedEval.analysis_of_candidate_answer) {
+        evidenceLedger.push({
+          id: `ev-m02-critique-${crypto.randomUUID().slice(0, 8)}`,
+          sourceModule: 'm02_assessment',
+          evidenceCategory: 'model_interpretation',
+          statement: `Pedagogical evaluation on '${skillName}': ${parsedEval.analysis_of_candidate_answer || parsedEval.explanation_of_correct_answer}`,
+          competencyOrSkill: skillName,
+          confidenceScore: 0.88,
+          uncertaintyScore: 0.18,
+          isDirectObservation: false,
+          observedAt: (ev.created_at as string) || new Date().toISOString()
+        });
+      }
+
+      // Gap Signal if deficit or misconception observed
+      if (score < 0.65) {
+        gapSignals.push({
+          id: `gap-m02-${crypto.randomUUID().slice(0, 8)}`,
+          skillName,
+          competencyName: (ev.competency_name as string) || skillName,
+          sourceModule: (parsedEval.misconception_remediation || parsedEval.misconception) ? 'm02_misconception' : 'm02_assessment',
+          gapOriginType: score < 0.4 ? 'confirmed_weakness' : 'high_uncertainty',
+          severity: score < 0.4 ? 'critical' : 'moderate',
+          observedDeficit: `Demonstrated ${Math.round(score * 100)}% performance on adaptive assessment item.`,
+          misconceptionDetails: (parsedEval.misconception_remediation || parsedEval.remediation || parsedEval.misconception) ? {
+            remediationAdvice: parsedEval.misconception_remediation || parsedEval.remediation || 'Review core competency principles',
+            divergencePattern: parsedEval.misconception || parsedEval.how_to_arrive || 'Deviation from recommended engineering rubric.'
+          } : undefined,
+          confidence: 0.92,
+          uncertainty: 0.12,
+          detectedAt: (ev.created_at as string) || new Date().toISOString()
+        });
+      }
+    }
+  } catch (_) {}
+
+  // 5. Ingest M03 Historical Simulation Evaluations
+  try {
+    const m03History = await db.prepare(
+      `SELECT e.overall_score, e.model_interpretation_json, d.title, d.skill_name, d.competency_name, e.created_at
+       FROM simulation_evaluation e
+       JOIN simulation_definition d ON e.definition_id = d.id
+       WHERE e.user_id = ?
+       ORDER BY e.created_at DESC LIMIT 5`
+    ).bind(userId).all();
+
+    for (const sim of (m03History?.results || [])) {
+      const skillName = (sim.skill_name as string) || (sim.title as string) || 'Simulation';
+      const score = Number(sim.overall_score || 0.0);
+      evidenceLedger.push({
+        id: `ev-m03-${crypto.randomUUID().slice(0, 8)}`,
+        sourceModule: 'm03_simulation',
+        evidenceCategory: 'extracted_fact',
+        statement: `Completed simulation '${sim.title}' with composite rubric score of ${Math.round(score * 100)}%`,
+        competencyOrSkill: skillName,
+        confidenceScore: 0.96,
+        uncertaintyScore: 0.08,
+        isDirectObservation: true,
+        observedAt: (sim.created_at as string) || new Date().toISOString()
+      });
+
+      if (score < 0.65) {
+        gapSignals.push({
+          id: `gap-m03-${crypto.randomUUID().slice(0, 8)}`,
+          skillName,
+          competencyName: (sim.competency_name as string) || skillName,
+          sourceModule: 'm03_simulation',
+          gapOriginType: 'confirmed_weakness',
+          severity: score < 0.5 ? 'critical' : 'moderate',
+          observedDeficit: `Work round simulation deficit (${Math.round(score * 100)}% score).`,
+          confidence: 0.95,
+          uncertainty: 0.08,
+          detectedAt: (sim.created_at as string) || new Date().toISOString()
+        });
+      }
+    }
+  } catch (_) {}
+
+  // 6. Fetch Diagnosed Gaps & Proficiency Estimates from Table
   let diagnosedGaps: any[] = [];
+  let proficiencyMap = new Map<string, { originalName: string; estimate: number; uncertainty: number; count: number }>();
   try {
     const gapRows = await db.prepare(
       `SELECT p.skill_id, s.name as skill_name, p.proficiency_estimate, p.uncertainty_estimate
        FROM candidate_skill_proficiency_v2 p
        LEFT JOIN skill s ON p.skill_id = s.id
-       WHERE p.user_id = ? AND (p.proficiency_estimate < 0.65 OR p.uncertainty_estimate > 0.4)`
+       WHERE p.user_id = ?`
     ).bind(userId).all();
 
-    diagnosedGaps = (gapRows?.results || []).map((g: any) => ({
-      skillId: g.skill_id as string,
-      skillName: (g.skill_name as string) || 'Target Competency',
-      gapType: Number(g.proficiency_estimate) < 0.5 ? 'low_demonstration' : 'high_uncertainty',
-      severity: Number(g.uncertainty_estimate) > 0.6 ? 'critical' : 'moderate',
-      recommendation: `Target ${g.skill_name} in adaptive work round.`
-    }));
+    for (const g of (gapRows?.results || [])) {
+      const sName = (g.skill_name as string) || (g.skill_id as string) || 'Competency';
+      const prof = Number(g.proficiency_estimate || 0.5);
+      const unc = Number(g.uncertainty_estimate || 0.5);
+      proficiencyMap.set(sName.toLowerCase(), { originalName: sName, estimate: prof, uncertainty: unc, count: 1 });
+
+      if (prof < 0.65 || unc > 0.4) {
+        diagnosedGaps.push({
+          skillId: g.skill_id as string,
+          skillName: sName,
+          gapType: prof < 0.5 ? 'low_demonstration' : 'high_uncertainty',
+          severity: unc > 0.6 ? 'critical' : 'moderate',
+          recommendation: `Target ${sName} in adaptive work round.`
+        });
+        if (!gapSignals.some(s => s.skillName.toLowerCase() === sName.toLowerCase())) {
+          gapSignals.push({
+            id: `gap-prof-${crypto.randomUUID().slice(0, 8)}`,
+            skillName: sName,
+            competencyName: sName,
+            sourceModule: 'm02_assessment',
+            gapOriginType: prof < 0.5 ? 'confirmed_weakness' : 'high_uncertainty',
+            severity: unc > 0.6 ? 'critical' : 'moderate',
+            observedDeficit: `Current estimated proficiency is ${Math.round(prof * 100)}% with ${Math.round(unc * 100)}% uncertainty variance.`,
+            confidence: 0.90,
+            uncertainty: unc,
+            detectedAt: new Date().toISOString()
+          });
+        }
+      }
+    }
   } catch (_) {}
 
   const candidateContext: CandidateContext = {
@@ -430,7 +604,7 @@ export async function resolveCandidateJobContext(
     diagnosedGaps
   };
 
-  // 5. Fetch Job Context
+  // 7. Fetch Job Context
   let jobRow: any = null;
   if (requisitionId) {
     try {
@@ -458,7 +632,6 @@ export async function resolveCandidateJobContext(
     } catch (_) {}
   }
 
-  // Also check job_description_context if available
   if (keyRequirements.length === 0) {
     try {
       const jdCtx = await db.prepare(
@@ -473,14 +646,30 @@ export async function resolveCandidateJobContext(
   }
 
   if (requiredSkills.length === 0) {
-    requiredSkills = ['System Architecture', 'API Design', 'Performance Optimization'];
+    if (primaryDomain === 'finance') {
+      requiredSkills = ['CapEx & ROI Modeling', 'Valuation & Discounted Cash Flow', 'Variance Analysis'];
+    } else if (primaryDomain === 'operations') {
+      requiredSkills = ['Float Pool Operations', 'Emergency Bed Allocation', 'Patient Acuity Triage'];
+    } else {
+      requiredSkills = ['Distributed Systems & Concurrency', 'System Architecture & Concurrency', 'API Design & Relational Modeling'];
+    }
+  }
+
+  if (keyRequirements.length === 0) {
+    if (primaryDomain === 'finance') {
+      keyRequirements = ['Financial modeling & cash flow forecasting', 'Capital expenditure variance analysis'];
+    } else if (primaryDomain === 'operations') {
+      keyRequirements = ['Clinical workflow triage & staffing optimization', 'Emergency bed management'];
+    } else {
+      keyRequirements = ['Production architecture & distributed system design', 'Concurrency & performance engineering'];
+    }
   }
 
   const jobContext: JobContext = {
     requisitionId: (jobRow?.id as string) || undefined,
     jobTitle,
     targetSeniority: jobSeniority,
-    targetDomain: (jobRow?.role_category as string) || 'software',
+    targetDomain: (jobRow?.role_category as string) || primaryDomain,
     requiredCompetencies: requiredSkills.map((sk: string) => ({
       name: sk,
       priority: 'required'
@@ -490,38 +679,228 @@ export async function resolveCandidateJobContext(
     keyRequirements
   };
 
-  // 6. Assemble Competency Targets
-  const targets: CompetencyTarget[] = diagnosedGaps.length > 0
-    ? diagnosedGaps.map((gap: any) => ({
-        id: `tgt-${gap.skillId || encodeURIComponent(gap.skillName)}`,
-        name: gap.skillName,
-        domain: candidateContext.targetDomainId || 'software',
-        skillName: gap.skillName,
-        skillId: gap.skillId,
-        targetProficiency: 0.80,
-        currentProficiency: 0.45,
-        uncertaintyEstimate: 0.55,
-        diagnosisSource: 'm02_assessment_gap',
-        rationale: `Diagnosed from candidate assessment gap (${gap.gapType})`
-      }))
-    : requiredSkills.slice(0, 3).map((sk: string) => ({
-        id: `tgt-${encodeURIComponent(sk)}`,
-        name: sk,
-        domain: 'software',
-        skillName: sk,
-        targetProficiency: 0.80,
-        currentProficiency: 0.50,
-        uncertaintyEstimate: 0.50,
-        diagnosisSource: 'job_requirement',
-        rationale: `Required competency from target role specification: ${sk}`
-      }));
+  const expectedBaseline = seniority === 'entry' ? 0.60 : (seniority === 'senior' ? 0.80 : 0.70);
 
-  return { candidateContext, jobContext, targets };
+  // 8. Assemble Role Context
+  const roleContext: RoleContext = {
+    roleTitle: targetRole,
+    domain: primaryDomain,
+    occupationCode: (profileRow?.target_occupation_id as string) || '15-1252.00',
+    seniorityLevel: seniority,
+    expectedProficiencyBaseline: expectedBaseline,
+    seniorityExpectations: {
+      complexityCeiling: `${seniority.toUpperCase()}-level autonomous system decisions under operational constraints`,
+      autonomyLevel: seniority === 'lead' || seniority === 'executive' ? 'Total' : 'High',
+      decisionScope: 'Architectural, operational and failure-mode resiliency',
+      expectedProficiencyBaseline: expectedBaseline
+    },
+    requiredCompetencies: requiredSkills.slice(0, 5).map(s => ({
+      name: s,
+      priority: 'mandatory',
+      weight: 1.0
+    }))
+  };
+
+  // 9. Multi-Objective Explainable Targeting Algorithm
+  // Weights by Assessment Purpose:
+  let w_R = 0.30; // Relevance
+  let w_U = 0.25; // Uncertainty
+  let w_G = 0.35; // Gap Severity
+  let w_C = 0.20; // Coverage Deficit
+  let w_F = 0.10; // Fatigue Penalty
+
+  if (assessmentPurpose === 'diagnostic') {
+    w_R = 0.25; w_U = 0.40; w_G = 0.15; w_C = 0.25; w_F = 0.10;
+  } else if (assessmentPurpose === 'gap_validation') {
+    w_R = 0.35; w_U = 0.15; w_G = 0.45; w_C = 0.10; w_F = 0.05;
+  } else if (assessmentPurpose === 'certification') {
+    w_R = 0.50; w_U = 0.20; w_G = 0.20; w_C = 0.15; w_F = 0.05;
+  }
+
+  // Build candidate skill pool
+  const candidateSkillPool = new Map<string, { originalName: string; compName: string; prof: number; unc: number; obs: number }>();
+  for (const [skLower, pData] of proficiencyMap.entries()) {
+    candidateSkillPool.set(skLower, { originalName: pData.originalName, compName: pData.originalName, prof: pData.estimate, unc: pData.uncertainty, obs: pData.count });
+  }
+  for (const gap of gapSignals) {
+    const skLower = gap.skillName.toLowerCase();
+    if (!candidateSkillPool.has(skLower)) {
+      candidateSkillPool.set(skLower, {
+        originalName: gap.skillName,
+        compName: gap.competencyName,
+        prof: gap.gapOriginType === 'confirmed_weakness' ? 0.35 : 0.50,
+        unc: gap.uncertainty || 0.35,
+        obs: 1
+      });
+    }
+  }
+  for (const reqSkill of requiredSkills) {
+    const skLower = reqSkill.toLowerCase();
+    if (!candidateSkillPool.has(skLower)) {
+      candidateSkillPool.set(skLower, { originalName: reqSkill, compName: reqSkill, prof: 0.50, unc: 0.60, obs: 0 });
+    }
+  }
+
+  // Prior recent tasks from M03 (for fatigue penalty)
+  const recentM03Tasks = evidenceLedger
+    .filter(ev => ev.sourceModule === 'm03_simulation')
+    .map(ev => ev.competencyOrSkill.toLowerCase())
+    .slice(-3);
+
+  const targets: CompetencyTarget[] = [];
+
+  for (const [sKey, sInfo] of candidateSkillPool.entries()) {
+    const lowerSKey = sKey.toLowerCase();
+    const isExplicitlyRequired = requiredSkills.some(s => s.toLowerCase() === lowerSKey || s.toLowerCase().includes(lowerSKey)) ||
+      keyRequirements.some(req => req.toLowerCase().includes(lowerSKey));
+
+    const jobRelevance = isExplicitlyRequired ? 1.0 : (requiredSkills.length > 0 ? 0.6 : 0.5);
+    const uncertaintyDeficit = Math.max(0.0, Math.min(1.0, sInfo.unc));
+
+    const matchingGap = gapSignals.find(g => g.skillName.toLowerCase() === lowerSKey);
+    let gapSeverity = 0.50;
+    if (matchingGap) {
+      if (matchingGap.gapOriginType === 'confirmed_weakness') {
+        gapSeverity = sInfo.prof < 0.4 ? 1.0 : 0.85;
+      } else if (matchingGap.gapOriginType === 'misconception_flag') {
+        gapSeverity = 0.95;
+      } else {
+        gapSeverity = 0.70;
+      }
+    } else {
+      if (sInfo.prof < 0.45 && sInfo.obs >= 1) {
+        gapSeverity = 0.85;
+      } else if (sInfo.prof < 0.5 && sInfo.obs === 0) {
+        gapSeverity = 0.50;
+      } else {
+        gapSeverity = Math.max(0.05, 1.0 - sInfo.prof);
+      }
+    }
+
+    const coverageDeficit = 1.0 / (1.0 + Number(sInfo.obs));
+    const fatigue = recentM03Tasks.slice(-1).includes(lowerSKey) ? 0.8 : (recentM03Tasks.includes(lowerSKey) ? 0.4 : 0.0);
+
+    const rawScore = (w_R * jobRelevance) + (w_U * uncertaintyDeficit) + (w_G * gapSeverity) + (w_C * coverageDeficit) - (w_F * fatigue);
+    const targetingScore = Math.max(0.0, Math.min(1.0, Math.round(rawScore * 1000) / 1000));
+
+    // Formulate pedagogical rationale
+    const rationales: string[] = [];
+    if (isExplicitlyRequired) rationales.push('Mandatory requirement in target role specification');
+    if (matchingGap && matchingGap.gapOriginType === 'confirmed_weakness') {
+      rationales.push(`Confirmed demonstrated deficit (${Math.round(sInfo.prof * 100)}% score in M02 assessment)`);
+    } else if (uncertaintyDeficit > 0.4) {
+      rationales.push(`High epistemic uncertainty (${Math.round(uncertaintyDeficit * 100)}%) requiring empirical calibration`);
+    }
+    if (coverageDeficit > 0.6) rationales.push(`Low observation coverage (${sInfo.obs} previous rounds)`);
+    if (fatigue > 0) rationales.push('Fatigue penalty applied due to recent repetition');
+
+    const rationaleText = rationales.length > 0 ? rationales.join('; ') : `Targeting core competency ${sInfo.compName}.`;
+
+    const capitalSkillName = sInfo.originalName || sKey.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const capitalCompName = sInfo.compName || capitalSkillName;
+
+    const skillTargetObj: SkillTarget = {
+      id: `sk-${crypto.randomUUID().slice(0, 8)}`,
+      skillName: capitalSkillName,
+      competencyName: capitalCompName,
+      domain: primaryDomain,
+      targetProficiency: 0.80,
+      currentProficiency: Math.round(sInfo.prof * 100) / 100,
+      uncertaintyEstimate: Math.round(sInfo.unc * 100) / 100,
+      observationCount: sInfo.obs,
+      gapSignal: matchingGap,
+      targetingPriorityScore: targetingScore,
+      priorityBreakdown: {
+        jobRelevanceWeight: Math.round(jobRelevance * 100) / 100,
+        uncertaintyDeficitWeight: Math.round(uncertaintyDeficit * 100) / 100,
+        gapSeverityWeight: Math.round(gapSeverity * 100) / 100,
+        coverageDeficitWeight: Math.round(coverageDeficit * 100) / 100,
+        recencyFatiguePenalty: Math.round(fatigue * 100) / 100,
+        rationale: rationaleText
+      }
+    };
+
+    targets.push({
+      id: `tgt-${crypto.randomUUID().slice(0, 8)}`,
+      name: capitalCompName,
+      domain: primaryDomain,
+      skillName: capitalSkillName,
+      targetProficiency: 0.80,
+      currentProficiency: Math.round(sInfo.prof * 100) / 100,
+      uncertaintyEstimate: Math.round(sInfo.unc * 100) / 100,
+      observationCount: sInfo.obs,
+      diagnosisSource: matchingGap ? 'm02_assessment_gap' : (isExplicitlyRequired ? 'job_requirement' : 'baseline_target'),
+      targetingScore,
+      rationale: rationaleText,
+      skills: [skillTargetObj]
+    });
+  }
+
+  // Sort descending by targetingScore
+  targets.sort((a, b) => (b.targetingScore || 0) - (a.targetingScore || 0));
+
+  const primaryTarget = targets[0] || {
+    id: 'tgt-default',
+    name: 'System Architecture',
+    domain: 'software',
+    skillName: 'System Architecture & Concurrency',
+    targetProficiency: 0.80,
+    currentProficiency: 0.50,
+    uncertaintyEstimate: 0.50,
+    observationCount: 0,
+    diagnosisSource: 'baseline_target',
+    targetingScore: 0.70,
+    rationale: 'Baseline target for role specification'
+  };
+
+  // Determine Work Modality
+  let workModality: WorkRoundModality = 'coding';
+  const roleLower = targetRole.toLowerCase();
+  if (roleLower.includes('finance') || roleLower.includes('analyst') || primaryDomain === 'finance') {
+    workModality = 'financial_analysis';
+  } else if (roleLower.includes('operation') || roleLower.includes('triage') || primaryDomain === 'operations') {
+    workModality = 'operational_triage';
+  } else if (roleLower.includes('data') || primaryDomain === 'data') {
+    workModality = 'data_analysis';
+  } else if (roleLower.includes('legal') || roleLower.includes('procurement')) {
+    workModality = 'written_communication';
+  }
+
+  // 10. Assemble & Sanitize Assessment Context (Guarantees zero sensitive trait bias)
+  const rawAssessmentContext: AssessmentContext = {
+    contextId: `ctx-m3-${crypto.randomUUID().slice(0, 12)}`,
+    candidateContext,
+    jobContext,
+    roleContext,
+    assessmentPurpose,
+    evidenceLedger,
+    gapSignals,
+    prioritizedTargets: targets,
+    primaryRecommendedTarget: primaryTarget,
+    activeWorkModality: workModality,
+    securityGovernance: {
+      tenantId: organizationId,
+      organizationId,
+      candidateUserId: userId,
+      sensitiveAttributesExcluded: true,
+      exclusionAudit: [],
+      createdAt: new Date().toISOString()
+    }
+  };
+
+  const { sanitized: assessmentContext, sensitiveTraitsFound } = sanitizeContextForTaskTargeting(rawAssessmentContext);
+  assessmentContext.securityGovernance.exclusionAudit = sensitiveTraitsFound;
+
+  const resolvedTargets: CompetencyTarget[] = diagnosedGaps.length > 0
+    ? targets.filter(t => t.diagnosisSource === 'm02_assessment_gap' || t.diagnosisSource === 'm02_misconception' || t.diagnosisSource === 'm01_ats_gap')
+    : targets;
+
+  return { candidateContext, jobContext, targets: resolvedTargets.length > 0 ? resolvedTargets : targets, assessmentContext };
 }
 
 export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
-  // 1a. Phase 1: Context Aggregator Route for Work Round Engine Targeting
+  // 1a. Phase 2: Full Assessment Context Intelligence Route
   app.get('/m3/simulations/context', async (c) => {
     try {
       const user = await getSessionUser(c);
@@ -530,13 +909,15 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
       const orgId = (dbUser?.organization_id as string) || 'org_default_public';
       const reqId = c.req.query('requisition_id');
+      const purpose = (c.req.query('purpose') as AssessmentPurpose) || 'practice';
 
-      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId, reqId);
+      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId, reqId, purpose);
       return c.json({
         success: true,
         candidate_context: bundle.candidateContext,
         job_context: bundle.jobContext,
-        competency_targets: bundle.targets
+        competency_targets: bundle.targets,
+        assessment_context: bundle.assessmentContext
       });
     } catch (err: any) {
       console.error('Error in /m3/simulations/context:', err);
@@ -544,7 +925,31 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     }
   });
 
-  // 1. List Simulation Definitions (with M02 Gap-Targeting)
+  // 1b. Phase 2: Targeted Simulation Context with Purpose Selection
+  app.post('/m3/simulations/context/target', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const body = await c.req.json().catch(() => ({}));
+      const purpose = (body.assessment_purpose as AssessmentPurpose) || 'practice';
+      const reqId = body.requisition_id;
+
+      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId, reqId, purpose);
+      return c.json({
+        success: true,
+        assessment_context: bundle.assessmentContext,
+        recommended_target: bundle.assessmentContext.primaryRecommendedTarget
+      });
+    } catch (err: any) {
+      console.error('Error in /m3/simulations/context/target:', err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // 1. List Simulation Definitions (Enriched with Multi-Objective Targeting)
   app.get('/m3/simulations/definitions', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -552,15 +957,15 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     const domainQuery = c.req.query('domain');
     const typeQuery = c.req.query('type');
 
-    // Retrieve candidate gaps from M02
-    const candidateGaps = await c.env.DB.prepare(
-      `SELECT p.skill_id, s.name as skill_name, p.proficiency_estimate, p.uncertainty_estimate
-       FROM candidate_skill_proficiency_v2 p
-       LEFT JOIN skill s ON p.skill_id = s.id
-       WHERE p.user_id = ? AND (p.proficiency_estimate < 0.65 OR p.uncertainty_estimate > 0.4)`
-    ).bind(user.id).all();
+    const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+    const orgId = (dbUser?.organization_id as string) || 'org_default_public';
 
-    const gapSkillNames = (candidateGaps.results || []).map((g: any) => (g.skill_name || '').toLowerCase());
+    // Resolve context & prioritized targets
+    let targets: CompetencyTarget[] = [];
+    try {
+      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId);
+      targets = bundle.targets;
+    } catch (_) {}
 
     // Check candidate's sessions for status indicators
     let sessionMap = new Map<string, string>();
@@ -573,15 +978,29 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       }
     } catch (_) {}
 
-    // Filter seed simulations
+    // Map seed simulations against prioritized targets
     let results = SEED_SIMULATIONS.map(sim => {
-      const isTargetedGap = gapSkillNames.some(g => sim.skill_name.toLowerCase().includes(g) || sim.competency_name.toLowerCase().includes(g));
+      const simSkill = sim.skill_name.toLowerCase();
+      const simComp = sim.competency_name.toLowerCase();
+
+      // Find matching prioritized target
+      const matchingTarget = targets.find(t =>
+        t.skillName.toLowerCase() === simSkill ||
+        t.name.toLowerCase() === simComp ||
+        simSkill.includes(t.skillName.toLowerCase()) ||
+        t.skillName.toLowerCase().includes(simSkill)
+      );
+
+      const isTargetedGap = Boolean(matchingTarget && (matchingTarget.targetingScore || 0) >= 0.60);
+      const targetingScore = matchingTarget?.targetingScore || 0.40;
+
       return {
         ...sim,
         is_recommended_for_gap: isTargetedGap,
         user_session_status: sessionMap.get(sim.id) || null,
+        targeting_priority_score: targetingScore,
         recommendation_reason: isTargetedGap 
-          ? `Directly targets diagnosed uncertainty in ${sim.skill_name} from M02 assessment` 
+          ? (matchingTarget?.rationale ? `${matchingTarget.rationale}; targets diagnosed uncertainty in ${sim.skill_name}` : `Directly targets diagnosed uncertainty in ${sim.skill_name}`)
           : 'Standard domain competency simulation'
       };
     });
@@ -593,8 +1012,8 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       results = results.filter(s => s.simulation_type === typeQuery);
     }
 
-    // Sort recommended gaps to top
-    results.sort((a, b) => (b.is_recommended_for_gap ? 1 : 0) - (a.is_recommended_for_gap ? 1 : 0));
+    // Sort by targeting priority score descending so highest-value work is first
+    results.sort((a, b) => b.targeting_priority_score - a.targeting_priority_score);
 
     return c.json({
       success: true,
