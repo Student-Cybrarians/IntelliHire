@@ -1722,6 +1722,320 @@ export function scoreDomainRubric(
   };
 }
 
+export function generateTeachingPayload(
+  def: any,
+  finalOutput: any,
+  det: DeterministicVerificationResult,
+  validity: AlternativeValidity,
+  notes: string = '',
+  handledDynamic: boolean = false
+): M3TeachingPayload {
+  const domain = def.domain || 'general';
+  const taskId = def.id || '';
+  const taskTitle = def.title || 'Work Simulation Scenario';
+  const outputStr = typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput || '');
+  const outLower = outputStr.toLowerCase();
+  const notesLower = (notes || '').toLowerCase();
+  const isCorrectOrAlternative = validity === 'correct' || validity === 'alternative_valid';
+  const failedTests = det.testResults.filter(t => !t.passed);
+  const passedTests = det.testResults.filter(t => t.passed);
+
+  // Focus areas
+  let focusAreas = ['domain_competency', 'process_rigor', 'constraint_handling'];
+  if (domain === 'software') {
+    focusAreas = ['algorithm_soundness', 'concurrency_safety', 'runtime_complexity', 'edge_case_isolation'];
+  } else if (domain === 'finance') {
+    focusAreas = ['mathematical_rigor', 'assumption_validity', 'cash_flow_timing', 'risk_sensitivity'];
+  } else if (domain === 'operations') {
+    focusAreas = ['triage_prioritization', 'throughput_velocity', 'resource_contention', 'human_safety'];
+  }
+
+  // 1. Diagnose Misconceptions
+  const misconceptions: TeachingConceptRemediation[] = [];
+
+  if (domain === 'software' || taskId.includes('indexing') || taskId.includes('sql')) {
+    const hasConcurrentFail = failedTests.some(t => t.name.toLowerCase().includes('concurrency') || t.name.toLowerCase().includes('concurrent'));
+    if (hasConcurrentFail || (outLower.includes('create index') && !outLower.includes('concurrently'))) {
+      misconceptions.push({
+        misconceptionId: 'misc-sql-concurrent-lock',
+        category: 'trade_off_blindspot',
+        diagnosedMisconception: 'Treating DDL index creation as a zero-cost background operation without non-blocking CONCURRENTLY safeguards.',
+        severity: 'critical',
+        whereReasoningBroke: 'Executed synchronous CREATE INDEX on live production tables without the CONCURRENTLY modifier.',
+        whyItBroke: 'In PostgreSQL, standard CREATE INDEX acquires an SHARE lock, blocking all concurrent INSERT, UPDATE, and DELETE operations, causing connection exhaustion under live traffic.',
+        missingLogicOrConcept: 'Understanding relational engine lock hierarchies and zero-downtime schema migration practices.',
+        invalidAssumption: 'Assuming migration scripts execute instantaneously without blocking live write transactions.',
+        howToApproachLogically: 'Always decouple schema creation into non-blocking atomic phases: CREATE INDEX CONCURRENTLY, monitor pg_stat_activity, and verify index valid state.',
+        howToAvoidRepeating: 'Always audit DDL statements against lock levels and mandate CONCURRENTLY in production migration checklists.',
+        practicalCounterexample: 'Running "CREATE INDEX idx_users ON users(tenant_id);" during peak traffic locked checkout transactions for 45 seconds.',
+        m02ReassessFocus: 'Relational Indexing & Concurrency Safety'
+      });
+    }
+
+    const hasFilterFail = failedTests.some(t => t.name.toLowerCase().includes('filter') || t.name.toLowerCase().includes('composite'));
+    if (hasFilterFail || (outLower.includes('where status =') && outLower.includes('(') && !outLower.split('(')[1]?.split(')')[0]?.includes('status'))) {
+      misconceptions.push({
+        misconceptionId: 'misc-sql-composite-prefix',
+        category: 'conceptual',
+        diagnosedMisconception: 'Believing that column order in a composite B-Tree index is arbitrary.',
+        severity: 'moderate',
+        whereReasoningBroke: 'Placed lower-cardinality or range query columns ahead of equality filter predicates.',
+        whyItBroke: 'B-Tree indexes can only traverse composite columns strictly from left to right. A query filtering on (tenant_id, status) cannot efficiently utilize (created_at, tenant_id).',
+        missingLogicOrConcept: 'B-Tree hierarchical sorting and leftmost prefix lookup mechanics.',
+        invalidAssumption: 'Assuming the query optimizer can match any permutation of indexed columns regardless of leading definition.',
+        howToApproachLogically: 'Order composite columns by: (1) Equality filters first, (2) Range filters second, (3) Projected covering columns (INCLUDE) third.',
+        howToAvoidRepeating: 'Formulate index definitions directly against query WHERE and ORDER BY clauses.',
+        practicalCounterexample: 'An index on (created_at, tenant_id) forced a full index range scan when querying WHERE tenant_id = "org_123".',
+        m02ReassessFocus: 'B-Tree Index Predicate Ordering'
+      });
+    }
+  } else if (domain === 'operations' || taskId.includes('triage')) {
+    const hasTriageFail = failedTests.some(t => t.name.toLowerCase().includes('esi') || t.name.toLowerCase().includes('acuity'));
+    if (hasTriageFail || notesLower.includes('first come') || notesLower.includes('fifo')) {
+      misconceptions.push({
+        misconceptionId: 'misc-ops-fifo-clinical',
+        category: 'conceptual',
+        diagnosedMisconception: 'Applying standard FIFO queueing to dynamic clinical acuity categories.',
+        severity: 'critical',
+        whereReasoningBroke: 'Allocated beds or resources based on arrival timestamp rather than dynamic ESI clinical acuity.',
+        whyItBroke: 'In emergency medicine, delayed intervention for high-acuity patients (ESI-1/2) leads to avoidable clinical deterioration and mortality.',
+        missingLogicOrConcept: 'Emergency Severity Index (ESI) multi-tier triage protocol and physiologic reserve dynamics.',
+        invalidAssumption: 'Assuming queue wait time is the primary fairness metric in life-critical operations.',
+        howToApproachLogically: 'Always sort allocation queues by: (1) ESI acuity level, (2) Resource turnaround velocity, (3) Arrival time as tie-breaker only.',
+        howToAvoidRepeating: 'Establish clear triage override rules that automatically preempt non-emergent patient queues.',
+        practicalCounterexample: 'Serving an ESI-4 sprain who arrived at 10:00 AM before an ESI-2 chest pain patient who arrived at 10:15 AM.',
+        m02ReassessFocus: 'Emergency Severity Index & Clinical Triage'
+      });
+    }
+  }
+
+  // Fallback boundary misconception if tests failed and none diagnosed yet
+  if (misconceptions.length === 0 && failedTests.length > 0) {
+    const primaryFail = failedTests[0];
+    misconceptions.push({
+      misconceptionId: 'misc-generic-boundary',
+      category: 'boundary_condition',
+      diagnosedMisconception: 'Designing for the nominal happy path while omitting boundary condition handling.',
+      severity: 'moderate',
+      whereReasoningBroke: `Failed verification: ${primaryFail.name} (${primaryFail.message || 'Requirement not met'})`,
+      whyItBroke: 'Edge cases and rapid constraint changes create operational instability if unhandled.',
+      missingLogicOrConcept: 'Comprehensive defensive design and boundary condition auditing.',
+      invalidAssumption: 'Assuming operational inputs always adhere to nominal expected ranges.',
+      howToApproachLogically: 'Analyze inputs at extremities: minimum values, maximum thresholds, null states, and dynamic load spikes.',
+      howToAvoidRepeating: 'Always create dedicated verification checks targeting zero, maximum, and invalid states.',
+      practicalCounterexample: 'An algorithm handling 100 requests flawlessly crashed when traffic reached 10,000 req/sec due to unhandled queue bounds.',
+      m02ReassessFocus: 'Defensive Systems Architecture'
+    });
+  }
+
+  // 2. Correct Response Dimensions (1-8)
+  let whyCorrectReasoning: WhyCorrectReasoning | undefined = undefined;
+  if (isCorrectOrAlternative) {
+    whyCorrectReasoning = {
+      whyCorrect: `Your solution successfully fulfilled the operational requirements of "${taskTitle}". It satisfied all ${passedTests.length} automated verification checks without violating operational invariants.`,
+      reasoningPath: 'You accurately decoupled the problem into structural components: identifying key filter predicates, protecting live system throughput, and designing defensively for operational concurrency.',
+      requirementsSatisfied: passedTests.map(t => `Verified check: ${t.name}`) || ['Satisfied all primary functional and structural deliverables.'],
+      validAssumptions: [
+        'Assumed concurrent system load requires non-blocking operational pathways.',
+        'Assumed query optimizer traverses index predicates in leftmost composite order.',
+        'Preserved strict data consistency across multi-tenant boundaries.'
+      ],
+      importantTradeOffs: [
+        'Slight write-amplification during mutations accepted to achieve sub-millisecond query lookups.',
+        'Longer initial deployment duration accepted via CONCURRENTLY in order to guarantee zero transaction locks.'
+      ],
+      alternativeValidApproaches: [
+        {
+          approachName: 'Partial / Filtered Index Architecture',
+          description: 'Creating an index with a WHERE clause (e.g., WHERE deleted_at IS NULL).',
+          tradeOffComparison: 'Significantly smaller index footprint and faster writes, but does not serve queries filtering on other soft-delete states.',
+          validityContext: 'Highly recommended when 90%+ of queries target active records only.',
+          isMateriallyFlawed: false
+        },
+        {
+          approachName: 'Covering Index with INCLUDE Clause',
+          description: 'Appending projected columns to the leaf pages using INCLUDE (column_name).',
+          tradeOffComparison: 'Allows index-only scans eliminating heap lookups at the expense of wider index pages.',
+          validityContext: 'Optimal when a specific high-frequency query projects 1-2 small scalar columns.',
+          isMateriallyFlawed: false
+        }
+      ],
+      whyFlawedAlternativesFail: [
+        'Synchronous CREATE INDEX without CONCURRENTLY causes immediate table-level locking and transaction queuing.',
+        'Single-column uncoordinated indexes force the query engine to perform expensive bitmap index scans with heavy CPU overhead.'
+      ],
+      potentialImprovements: [
+        'Add automated monitoring via pg_stat_user_indexes to periodically check index utilization and scan efficiency.',
+        'Implement proactive autovacuum tuning for the indexed relation to prevent dead tuple accumulation.'
+      ]
+    };
+  }
+
+  // 3. Incorrect / Partial Response Dimensions (1-10)
+  let logicGapAnalysis: LogicGapAnalysis | undefined = undefined;
+  if (!isCorrectOrAlternative) {
+    const primaryMisc = misconceptions[0];
+    const whatDoneWell = passedTests.map(t => `Successfully passed check: ${t.name}`);
+    if (whatDoneWell.length === 0) {
+      whatDoneWell.push('Initiated solution structure and recognized core domain objective.');
+    }
+
+    logicGapAnalysis = {
+      whatCandidateDidCorrectly: whatDoneWell,
+      whereReasoningBreaks: primaryMisc
+        ? primaryMisc.whereReasoningBroke
+        : `Your deliverable did not satisfy verification criteria for: ${failedTests.map(t => t.name).join(', ')}.`,
+      whyItBreaks: primaryMisc
+        ? primaryMisc.whyItBroke
+        : 'The deliverable diverges from the required operational contract or omits critical defensive parameters.',
+      missingConceptOrLogic: primaryMisc
+        ? primaryMisc.missingLogicOrConcept
+        : 'Understanding production constraints and edge-case handling under operational load.',
+      invalidAssumption: primaryMisc
+        ? primaryMisc.invalidAssumption
+        : 'Assuming nominal happy-path execution without stress testing edge cases or system locks.',
+      missingRequirement: failedTests.length > 0
+        ? `Failed automated assertion: ${failedTests[0].name}`
+        : 'Deliverable lacked completeness relative to expected artifact specifications.',
+      correctReasoningPath: primaryMisc
+        ? primaryMisc.howToApproachLogically
+        : 'Step 1: Identify all operational constraints. Step 2: Verify zero-downtime safety. Step 3: Test boundary cases.',
+      howToApproachLogically: 'Deconstruct the problem into: (1) Invariants that must never fail, (2) Concurrency & load conditions, (3) Exact output schema requirements.',
+      howToAvoidRepeating: primaryMisc
+        ? primaryMisc.howToAvoidRepeating
+        : 'Use checklist-driven verification before submitting production deliverables.',
+      practicalExampleOrCounterexample: primaryMisc
+        ? primaryMisc.practicalCounterexample
+        : 'Omitting concurrency controls caused cascading timeout errors across dependent services.'
+    };
+  }
+
+  // 4. Why-Chain & How-Chain
+  const whyChain: TeachingWhyChainItem[] = [
+    {
+      stage: 'System Invariant',
+      statement: 'Production systems must maintain uninterrupted write availability during maintenance.',
+      reasoning: 'High-throughput transactional APIs cannot tolerate exclusive table locks without triggering downstream timeouts.'
+    },
+    {
+      stage: 'Access Pattern Optimization',
+      statement: 'B-Tree index structure must match query filter cardinality.',
+      reasoning: 'The query optimizer leverages leftmost composite prefixes to prune 99%+ of table blocks in log(N) time.'
+    },
+    {
+      stage: 'Failure Isolation',
+      statement: 'Mid-scenario constraint shifts require proactive mitigation.',
+      reasoning: 'Real-world infrastructure experiences sudden traffic shifts; architectures must adapt without cascading failure.'
+    }
+  ];
+
+  const howChain: TeachingHowChainStep[] = [
+    {
+      stepNumber: 1,
+      action: 'Analyze Query Filters & Cardinality',
+      rationale: 'Identify equality filters, range operators, and sort keys in the active workload.',
+      domainConsideration: 'Predicate selectivity determines B-Tree tree depth and page count.'
+    },
+    {
+      stepNumber: 2,
+      action: 'Select Safe DDL Migration Syntax',
+      rationale: 'Use non-blocking syntax (e.g. CONCURRENTLY) to avoid exclusive lock acquisition.',
+      domainConsideration: 'Lock acquisition delays block connection pools and cause 504 Gateway Timeouts.'
+    },
+    {
+      stepNumber: 3,
+      action: 'Audit Covering & Projection Columns',
+      rationale: 'Evaluate whether adding INCLUDE columns eliminates expensive heap table fetches.',
+      domainConsideration: 'Index-only scan vs index-heap fetch trade-off.'
+    },
+    {
+      stepNumber: 4,
+      action: 'Validate Execution Plan with EXPLAIN ANALYZE',
+      rationale: 'Verify that query planner switches from Seq Scan to Index Scan with optimal cost estimates.',
+      domainConsideration: 'Planner cost models rely on updated pg_class and pg_statistics.'
+    }
+  ];
+
+  // 5. Compare & Contrast
+  const compareContrast: CompareContrastAnalysis = {
+    candidateApproach: `Candidate provided deliverable with ${passedTests.length}/${det.testResults.length} passing tests. ${notes ? notes.slice(0, 150) : 'Direct deliverable submission without extended notes.'}`,
+    optimalApproach: 'Production-grade implementation combining non-blocking execution (CONCURRENTLY), leftmost composite alignment, and explicit defensive handling for dynamic injections.',
+    divergencePoints: failedTests.length > 0
+      ? failedTests.map(t => `Validation difference: ${t.name}: ${t.message || 'Failed'}`)
+      : ['Full concordance with optimal architectural requirements.'],
+    tradeOffAnalysis: 'The optimal approach accepts marginal index write overhead in exchange for sub-millisecond read latency and zero downtime.'
+  };
+
+  // 6. Alternative Solutions
+  const alternativeSolutions: TeachingAlternativeSolution[] = [
+    {
+      approachName: 'Partial / Filtered Index Architecture',
+      description: 'Creating an index with a WHERE clause (e.g. WHERE deleted_at IS NULL).',
+      tradeOffComparison: 'Significantly smaller index footprint and faster writes, but does not serve queries filtering on other soft-delete states.',
+      validityContext: 'Highly recommended when 90%+ of queries target active records only.',
+      isMateriallyFlawed: false
+    },
+    {
+      approachName: 'Non-blocking Concurrent Index Migration',
+      description: 'Execute CREATE INDEX CONCURRENTLY with composite filtering.',
+      tradeOffComparison: 'Takes 2-3x longer to build but maintains 100% application uptime.',
+      validityContext: 'Standard enterprise requirement for 24/7 web platforms.',
+      isMateriallyFlawed: false
+    }
+  ];
+
+  // 7. What-If Scenarios
+  const whatIfScenarios: TeachingWhatIfScenario[] = [
+    {
+      changedConstraint: 'Write traffic spikes by 10x while read traffic remains constant.',
+      howStrategyShifts: 'Re-evaluate secondary index footprint; prune unneeded indexes to prevent write throughput degradation.',
+      keyTakeaway: 'Indexes accelerate reads but impose proportional penalties on INSERT and UPDATE transactions.'
+    },
+    {
+      changedConstraint: 'The table grows beyond available RAM buffer pool (e.g. 500GB+).',
+      howStrategyShifts: 'Transition from single B-Tree indexes to table partitioning (by date or hash) with local partitioned indexes.',
+      keyTakeaway: 'Index efficiency collapses when index working sets no longer fit within shared buffer cache.'
+    }
+  ];
+
+  // 8. Follow-up Check
+  const followUpCheck: FollowUpUnderstandingCheck = {
+    question: "In PostgreSQL, why does 'CREATE INDEX CONCURRENTLY' require two full table scans instead of one?",
+    context: 'Verification of concurrency mechanics and lock-free migration internals.',
+    options: [
+      'Scan 1 builds the index structure; Scan 2 waits for pending transactions to finish and catches up on concurrent modifications.',
+      'Scan 1 checks for duplicate keys; Scan 2 computes the B-Tree tree balance.',
+      'Scan 1 creates a temporary table; Scan 2 copies rows into the primary relation.',
+      'Scan 1 locks the table for reading; Scan 2 unlocks the table for writing.'
+    ],
+    correctAnswer: 'Scan 1 builds the index structure; Scan 2 waits for pending transactions to finish and catches up on concurrent modifications.',
+    explanation: 'PostgreSQL executes two transactions: the first creates the index and registers it as invalid in pg_index, then waits for all current transactions to end. The second scan catches up on any rows modified since the first scan, guaranteeing complete index consistency without holding exclusive locks.'
+  };
+
+  const summaryGuidance = isCorrectOrAlternative
+    ? `Mastery Demonstrated: Your submission for "${taskTitle}" exhibits strong architectural discipline. Review the trade-offs and alternative valid solutions below to further enhance edge-case resiliency.`
+    : `Constructive Learning Opportunity: Your submission for "${taskTitle}" established a good baseline but diverged on ${failedTests.length} critical verification checks. Examine the logic gap analysis and counterexamples below.`;
+
+  return {
+    isCorrectOrAlternative,
+    alternativeValidity: validity,
+    summaryGuidance,
+    whyCorrectReasoning,
+    logicGapAnalysis,
+    whyChain,
+    howChain,
+    compareContrast,
+    alternativeSolutions,
+    whatIfScenarios,
+    misconceptions,
+    followUpCheck,
+    domainContext: {
+      domain,
+      focusAreas
+    }
+  };
+}
+
 export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // 1a. Phase 2: Full Assessment Context Intelligence Route
@@ -2395,7 +2709,8 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
           remediation_recommendations: JSON.parse((existingEval.remediation_recommendation_json as string) || '[]'),
           confidence_score: existingEval.confidence_score,
           uncertainty_score: existingEval.uncertainty_score || 0.15,
-          provenance: JSON.parse((existingEval.provenance_json as string) || '{}')
+          provenance: JSON.parse((existingEval.provenance_json as string) || '{}'),
+          teaching_payload: JSON.parse((existingEval.teaching_payload_json as string) || '{}')
         });
       }
     }
@@ -2425,6 +2740,15 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     let modelInterpretation: any = {};
     let remediationTasks: any[] = [];
     let evaluatorType: 'deterministic_first' | 'hybrid_ai' | 'deterministic_fallback' = 'deterministic_first';
+
+    let teachingPayload: M3TeachingPayload = generateTeachingPayload(
+      def,
+      final_output,
+      deterministicResult,
+      initialValidity.validity,
+      notes || '',
+      Boolean(dynamicState.injected)
+    );
 
     // Phase 6 Step 2: Evidence-Grounded AI Interpretation (where NVIDIA API is available)
     if (c.env.NVIDIA_API_KEY) {
@@ -2582,6 +2906,16 @@ Return ONLY valid JSON matching this schema:
       ];
     }
 
+    // Phase 7: Finalize Structured Pedagogical Teaching Payload
+    teachingPayload = generateTeachingPayload(
+      def,
+      final_output,
+      deterministicResult,
+      alternativeValidity,
+      notes || '',
+      Boolean(dynamicState.injected)
+    );
+
     const evalId = crypto.randomUUID();
 
     // Layer 1: Source Evidence
@@ -2685,11 +3019,11 @@ Return ONLY valid JSON matching this schema:
       autonomous_decision_prohibited: true
     };
 
-    // Persist evaluation with Phase 6 columns (alternative_validity, deterministic_verification_json)
+    // Persist evaluation with Phase 6 & Phase 7 columns (alternative_validity, deterministic_verification_json, teaching_payload_json)
     await c.env.DB.prepare(
       `INSERT INTO simulation_evaluation 
-       (id, session_id, user_id, definition_id, overall_score, dimension_scores_json, observable_evidence_json, model_interpretation_json, remediation_recommendation_json, confidence_score, uncertainty_score, observed_facts_json, provenance_json, submission_hash, submission_version, alternative_validity, deterministic_verification_json, human_review_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'unreviewed')`
+       (id, session_id, user_id, definition_id, overall_score, dimension_scores_json, observable_evidence_json, model_interpretation_json, remediation_recommendation_json, confidence_score, uncertainty_score, observed_facts_json, provenance_json, submission_hash, submission_version, alternative_validity, deterministic_verification_json, teaching_payload_json, human_review_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'unreviewed')`
     ).bind(
       evalId, sessionId, user.id, def.id,
       overallScore,
@@ -2703,7 +3037,8 @@ Return ONLY valid JSON matching this schema:
       JSON.stringify(provenanceData),
       submissionHash,
       alternativeValidity,
-      JSON.stringify(deterministicResult)
+      JSON.stringify(deterministicResult),
+      JSON.stringify(teachingPayload)
     ).run();
 
     // Mark session as evaluated & completed
@@ -2726,6 +3061,24 @@ Return ONLY valid JSON matching this schema:
       primaryFactText, modelInterpretationRecord.rationale || modelInterpretationRecord.strengths || '',
       calibratedConfidence, epistemicUncertainty, JSON.stringify(provenanceData)
     ).run().catch(err => console.warn('Non-blocking readiness ledger write error:', err));
+
+    // Downstream Sync 1b: If misconceptions were diagnosed, synchronize to readiness_evidence_ledger as 'misconception'
+    if (teachingPayload.misconceptions && teachingPayload.misconceptions.length > 0) {
+      for (const misc of teachingPayload.misconceptions) {
+        const miscLedgerId = crypto.randomUUID();
+        await c.env.DB.prepare(
+          `INSERT INTO readiness_evidence_ledger 
+           (id, candidate_user_id, organization_id, source_module, source_record_id, competency_name, skill_name, evidence_type, observed_fact, model_interpretation, confidence_score, uncertainty_score, provenance_json, human_review_status, created_at)
+           VALUES (?, ?, ?, 'M03', ?, ?, ?, 'misconception', ?, ?, ?, ?, ?, 'unreviewed', CURRENT_TIMESTAMP)`
+        ).bind(
+          miscLedgerId, user.id, (session.organization_id as string) || 'org_default_public',
+          evalId, def.competency_name, def.skill_name,
+          misc.diagnosedMisconception,
+          `Category: ${misc.category}. Why it breaks: ${misc.whyItBroke}. Remediation: ${misc.howToAvoidRepeating}`,
+          calibratedConfidence, epistemicUncertainty, JSON.stringify(provenanceData)
+        ).run().catch(err => console.warn('Non-blocking misconception ledger write error:', err));
+      }
+    }
 
     // Downstream Sync 2: Canonical Evidence Package for M02/M05
     const packageId = `pkg-m3-${evalId}`;
@@ -2750,6 +3103,7 @@ Return ONLY valid JSON matching this schema:
       sourceEvidence,
       observedFacts,
       modelInterpretation: modelInterpretationRecord,
+      teachingPayload,
       humanJudgment: {
         status: 'unreviewed'
       },
@@ -2816,6 +3170,7 @@ Return ONLY valid JSON matching this schema:
       observed_facts: observedFacts,
       model_interpretation: modelInterpretationRecord,
       remediation_recommendations: remediationTasks,
+      teaching_payload: teachingPayload,
       confidence_score: calibratedConfidence,
       uncertainty_score: epistemicUncertainty,
       provenance: provenanceData,
@@ -2831,7 +3186,7 @@ Return ONLY valid JSON matching this schema:
     }
   });
 
-  // 8. Get Evaluation Details (Phase 6 enhanced)
+  // 8. Get Evaluation Details (Phase 6 & 7 enhanced)
   app.get('/m3/simulations/sessions/:id/evaluation', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -2856,6 +3211,7 @@ Return ONLY valid JSON matching this schema:
         observed_facts: JSON.parse((evaluation.observed_facts_json as string) || '[]'),
         model_interpretation: JSON.parse((evaluation.model_interpretation_json as string) || '{}'),
         remediation_recommendations: JSON.parse((evaluation.remediation_recommendation_json as string) || '[]'),
+        teaching_payload: JSON.parse((evaluation.teaching_payload_json as string) || '{}'),
         confidence_score: Number(evaluation.confidence_score || 0.85),
         uncertainty_score: Number(evaluation.uncertainty_score || 0.15),
         provenance: JSON.parse((evaluation.provenance_json as string) || '{}'),

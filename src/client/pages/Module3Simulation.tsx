@@ -3,7 +3,8 @@ import {
   Laptop, Database, DollarSign, Activity, FileText, 
   Play, CheckCircle2, AlertTriangle, RefreshCw, Send, 
   ShieldCheck, Award, Flame, ArrowRight, Sparkles, Clock, 
-  HelpCircle, ChevronRight, Terminal, BarChart2, Layers
+  HelpCircle, ChevronRight, Terminal, BarChart2, Layers,
+  BookOpen, Lightbulb, Compass, BrainCircuit, Check, X
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
 import UniversalWorkSurfaceDispatcher from '../components/m3/UniversalWorkSurfaceDispatcher';
@@ -41,6 +42,11 @@ export default function Module3Simulation() {
   const [workNotes, setWorkNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [evaluation, setEvaluation] = useState<any>(null);
+
+  // Phase 7 Teaching & Pedagogical State
+  const [teachingTab, setTeachingTab] = useState<'breakdown' | 'chains' | 'compare' | 'whatif' | 'misconceptions'>('breakdown');
+  const [selectedFollowUpOption, setSelectedFollowUpOption] = useState<string | null>(null);
+  const [showFollowUpResult, setShowFollowUpResult] = useState<boolean>(false);
 
   // Tool specific feedback and execution
   const [testRunOutput, setTestRunOutput] = useState<string | null>(null);
@@ -598,6 +604,446 @@ export default function Module3Simulation() {
                   </div>
                 ))}
               </div>
+
+              {/* Phase 7: Candidate Growth, Detailed Explanation & Teaching Engine */}
+              {(() => {
+                const payload = evaluation.teaching_payload || evaluation.teachingPayload || {};
+                const isCorrect = payload.isCorrectOrAlternative || payload.is_correct_or_alternative || evaluation.overall_score >= 75;
+                const why = payload.whyCorrectReasoning || payload.why_correct_reasoning;
+                const gap = payload.logicGapAnalysis || payload.logic_gap_analysis;
+                const whyChain = payload.whyChain || payload.why_chain || [];
+                const howChain = payload.howChain || payload.how_chain || [];
+                const compare = payload.compareContrast || payload.compare_contrast || {};
+                const alternatives = payload.alternativeSolutions || payload.alternative_solutions || [];
+                const whatIf = payload.whatIfScenarios || payload.what_if_scenarios || [];
+                const misconceptions = payload.misconceptions || [];
+                const followUp = payload.followUpCheck || payload.follow_up_check;
+
+                const summary = payload.summaryGuidance || payload.summary_guidance || (
+                  isCorrect
+                    ? 'Mastery Demonstrated: Your submission exhibits strong architectural discipline. Review the trade-offs and alternative valid solutions below.'
+                    : 'Constructive Learning Opportunity: Your submission established a solid foundation. Examine the logic gap analysis and counterexamples below to master the core principles.'
+                );
+
+                return (
+                  <div className="bg-[#001724] border border-[#FF4103]/50 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#002f47]">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-[#FF4103]/10 border border-[#FF4103]/30 flex items-center justify-center text-[#FF4103]">
+                          <BrainCircuit className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                            <span>Pedagogical Debrief & Candidate Teaching Engine</span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#FF4103]/10 text-[#FF4103] border border-[#FF4103]/20">
+                              Phase 7 Certified
+                            </span>
+                          </h3>
+                          <p className="text-[11px] text-slate-400">Detailed Reasoning, Logic Gap Diagnostics, and Adaptive Mastery</p>
+                        </div>
+                      </div>
+
+                      {/* Tab navigation */}
+                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#001019] border border-[#00283d] text-xs font-semibold overflow-x-auto">
+                        <button
+                          onClick={() => setTeachingTab('breakdown')}
+                          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                            teachingTab === 'breakdown' ? 'bg-[#FF4103] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>{isCorrect ? '8-Point Reasoning' : '10-Point Logic Gap'}</span>
+                        </button>
+                        <button
+                          onClick={() => setTeachingTab('chains')}
+                          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                            teachingTab === 'chains' ? 'bg-[#FF4103] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>Why & How Chains</span>
+                        </button>
+                        <button
+                          onClick={() => setTeachingTab('compare')}
+                          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                            teachingTab === 'compare' ? 'bg-[#FF4103] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Compass className="w-3.5 h-3.5" />
+                          <span>Compare & Contrast</span>
+                        </button>
+                        <button
+                          onClick={() => setTeachingTab('whatif')}
+                          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                            teachingTab === 'whatif' ? 'bg-[#FF4103] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Lightbulb className="w-3.5 h-3.5" />
+                          <span>What-If Stress Tests</span>
+                        </button>
+                        <button
+                          onClick={() => setTeachingTab('misconceptions')}
+                          className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                            teachingTab === 'misconceptions' ? 'bg-[#FF4103] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <HelpCircle className="w-3.5 h-3.5" />
+                          <span>Misconceptions & Drill</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Executive Guidance Banner */}
+                    <div className={`p-4 rounded-xl border text-xs leading-relaxed ${
+                      isCorrect ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200' : 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                    }`}>
+                      <div className="font-bold uppercase tracking-wider text-[10px] mb-1 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Executive Pedagogical Guidance</span>
+                      </div>
+                      <p>{summary}</p>
+                    </div>
+
+                    {/* TAB 1: BREAKDOWN (8-POINT CORRECT OR 10-POINT LOGIC GAP) */}
+                    {teachingTab === 'breakdown' && (
+                      <div className="space-y-4">
+                        {isCorrect && why ? (
+                          <div className="space-y-3">
+                            <div className="p-4 rounded-xl bg-emerald-950/15 border border-emerald-500/20 space-y-2">
+                              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">1. Why the Response is Correct</span>
+                              <p className="text-xs text-slate-200 leading-relaxed">{why.whyCorrect || why.why_correct}</p>
+                            </div>
+                            <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                              <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">2. Reasoning Path That Led to Correctness</span>
+                              <p className="text-xs text-slate-300 leading-relaxed">{why.reasoningPath || why.reasoning_path}</p>
+                            </div>
+                            <div className="grid md:grid-cols-2 gap-3">
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">3. Requirements Satisfied</span>
+                                <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                                  {(why.requirementsSatisfied || why.requirements_satisfied || []).map((req: string, i: number) => (
+                                    <li key={i}><span className="text-emerald-300">{req}</span></li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">4. Valid Assumptions Made</span>
+                                <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                                  {(why.validAssumptions || why.valid_assumptions || []).map((asm: string, i: number) => (
+                                    <li key={i}>{asm}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                            <div className="grid md:grid-cols-2 gap-3">
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">5. Critical Architectural Trade-Offs</span>
+                                <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                                  {(why.importantTradeOffs || why.important_trade_offs || []).map((to: string, i: number) => (
+                                    <li key={i}>{to}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">7. Why Flawed Alternatives Fail</span>
+                                <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                                  {(why.whyFlawedAlternativesFail || why.why_flawed_alternatives_fail || []).map((fa: string, i: number) => (
+                                    <li key={i}>{fa}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                            <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                              <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block">8. Production Hardening & Future Improvements</span>
+                              <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                                {(why.potentialImprovements || why.potential_improvements || []).map((imp: string, i: number) => (
+                                  <li key={i}>{imp}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        ) : gap ? (
+                          <div className="space-y-3">
+                            <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/20 space-y-2">
+                              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">1. What You Executed Correctly</span>
+                              <ul className="text-xs text-slate-200 space-y-1.5 list-disc list-inside">
+                                {(gap.whatCandidateDidCorrectly || gap.what_candidate_did_correctly || []).map((well: string, i: number) => (
+                                  <li key={i}>{well}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="grid md:grid-cols-2 gap-3">
+                              <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-500/20 space-y-2">
+                                <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">2. Where Reasoning Diverged</span>
+                                <p className="text-xs text-slate-200 leading-relaxed">{gap.whereReasoningBreaks || gap.where_reasoning_breaks}</p>
+                              </div>
+                              <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/20 space-y-2">
+                                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">3. Why It Breaks Under Production Invariants</span>
+                                <p className="text-xs text-slate-200 leading-relaxed">{gap.whyItBreaks || gap.why_it_breaks}</p>
+                              </div>
+                            </div>
+                            <div className="grid md:grid-cols-2 gap-3">
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">4. Missing Core Concept</span>
+                                <p className="text-xs text-slate-300 leading-relaxed">{gap.missingConceptOrLogic || gap.missing_concept_or_logic}</p>
+                              </div>
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">5. Invalid Assumption Identified</span>
+                                <p className="text-xs text-slate-300 leading-relaxed">{gap.invalidAssumption || gap.invalid_assumption}</p>
+                              </div>
+                            </div>
+                            <div className="p-4 rounded-xl bg-[#00131e] border border-sky-500/20 space-y-2">
+                              <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">7. Correct Step-by-Step Reasoning Path</span>
+                              <p className="text-xs text-slate-200 leading-relaxed">{gap.correctReasoningPath || gap.correct_reasoning_path}</p>
+                            </div>
+                            <div className="grid md:grid-cols-2 gap-3">
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">8. How to Approach Logically</span>
+                                <p className="text-xs text-slate-300 leading-relaxed">{gap.howToApproachLogically || gap.how_to_approach_logically}</p>
+                              </div>
+                              <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">9. How to Avoid Repeating</span>
+                                <p className="text-xs text-slate-300 leading-relaxed">{gap.howToAvoidRepeating || gap.how_to_avoid_repeating}</p>
+                              </div>
+                            </div>
+                            <div className="p-4 rounded-xl bg-rose-950/15 border border-rose-500/30 space-y-2">
+                              <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">10. Practical Real-World Counterexample</span>
+                              <p className="text-xs text-rose-200/90 leading-relaxed font-mono">{gap.practicalExampleOrCounterexample || gap.practical_example_or_counterexample}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-xl bg-[#00131e] text-xs text-slate-400">
+                            Pedagogical breakdown generated from evaluation telemetry.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* TAB 2: WHY & HOW CHAINS */}
+                    {teachingTab === 'chains' && (
+                      <div className="space-y-5">
+                        <div className="space-y-3">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-2">
+                            <span>The Why-Chain (First-Principles Architectural Invariants)</span>
+                          </h4>
+                          <div className="space-y-2">
+                            {whyChain.map((item: any, i: number) => (
+                              <div key={i} className="p-3.5 rounded-xl bg-[#00131e] border border-[#00263a] flex items-start gap-3 text-xs">
+                                <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-bold font-mono text-[10px] whitespace-nowrap">
+                                  {item.stage}
+                                </span>
+                                <div className="space-y-1">
+                                  <div className="text-white font-semibold">{item.statement}</div>
+                                  <div className="text-slate-400 leading-relaxed">{item.reasoning}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                            <span>The How-Chain (Step-by-Step Implementation Protocol)</span>
+                          </h4>
+                          <div className="grid sm:grid-cols-2 gap-3">
+                            {howChain.map((step: any, i: number) => (
+                              <div key={i} className="p-4 rounded-xl bg-[#00131e] border border-[#00263a] space-y-2 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-mono text-emerald-400 font-bold text-[10px]">STEP 0{step.stepNumber || step.step_number || i + 1}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">protocol</span>
+                                </div>
+                                <div className="text-white font-bold">{step.action}</div>
+                                <div className="text-slate-300 leading-relaxed">{step.rationale}</div>
+                                {step.domainConsideration || step.domain_consideration ? (
+                                  <div className="p-2 rounded bg-[#001f2e] text-[11px] text-amber-300/90 font-mono">
+                                    💡 {step.domainConsideration || step.domain_consideration}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TAB 3: COMPARE & CONTRAST */}
+                    {teachingTab === 'compare' && (
+                      <div className="space-y-4">
+                        <div className="grid md:grid-cols-2 gap-4 text-xs">
+                          <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Candidate Approach & Deliverable</span>
+                            <p className="text-slate-300 leading-relaxed">{compare.candidateApproach || compare.candidate_approach || 'Direct submission observed.'}</p>
+                          </div>
+                          <div className="p-4 rounded-xl bg-[#001825] border border-emerald-500/30 space-y-2">
+                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">Optimal Production Architecture</span>
+                            <p className="text-slate-200 leading-relaxed">{compare.optimalApproach || compare.optimal_approach || 'Robust production implementation.'}</p>
+                          </div>
+                        </div>
+                        {Array.isArray(compare.divergencePoints || compare.divergence_points) && (
+                          <div className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2 text-xs">
+                            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Divergence & Boundary Points</span>
+                            <ul className="space-y-1.5 list-disc list-inside text-slate-300">
+                              {(compare.divergencePoints || compare.divergence_points).map((dp: string, i: number) => (
+                                <li key={i}>{dp}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {compare.tradeOffAnalysis || compare.trade_off_analysis ? (
+                          <div className="p-4 rounded-xl bg-[#001420] border border-sky-500/20 space-y-1 text-xs">
+                            <span className="text-[10px] font-bold text-sky-400 uppercase tracking-wider block">Methodological Trade-Off Analysis</span>
+                            <p className="text-slate-300 leading-relaxed">{compare.tradeOffAnalysis || compare.trade_off_analysis}</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {/* TAB 4: WHAT-IF STRESS TESTS & ALTERNATIVE SOLUTIONS */}
+                    {teachingTab === 'whatif' && (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                            Alternative Valid Engineering & Domain Solutions
+                          </span>
+                          <div className="grid md:grid-cols-2 gap-3">
+                            {alternatives.map((alt: any, i: number) => (
+                              <div key={i} className="p-4 rounded-xl bg-[#00131e] border border-[#002b42] space-y-2 text-xs">
+                                <div className="text-sky-400 font-bold">{alt.approachName || alt.approach_name}</div>
+                                <p className="text-slate-300 leading-relaxed">{alt.description}</p>
+                                <div className="text-[11px] text-amber-300/90"><span className="font-semibold text-slate-400">Trade-Off:</span> {alt.tradeOffComparison || alt.trade_off_comparison}</div>
+                                <div className="text-[11px] text-emerald-300/90"><span className="font-semibold text-slate-400">Best When:</span> {alt.validityContext || alt.validity_context}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                            "What-If" Changed Constraint Stress Tests
+                          </span>
+                          <div className="grid md:grid-cols-2 gap-3">
+                            {whatIf.map((scen: any, i: number) => (
+                              <div key={i} className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/20 space-y-2 text-xs">
+                                <div className="text-purple-300 font-bold flex items-center gap-2">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-purple-400" />
+                                  <span>{scen.changedConstraint || scen.changed_constraint}</span>
+                                </div>
+                                <div className="text-slate-300 leading-relaxed"><span className="font-semibold text-slate-400">Strategic Shift:</span> {scen.howStrategyShifts || scen.how_strategy_shifts}</div>
+                                <div className="p-2 rounded bg-[#001522] font-mono text-[11px] text-purple-200">
+                                  Takeaway: {scen.keyTakeaway || scen.key_takeaway}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TAB 5: MISCONCEPTIONS & INTERACTIVE KNOWLEDGE DRILL */}
+                    {teachingTab === 'misconceptions' && (
+                      <div className="space-y-5">
+                        {misconceptions.length > 0 ? (
+                          <div className="space-y-3">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                              Diagnosed Logic Gaps & Misconception Taxonomy
+                            </span>
+                            {misconceptions.map((misc: any, i: number) => (
+                              <div key={i} className="p-4 rounded-xl bg-[#00131e] border border-amber-500/30 space-y-2.5 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-amber-400 text-sm">{misc.title || misc.diagnosedMisconception || misc.diagnosed_misconception}</span>
+                                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-mono uppercase">
+                                      {misc.category}
+                                    </span>
+                                  </div>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono ${
+                                    misc.severity === 'critical' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                  }`}>
+                                    {misc.severity}
+                                  </span>
+                                </div>
+                                <div className="text-slate-300 leading-relaxed"><span className="font-semibold text-slate-400">Why It Broke:</span> {misc.whyItBroke || misc.why_it_broke}</div>
+                                <div className="text-emerald-300 leading-relaxed"><span className="font-semibold text-slate-400">Logical Approach:</span> {misc.howToApproachLogically || misc.how_to_approach_logically}</div>
+                                {misc.m02ReassessFocus || misc.m02_reassess_focus ? (
+                                  <div className="text-[11px] text-sky-400 font-mono">
+                                    Targeted M02 Focus: {misc.m02ReassessFocus || misc.m02_reassess_focus}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {/* Interactive Follow-Up Knowledge Check Drill */}
+                        {followUp && followUp.question ? (
+                          <div className="p-5 rounded-2xl bg-[#001522] border border-[#FF4103]/40 space-y-4">
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="w-4 h-4 text-[#FF4103]" />
+                              <span className="text-xs font-bold uppercase tracking-wider text-white">Interactive Concept Check Drill</span>
+                            </div>
+                            <div className="text-sm font-semibold text-slate-200">{followUp.question}</div>
+                            {followUp.context && <p className="text-xs text-slate-400">{followUp.context}</p>}
+
+                            <div className="space-y-2 pt-1">
+                              {(followUp.options || []).map((opt: string, idx: number) => {
+                                const isSelected = selectedFollowUpOption === opt;
+                                const isCorrectOpt = opt === (followUp.correctAnswer || followUp.correct_answer);
+                                return (
+                                  <button
+                                    key={idx}
+                                    onClick={() => {
+                                      setSelectedFollowUpOption(opt);
+                                      setShowFollowUpResult(true);
+                                    }}
+                                    className={`w-full text-left p-3 rounded-xl border text-xs transition-all flex items-start gap-3 ${
+                                      showFollowUpResult && isCorrectOpt
+                                        ? 'bg-emerald-950/30 border-emerald-500/60 text-emerald-200'
+                                        : showFollowUpResult && isSelected && !isCorrectOpt
+                                        ? 'bg-rose-950/30 border-rose-500/60 text-rose-200'
+                                        : isSelected
+                                        ? 'bg-[#FF4103]/10 border-[#FF4103] text-white'
+                                        : 'bg-[#001019] border-[#00263a] text-slate-300 hover:border-slate-600'
+                                    }`}
+                                  >
+                                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono font-bold bg-[#001f2e] border border-[#003852] shrink-0 mt-0.5">
+                                      {String.fromCharCode(65 + idx)}
+                                    </span>
+                                    <span className="leading-relaxed">{opt}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {showFollowUpResult && (
+                              <div className={`p-4 rounded-xl border text-xs space-y-1.5 ${
+                                selectedFollowUpOption === (followUp.correctAnswer || followUp.correct_answer)
+                                  ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
+                                  : 'bg-amber-950/20 border-amber-500/40 text-amber-200'
+                              }`}>
+                                <div className="font-bold flex items-center gap-1.5">
+                                  {selectedFollowUpOption === (followUp.correctAnswer || followUp.correct_answer) ? (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                      <span>Correct! Sound Architectural Reasoning</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                                      <span>Incorrect. Review Concept Internalization</span>
+                                    </>
+                                  )}
+                                </div>
+                                <p className="leading-relaxed text-slate-300">{followUp.explanation}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Layer 2: Empirical Observable Facts (System-Verified Facts) */}
               <div className="bg-[#001824] rounded-xl p-5 border border-[#002f47] space-y-3">

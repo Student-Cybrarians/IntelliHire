@@ -3305,7 +3305,9 @@ registerInterviewPrepRoutes(app);
 
 // Priority 15: M03 Technical / Domain / Professional Simulation Intelligence Framework
 import { registerSimulationRoutes } from './simulationEngine';
-registerSimulationRoutes(app);
+if (typeof registerSimulationRoutes === 'function') {
+  registerSimulationRoutes(app);
+}
 
 // Priority 16: M04 Interaction / Interview Simulation & Enterprise Interview Protocols
 import { registerInterviewIntelligenceRoutes } from './interviewIntelligence';

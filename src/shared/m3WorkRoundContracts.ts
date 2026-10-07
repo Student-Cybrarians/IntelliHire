@@ -1163,6 +1163,7 @@ export interface CalibratedEvaluationResult {
   }>;
   calibratedConfidence: number; // 0.0 - 1.0
   epistemicUncertainty: number;  // 0.0 - 1.0
+  teachingPayload?: M3TeachingPayload;
   evaluatorMetadata: {
     evaluatorType: 'deterministic_first' | 'hybrid_ai' | 'deterministic_fallback';
     modelIdentifier: string;
@@ -1173,5 +1174,127 @@ export interface CalibratedEvaluationResult {
 export function isValidAlternativeValidity(val: string): val is AlternativeValidity {
   return VALID_ALTERNATIVE_VALIDITIES.includes(val as AlternativeValidity);
 }
+
+// =============================================================================
+// PHASE 7: DETAILED EXPLANATION, LOGIC GAP, MISCONCEPTION & TEACHING CONTRACTS
+// =============================================================================
+
+export interface TeachingWhyChainItem {
+  stage: string;
+  statement: string;
+  reasoning: string;
+}
+
+export interface TeachingHowChainStep {
+  stepNumber: number;
+  action: string;
+  rationale: string;
+  domainConsideration: string; // e.g. complexity, risk, edge cases, invariants
+}
+
+export interface TeachingAlternativeSolution {
+  approachName: string;
+  description: string;
+  tradeOffComparison: string;
+  validityContext: string; // when this alternative is preferred or when it breaks
+  isMateriallyFlawed: boolean;
+  flawExplanation?: string;
+}
+
+export interface TeachingWhatIfScenario {
+  changedConstraint: string;
+  howStrategyShifts: string;
+  keyTakeaway: string;
+}
+
+export interface TeachingConceptRemediation {
+  misconceptionId: string;
+  category: 'conceptual' | 'procedural' | 'boundary_condition' | 'trade_off_blindspot' | 'assumption';
+  diagnosedMisconception: string;
+  severity: 'minor' | 'moderate' | 'critical';
+  whereReasoningBroke: string;
+  whyItBroke: string;
+  missingLogicOrConcept: string;
+  invalidAssumption: string;
+  howToApproachLogically: string;
+  howToAvoidRepeating: string;
+  practicalCounterexample: string;
+  m02ReassessFocus: string;
+}
+
+export interface WhyCorrectReasoning {
+  whyCorrect: string;
+  reasoningPath: string;
+  requirementsSatisfied: string[];
+  validAssumptions: string[];
+  importantTradeOffs: string[];
+  alternativeValidApproaches: TeachingAlternativeSolution[];
+  whyFlawedAlternativesFail: string[];
+  potentialImprovements: string[];
+}
+
+export interface LogicGapAnalysis {
+  whatCandidateDidCorrectly: string[];
+  whereReasoningBreaks: string;
+  whyItBreaks: string;
+  missingConceptOrLogic: string;
+  invalidAssumption: string;
+  missingRequirement: string;
+  correctReasoningPath: string;
+  howToApproachLogically: string;
+  howToAvoidRepeating: string;
+  practicalExampleOrCounterexample: string;
+}
+
+export interface CompareContrastAnalysis {
+  candidateApproach: string;
+  optimalApproach: string;
+  divergencePoints: string[];
+  tradeOffAnalysis: string;
+}
+
+export interface FollowUpUnderstandingCheck {
+  question: string;
+  context: string;
+  options?: string[];
+  correctAnswer?: string;
+  explanation: string;
+}
+
+export interface M3TeachingPayload {
+  isCorrectOrAlternative: boolean;
+  alternativeValidity: AlternativeValidity;
+  summaryGuidance: string; // Pedagogical executive debrief
+  whyCorrectReasoning?: WhyCorrectReasoning;
+  logicGapAnalysis?: LogicGapAnalysis;
+  whyChain: TeachingWhyChainItem[];
+  howChain: TeachingHowChainStep[];
+  compareContrast: CompareContrastAnalysis;
+  alternativeSolutions: TeachingAlternativeSolution[];
+  whatIfScenarios: TeachingWhatIfScenario[];
+  misconceptions: TeachingConceptRemediation[];
+  followUpCheck: FollowUpUnderstandingCheck;
+  domainContext: {
+    domain: string;
+    focusAreas: string[];
+  };
+}
+
+export function validateTeachingPayload(payload: any): payload is M3TeachingPayload {
+  return Boolean(
+    payload &&
+    typeof payload === 'object' &&
+    typeof payload.isCorrectOrAlternative === 'boolean' &&
+    typeof payload.summaryGuidance === 'string' &&
+    Array.isArray(payload.whyChain) &&
+    Array.isArray(payload.howChain) &&
+    payload.compareContrast &&
+    Array.isArray(payload.alternativeSolutions) &&
+    Array.isArray(payload.whatIfScenarios) &&
+    Array.isArray(payload.misconceptions) &&
+    payload.followUpCheck
+  );
+}
+
 
 
