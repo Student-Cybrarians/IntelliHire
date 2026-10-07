@@ -84,6 +84,27 @@ beforeEach(() => {
     if (url === '/api/m3/simulations/sessions/test-session-456/action' && opts?.method === 'POST') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, total_actions: 2 }) });
     }
+    if (url === '/api/m3/simulations/sessions/test-session-456/execute' && opts?.method === 'POST') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          total_actions: 3,
+          execution_result: {
+            success: true,
+            execution_type: 'code_sandbox',
+            status: 'passed',
+            output: '✓ Test 1: Under limit (50 reqs) -> 200 OK\n✓ Test 2: Concurrency burst (120 reqs) -> 429 Rate Limited at 101st\n✓ Test 3: Rolling window expiration -> tokens refilled safely\n[Pass: 3/3 Tests]',
+            duration_ms: 28,
+            test_results: [
+              { name: 'Test 1: Under limit (50 reqs) -> 200 OK', passed: true },
+              { name: 'Test 2: Concurrency burst (120 reqs) -> 429 Rate Limited at 101st', passed: true },
+              { name: 'Test 3: Rolling window expiration -> tokens refilled safely', passed: true }
+            ]
+          }
+        })
+      });
+    }
     if (url === '/api/m3/simulations/sessions/test-session-456/inject' && opts?.method === 'POST') {
       return Promise.resolve({
         ok: true,

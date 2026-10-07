@@ -251,6 +251,35 @@ export interface WorkSurface {
   activeWidgets?: string[];
 }
 
+export type WorkSurfaceType =
+  | 'code_editor'
+  | 'sql_query'
+  | 'data_analysis'
+  | 'financial_table'
+  | 'engineering_calc'
+  | 'operations_decision'
+  | 'document_writing'
+  | 'legal_memo'
+  | 'research_analysis'
+  | 'structured_response';
+
+export interface ExecutionResult {
+  success: boolean;
+  execution_type: string;
+  status: 'passed' | 'failed' | 'warning' | 'error';
+  output: string;
+  duration_ms: number;
+  test_results: Array<{
+    name: string;
+    passed: boolean;
+    expected?: string;
+    actual?: string;
+    message?: string;
+  }>;
+  metrics: Record<string, any>;
+  errors: string[];
+}
+
 // -----------------------------------------------------------------------------
 // 5. Universal Task Definition & Extensible Archetype Contracts
 // -----------------------------------------------------------------------------
