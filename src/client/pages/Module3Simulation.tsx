@@ -53,6 +53,15 @@ export default function Module3Simulation() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState<ExecutionResultPayload | null>(null);
 
+  // Phase 8 Multi-Round Adaptive Progression State
+  const [currentRoundIndex, setCurrentRoundIndex] = useState(1);
+  const [roundsHistory, setRoundsHistory] = useState<any[]>([]);
+  const [adaptationDecision, setAdaptationDecision] = useState<any>(null);
+  const [progressionSummary, setProgressionSummary] = useState<any>(null);
+  const [advancingRound, setAdvancingRound] = useState(false);
+  const [proceedingToNextModule, setProceedingToNextModule] = useState(false);
+  const [completionSummary, setCompletionSummary] = useState<any>(null);
+
   const loadDefinitions = async () => {
     setLoading(true);
     try {
@@ -81,6 +90,24 @@ export default function Module3Simulation() {
         setTelemetryCount(s.telemetry_events_count || 0);
         if (s.dynamic_state?.injected) {
           setDynamicAlert(s.dynamic_state.injection);
+        }
+        if (s.dynamic_state?.current_round_index) {
+          setCurrentRoundIndex(s.dynamic_state.current_round_index);
+        }
+        if (s.dynamic_state?.rounds_history) {
+          setRoundsHistory(s.dynamic_state.rounds_history);
+        }
+        if (s.dynamic_state?.latest_adaptation_decision) {
+          setAdaptationDecision(s.dynamic_state.latest_adaptation_decision);
+        }
+        if (s.dynamic_state?.progression) {
+          setProgressionSummary(s.dynamic_state.progression);
+        }
+        if (s.status === 'evaluated' && s.evaluation) {
+          setEvaluation(s.evaluation);
+          if (s.evaluation.adaptation_decision) {
+            setAdaptationDecision(s.evaluation.adaptation_decision);
+          }
         }
       }
     } catch (e) {
@@ -241,11 +268,77 @@ export default function Module3Simulation() {
       const data = await res.json() as any;
       if (data.success) {
         setEvaluation(data);
+        if (data.adaptation_decision) {
+          setAdaptationDecision(data.adaptation_decision);
+        }
+        if (data.progression) {
+          setProgressionSummary(data.progression);
+          setCurrentRoundIndex(data.progression.round_index || currentRoundIndex);
+        }
       }
     } catch (e) {
       alert('Failed to submit simulation for evaluation');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const advanceToNextRound = async () => {
+    if (!sessionId) return;
+    setAdvancingRound(true);
+    try {
+      const res = await fetch(`/api/m3/simulations/sessions/${sessionId}/next`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json() as any;
+      if (res.ok && data.success) {
+        // Load next simulation directly into workspace
+        setActiveSim(data.definition);
+        setCurrentRoundIndex(data.round_index);
+        setCandidateWork(data.definition.scenario?.starting_data || {});
+        setCurrentStep(1);
+        setEvaluation(null); // Clear debrief, returns to workspace view
+        setDynamicAlert(null);
+        setTestRunOutput(null);
+        setExecutionResult(null);
+        setWorkNotes('');
+        setSelectedFollowUpOption(null);
+        setShowFollowUpResult(false);
+        if (data.adaptation_decision) {
+          setAdaptationDecision(data.adaptation_decision);
+        }
+        if (data.progression) {
+          setProgressionSummary(data.progression);
+        }
+      } else {
+        alert(data.error || 'Failed to advance to next work round.');
+      }
+    } catch (err: any) {
+      alert(`Network error advancing to next task: ${err.message}`);
+    } finally {
+      setAdvancingRound(false);
+    }
+  };
+
+  const proceedToNextModule = async () => {
+    if (!sessionId) return;
+    setProceedingToNextModule(true);
+    try {
+      const res = await fetch(`/api/m3/simulations/sessions/${sessionId}/proceed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json() as any;
+      if (res.ok && data.success) {
+        setCompletionSummary(data);
+      } else {
+        alert(data.error || 'Could not finalize simulation round.');
+      }
+    } catch (err: any) {
+      alert(`Network error proceeding to next stage: ${err.message}`);
+    } finally {
+      setProceedingToNextModule(false);
     }
   };
 
@@ -385,6 +478,34 @@ export default function Module3Simulation() {
         {/* VIEW 2: ACTIVE SIMULATION WORKSPACE */}
         {activeSim && !evaluation && (
           <div className="space-y-6">
+            {/* Phase 8: Continuous Work-Round Progress & Adaptive Focus Banner */}
+            <div className="bg-[#001724] border border-sky-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="px-2.5 py-1 rounded-lg bg-[#FF4103]/20 border border-[#FF4103]/40 text-[#FF4103] font-black text-xs">
+                  Round {currentRoundIndex}
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white">Adaptive Continuous Work Engine</span>
+                    {adaptationDecision?.reasonType && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                        {adaptationDecision.reasonType.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-slate-400 text-[11px] mt-0.5">
+                    {adaptationDecision?.candidateFocusPreview || `Calibrated work assessment for ${activeSim.competency_name}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <span className="font-mono text-emerald-400 font-bold">
+                  {progressionSummary?.competencies_covered?.length || 1} / {progressionSummary?.competencies_remaining?.length ? (progressionSummary.competencies_covered.length + progressionSummary.competencies_remaining.length) : 5}
+                </span>
+                <span>Role Competencies Evaluated</span>
+              </div>
+            </div>
+
             {/* Simulation Context Ribbon */}
             <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
@@ -533,6 +654,34 @@ export default function Module3Simulation() {
         {/* VIEW 3: MULTI-DIMENSIONAL EVALUATION & EVIDENCE DEBRIEF */}
         {evaluation && (
           <div className="space-y-6">
+            {/* Phase 8: Continuous Work-Round Progress & Adaptive Focus Banner */}
+            <div className="bg-[#001724] border border-sky-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="px-2.5 py-1 rounded-lg bg-[#FF4103]/20 border border-[#FF4103]/40 text-[#FF4103] font-black text-xs">
+                  Round {currentRoundIndex} Evaluated
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white">Adaptive Continuous Work Engine</span>
+                    {adaptationDecision?.reasonType && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                        {adaptationDecision.reasonType.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-slate-400 text-[11px] mt-0.5">
+                    {adaptationDecision?.candidateFocusPreview || 'Calibrated assessment complete. Ready to proceed to next task or conclude.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <span className="font-mono text-emerald-400 font-bold">
+                  {progressionSummary?.competencies_covered?.length || 1} / {progressionSummary?.competencies_remaining?.length ? (progressionSummary.competencies_covered.length + progressionSummary.competencies_remaining.length) : 5}
+                </span>
+                <span>Role Competencies Evaluated</span>
+              </div>
+            </div>
+
             <div className="bg-[#001f2e] border border-[#FF4103]/40 rounded-2xl p-6 sm:p-7 shadow-lg space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#002a40]">
                 <div>
@@ -1139,19 +1288,97 @@ export default function Module3Simulation() {
                 </div>
               </div>
 
-              {/* Bottom Actions */}
-              <div className="flex justify-between items-center pt-4 border-t border-[#002a40]">
+              {/* Bottom Actions: Continuous Adaptive Loop & Module Progression */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-6 border-t border-[#002a40]">
                 <div className="text-xs text-slate-400 flex items-center gap-2">
                   <Award className="w-4 h-4 text-[#FF4103]" />
-                  <span>Evidence recorded into Candidate Portfolio & M05 Readiness Ledger updated.</span>
+                  <span>
+                    Round {currentRoundIndex} certified · Evidence recorded into Portfolio & M05 Ledger.
+                  </span>
                 </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); }}
+                    className="px-4 py-2.5 rounded-xl bg-[#001824] hover:bg-[#002235] border border-[#002f47] text-slate-300 text-xs font-semibold transition-all"
+                  >
+                    Catalog Overview
+                  </button>
+
+                  <button
+                    onClick={proceedToNextModule}
+                    disabled={proceedingToNextModule}
+                    className="px-5 py-2.5 rounded-xl bg-[#002a40] hover:bg-[#003855] border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2 transition-all disabled:opacity-50"
+                    title="Conclude simulation work rounds and proceed to Module 4: Interviews"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>{proceedingToNextModule ? 'Finalizing Module…' : 'Conclude & Proceed to M04'}</span>
+                  </button>
+
+                  <button
+                    onClick={advanceToNextRound}
+                    disabled={advancingRound}
+                    className="px-6 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-[#FF4103]/25 disabled:opacity-50"
+                    title={adaptationDecision?.candidateFocusPreview || 'Advance to next calibrated work round'}
+                  >
+                    <span>{advancingRound ? 'Synthesizing Adaptive Task…' : `Proceed to Next Task (Round ${currentRoundIndex + 1})`}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW 4: MODULE 3 WORK-ROUND COMPLETION OVERVIEW */}
+        {completionSummary && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#001f2e] border border-emerald-500/40 rounded-2xl max-w-xl w-full p-6 sm:p-8 space-y-6 shadow-2xl">
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h2 className="text-2xl font-black text-white">M03 Work Round Engine Complete</h2>
+                <p className="text-xs text-slate-300">
+                  You have successfully completed {completionSummary.total_rounds_completed} continuous simulation round(s).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="p-4 bg-[#001420] rounded-xl border border-[#002f47]">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Rounds Completed</span>
+                  <span className="text-2xl font-black text-white">{completionSummary.total_rounds_completed}</span>
+                </div>
+                <div className="p-4 bg-[#001420] rounded-xl border border-[#002f47]">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Mean Proficiency</span>
+                  <span className="text-2xl font-black text-emerald-400">{completionSummary.overall_proficiency_mean}%</span>
+                </div>
+              </div>
+
+              <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-xl text-xs space-y-1.5 text-slate-300">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Auditable Evidence Portfolio Synchronized</span>
+                </div>
+                <p>
+                  All work telemetry, deterministic tests, why/how chains, and Bayesian proficiency estimates have been preserved for M05 Readiness Synthesis and M02 Practice remediation.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3">
                 <button
-                  onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); }}
-                  className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-[#FF4103]/20"
+                  onClick={() => { setCompletionSummary(null); setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); }}
+                  className="w-full sm:w-1/2 py-2.5 rounded-xl bg-[#001420] hover:bg-[#002030] border border-[#002f47] text-slate-300 text-xs font-semibold transition-all"
                 >
-                  <ArrowRight className="w-4 h-4" />
-                  <span>Continue in Catalog</span>
+                  Return to M03 Workspace
                 </button>
+                <a
+                  href="/interviews"
+                  className="w-full sm:w-1/2 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-[#FF4103]/25"
+                >
+                  <span>Continue to Module 4 (Interviews)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </a>
               </div>
             </div>
           </div>

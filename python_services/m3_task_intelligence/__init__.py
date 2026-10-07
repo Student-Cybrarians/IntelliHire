@@ -11,6 +11,7 @@ from .diversity_scorer import DiversityScorer
 from .quality_evaluator import QualityEvaluator
 from .task_synthesizer import TaskSynthesizer
 from .engine import TaskIntelligenceEngine
+from .adaptive_engine import BayesianProficiencyTracker, AdaptivePolicyEngine, AdaptiveMonteCarloSimulator
 
 __all__ = [
     'TaskTaxonomy',
@@ -22,5 +23,8 @@ __all__ = [
     'DiversityScorer',
     'QualityEvaluator',
     'TaskSynthesizer',
-    'TaskIntelligenceEngine'
+    'TaskIntelligenceEngine',
+    'BayesianProficiencyTracker',
+    'AdaptivePolicyEngine',
+    'AdaptiveMonteCarloSimulator'
 ]

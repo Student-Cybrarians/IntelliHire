@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS simulation_evaluation (
   alternative_validity TEXT DEFAULT 'correct',
   deterministic_verification_json TEXT DEFAULT '{}',
   teaching_payload_json TEXT DEFAULT '{}',
+  adaptation_decision_json TEXT DEFAULT '{}',
   human_review_status TEXT NOT NULL DEFAULT 'unreviewed',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

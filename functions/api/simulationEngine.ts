@@ -23,7 +23,11 @@ import {
   sanitizeContextForTaskTargeting,
   validateAssessmentContext,
   WorkSurfaceType,
-  ExecutionResult
+  ExecutionResult,
+  AdaptationDecision,
+  AdaptationReasonType,
+  SimulationRoundRecord,
+  SessionProgressionState
 } from '../../src/shared/m3WorkRoundContracts';
 
 export interface SimulationScenario {
@@ -2036,6 +2040,231 @@ export function generateTeachingPayload(
   };
 }
 
+// =============================================================================
+// PHASE 8: ADAPTIVE WORK-ROUND POLICY EVALUATOR
+// =============================================================================
+
+export function evaluateAdaptiveNextStep(params: {
+  candidateSeniority?: string;
+  jobContext?: any;
+  previousRounds: SimulationRoundRecord[];
+  latestEvaluation?: any;
+  availableSimulations?: any[];
+}): {
+  decision: AdaptationDecision;
+  selectedSimulation: any;
+  progressionSummary: {
+    roundsCompleted: number;
+    competenciesCovered: string[];
+    competenciesRemaining: string[];
+    coverageRatio: number;
+  };
+} {
+  const previousRounds = params.previousRounds || [];
+  const latestEval = params.latestEvaluation || {};
+  const sims = params.availableSimulations || SEED_SIMULATIONS;
+  const roundIndex = previousRounds.length + 1;
+
+  const priorScore = typeof latestEval.overall_score === 'number'
+    ? (latestEval.overall_score > 1 ? latestEval.overall_score / 100 : latestEval.overall_score)
+    : 0.65;
+  const alternativeValidity: AlternativeValidity = latestEval.alternative_validity || 'correct';
+  const confidence = typeof latestEval.confidence_score === 'number' ? latestEval.confidence_score : 0.85;
+  const uncertainty = typeof latestEval.uncertainty_score === 'number' ? latestEval.uncertainty_score : 0.15;
+
+  const teachingPayload = latestEval.teaching_payload || {};
+  const misconceptions = teachingPayload.misconceptions || [];
+  const diagnosedMisconceptions: string[] = misconceptions
+    .map((m: any) => m.conceptName || m.concept_name)
+    .filter(Boolean);
+
+  const previousTaskIds = previousRounds.map(r => r.definitionId).filter(Boolean);
+
+  // Default required competencies if not provided
+  const jdCompetencies = params.jobContext?.requiredCompetencies || [
+    { name: 'System Architecture & Concurrency', skillName: 'Distributed Systems & Concurrency', domain: 'software' },
+    { name: 'Database Architecture & Optimization', skillName: 'Relational Indexing & MVCC', domain: 'software' },
+    { name: 'Financial Planning & Valuation', skillName: 'Capital Budgeting & Valuation', domain: 'finance' },
+    { name: 'Clinical Emergency Triage', skillName: 'Emergency Triage & Patient Prioritization', domain: 'healthcare_admin' },
+    { name: 'Data Engineering & Analytics', skillName: 'Real-Time Pipeline Engineering', domain: 'data' }
+  ];
+
+  const assessedCompetencies = new Set<string>(
+    previousRounds.map(r => (r.competencyName || '').toLowerCase()).filter(Boolean)
+  );
+
+  const remainingCompetencies = jdCompetencies.filter(
+    (c: any) => !assessedCompetencies.has(c.name.toLowerCase())
+  );
+
+  // Anti-Tunnel-Vision invariant
+  const recentComps = previousRounds.slice(-2).map(r => (r.competencyName || '').toLowerCase());
+  const forceSwitch = recentComps.length >= 2 && recentComps[0] === recentComps[1] && remainingCompetencies.length > 0;
+
+  // Decision branching
+  let reasonType: AdaptationReasonType = 'broaden_coverage';
+  let internalRationale = '';
+  let targetDifficulty = 3;
+
+  if (forceSwitch) {
+    reasonType = 'broaden_coverage';
+    internalRationale = `Anti-Tunnel-Vision guardrail triggered: The last 2 rounds evaluated '${recentComps[0]}'. Rotating to unassessed role requirement to guarantee evaluation breadth.`;
+  } else if (diagnosedMisconceptions.length > 0 && priorScore < 0.60) {
+    reasonType = 'remediate_misconception';
+    internalRationale = `Diagnosed active misconception: ${diagnosedMisconceptions[0]}. Immediate remediation round targeting this concept to verify candidate correction.`;
+  } else if (priorScore >= 0.85 && uncertainty <= 0.35 && (alternativeValidity === 'correct' || alternativeValidity === 'alternative_valid')) {
+    if (roundIndex >= 3 && remainingCompetencies.length === 0) {
+      reasonType = 'stress_constraint';
+      internalRationale = `High demonstrated proficiency (score: ${Math.round(priorScore * 100)}%, U: ${uncertainty.toFixed(2)}) across required competencies. Introducing tightened constraint stress-test.`;
+    } else {
+      reasonType = 'increase_difficulty';
+      internalRationale = `Strong performance and calibrated confidence (score: ${Math.round(priorScore * 100)}%, U: ${uncertainty.toFixed(2)}). Elevating task difficulty to probe capability ceiling.`;
+    }
+  } else if (priorScore < 0.40 || alternativeValidity === 'incorrect' || alternativeValidity === 'incomplete') {
+    const prevDiff = previousRounds.length > 0 ? (previousRounds[previousRounds.length - 1].difficulty || 3) : 3;
+    if (prevDiff >= 3) {
+      reasonType = 'decrease_difficulty';
+      internalRationale = `Candidate experienced significant breakdown (score: ${Math.round(priorScore * 100)}%, validity: ${alternativeValidity}). Scaffolding at lower complexity to diagnose baseline.`;
+    } else {
+      reasonType = 'test_prerequisite';
+      internalRationale = `Execution failure detected at foundational tier (score: ${Math.round(priorScore * 100)}%). Testing prerequisite conceptual invariant.`;
+    }
+  } else if (uncertainty > 0.45) {
+    reasonType = 'reduce_uncertainty';
+    internalRationale = `Posterior uncertainty elevated (U: ${uncertainty.toFixed(2)}). Administering calibration task to narrow proficiency confidence interval.`;
+  } else if (remainingCompetencies.length > 0) {
+    reasonType = 'broaden_coverage';
+    internalRationale = `Role breadth prioritization: ${remainingCompetencies.length} of ${jdCompetencies.length} competencies remain unassessed. Presenting next required domain dimension.`;
+  } else {
+    reasonType = 'transfer_domain';
+    internalRationale = `Core JD competencies evaluated. Testing cross-domain transfer of skills in alternative work round modality.`;
+  }
+
+  // Filter unattempted tasks
+  let candidatePool = sims.filter(s => !previousTaskIds.includes(s.id));
+  if (candidatePool.length === 0) {
+    candidatePool = sims;
+  }
+
+  // Score candidate pool using Multi-Armed Bandit Utility Function
+  const lastRound = previousRounds.length > 0 ? previousRounds[previousRounds.length - 1] : null;
+  const lastRoundDiff = lastRound ? (lastRound.difficulty || 3) : 3;
+
+  if (reasonType === 'increase_difficulty') targetDifficulty = Math.min(5, lastRoundDiff + 1);
+  else if (reasonType === 'decrease_difficulty') targetDifficulty = Math.max(1, lastRoundDiff - 1);
+  else targetDifficulty = lastRoundDiff;
+
+  const scoredSims = candidatePool.map(sim => {
+    const compName = sim.competency_name || '';
+    const skillName = sim.skill_name || '';
+    const diff = sim.difficulty_level || 3;
+
+    const coverageBonus = !assessedCompetencies.has(compName.toLowerCase()) ? 1.0 : 0.1;
+    let misconceptionBonus = 0.0;
+    if (reasonType === 'remediate_misconception') {
+      const lastComp = (lastRound?.competencyName || '').toLowerCase();
+      const lastSkill = (lastRound?.skillName || '').toLowerCase();
+      if (compName.toLowerCase() === lastComp || skillName.toLowerCase() === lastSkill) {
+        misconceptionBonus = 2.5;
+      } else if (diagnosedMisconceptions.some(m => skillName.toLowerCase().includes(m.toLowerCase()) || compName.toLowerCase().includes(m.toLowerCase()))) {
+        misconceptionBonus = 2.0;
+      }
+    }
+
+    const diffPenalty = Math.abs(diff - targetDifficulty) * 0.25;
+
+    let recencyPenalty = 0.0;
+    if (reasonType !== 'remediate_misconception') {
+      const reversedRounds = [...previousRounds].reverse().slice(0, 3);
+      reversedRounds.forEach((r, idx) => {
+        if ((r.competencyName || '').toLowerCase() === compName.toLowerCase()) {
+          recencyPenalty += (3 - idx) * 0.4;
+        }
+        if ((r.skillName || '').toLowerCase() === skillName.toLowerCase()) {
+          recencyPenalty += (3 - idx) * 0.6;
+        }
+      });
+    }
+
+    const uncertaintyBonus = 0.5;
+    const utility = (0.35 * coverageBonus) + (0.25 * uncertaintyBonus) + (0.30 * misconceptionBonus) - (0.20 * diffPenalty) - (0.40 * recencyPenalty);
+
+    return {
+      sim,
+      utility,
+      scores: {
+        coverageBonus,
+        misconceptionBonus,
+        diffPenalty,
+        recencyPenalty,
+        finalUtility: utility
+      }
+    };
+  });
+
+  scoredSims.sort((a, b) => b.utility - a.utility);
+  const chosen = scoredSims[0];
+  const chosenSim = chosen.sim;
+
+  // Friendly focus templates
+  const friendlyTemplates: Record<AdaptationReasonType, string> = {
+    increase_difficulty: `Elevated Complexity: Deepening ${chosenSim.skill_name} Mastery`,
+    decrease_difficulty: `Foundational Focus: Core Principles in ${chosenSim.skill_name}`,
+    remediate_misconception: `Remediation Drill: Mastering Key Invariants in ${chosenSim.skill_name}`,
+    test_prerequisite: `Essential Prerequisite: Foundational Constructs for ${chosenSim.skill_name}`,
+    broaden_coverage: `Role Breadth: Assessing ${chosenSim.competency_name} (${chosenSim.skill_name})`,
+    test_practical_execution: `Hands-On Execution: Practical Problem-Solving in ${chosenSim.skill_name}`,
+    test_reasoning_rigor: `Architectural Rationale: Design Trade-offs in ${chosenSim.skill_name}`,
+    transfer_domain: `Domain Transfer: Applying ${chosenSim.skill_name} Under Novel Scenarios`,
+    stress_constraint: `Resilience & Scale: Stress-Testing ${chosenSim.skill_name} Under Tight Constraints`,
+    validate_improvement: `Competency Re-Check: Verifying Growth in ${chosenSim.skill_name}`,
+    reduce_uncertainty: `Calibration Probe: Verifying Consistency in ${chosenSim.skill_name}`
+  };
+
+  const friendlyPreview = friendlyTemplates[reasonType] || `Next Focus: ${chosenSim.competency_name} (${chosenSim.skill_name})`;
+
+  const decision: AdaptationDecision = {
+    decisionId: `dec_${crypto.randomUUID().slice(0, 12)}`,
+    timestamp: new Date().toISOString(),
+    roundIndex,
+    reasonType,
+    targetCompetency: chosenSim.competency_name,
+    targetSkill: chosenSim.skill_name,
+    targetDomain: chosenSim.domain,
+    targetDifficulty: chosenSim.difficulty_level || targetDifficulty,
+    targetModality: chosenSim.simulation_type,
+    internalRationale,
+    candidateFocusPreview: friendlyPreview,
+    priorState: {
+      priorScore: Math.round(priorScore * 100),
+      alternativeValidity,
+      confidence: Number(confidence.toFixed(3)),
+      uncertainty: Number(uncertainty.toFixed(3)),
+      diagnosedMisconceptions,
+      skillsCoveredCount: assessedCompetencies.size,
+      competenciesRemainingCount: remainingCompetencies.length
+    },
+    selectionScores: {
+      uncertaintyWeight: chosen.scores.coverageBonus,
+      misconceptionWeight: chosen.scores.misconceptionBonus,
+      coverageWeight: chosen.scores.coverageBonus,
+      recencyPenalty: chosen.scores.recencyPenalty,
+      finalUtilityScore: chosen.scores.finalUtility
+    }
+  };
+
+  return {
+    decision,
+    selectedSimulation: chosenSim,
+    progressionSummary: {
+      roundsCompleted: previousRounds.length,
+      competenciesCovered: Array.from(assessedCompetencies),
+      competenciesRemaining: remainingCompetencies.map((c: any) => c.name),
+      coverageRatio: Number((assessedCompetencies.size / Math.max(1, jdCompetencies.length)).toFixed(2))
+    }
+  };
+}
+
 export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // 1a. Phase 2: Full Assessment Context Intelligence Route
@@ -2443,7 +2672,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
       const session = await c.env.DB.prepare(
         `SELECT * FROM simulation_session 
-         WHERE user_id = ? AND status IN ('active', 'in_progress')
+         WHERE user_id = ? AND status IN ('active', 'in_progress', 'evaluated')
          ORDER BY updated_at DESC LIMIT 1`
       ).bind(user.id).first();
 
@@ -2453,6 +2682,34 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
       const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id);
       const tevents = JSON.parse((session.telemetry_events_json as string) || '[]');
+
+      let latestEvaluation = null;
+      if (session.status === 'evaluated') {
+        const ev = await c.env.DB.prepare(
+          'SELECT * FROM simulation_evaluation WHERE session_id = ? AND user_id = ? ORDER BY created_at DESC'
+        ).bind(session.id, user.id).first();
+        if (ev) {
+          latestEvaluation = {
+            id: ev.id,
+            session_id: ev.session_id,
+            overall_score: Math.round(Number(ev.overall_score) * 100),
+            alternative_validity: (ev.alternative_validity as AlternativeValidity) || 'correct',
+            deterministic_verification: JSON.parse((ev.deterministic_verification_json as string) || '{}'),
+            dimension_scores: JSON.parse((ev.dimension_scores_json as string) || '{}'),
+            observable_evidence: JSON.parse((ev.observable_evidence_json as string) || '{}'),
+            observed_facts: JSON.parse((ev.observed_facts_json as string) || '[]'),
+            model_interpretation: JSON.parse((ev.model_interpretation_json as string) || '{}'),
+            remediation_recommendations: JSON.parse((ev.remediation_recommendation_json as string) || '[]'),
+            teaching_payload: JSON.parse((ev.teaching_payload_json as string) || '{}'),
+            adaptation_decision: JSON.parse((ev.adaptation_decision_json as string) || '{}'),
+            confidence_score: Number(ev.confidence_score || 0.85),
+            uncertainty_score: Number(ev.uncertainty_score || 0.15),
+            provenance: JSON.parse((ev.provenance_json as string) || '{}'),
+            human_review_status: ev.human_review_status || 'unreviewed',
+            created_at: ev.created_at
+          };
+        }
+      }
 
       return c.json({
         success: true,
@@ -2465,6 +2722,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
           candidate_work: JSON.parse((session.candidate_work_json as string) || '{}'),
           dynamic_state: JSON.parse((session.dynamic_state_json as string) || '{}'),
           telemetry_events_count: tevents.length,
+          evaluation: latestEvaluation,
           updated_at: session.updated_at
         }
       });
@@ -3019,11 +3277,80 @@ Return ONLY valid JSON matching this schema:
       autonomous_decision_prohibited: true
     };
 
-    // Persist evaluation with Phase 6 & Phase 7 columns (alternative_validity, deterministic_verification_json, teaching_payload_json)
+    // Phase 8: Evaluate Adaptive Next Step & Multi-Round State
+    const currentDynamicState = JSON.parse((session.dynamic_state_json as string) || '{}');
+    const existingRounds: SimulationRoundRecord[] = currentDynamicState.rounds_history || [];
+    const currentRoundIdx = currentDynamicState.current_round_index || (existingRounds.length > 0 ? existingRounds[existingRounds.length - 1].roundIndex : 1);
+
+    const adaptiveResult = evaluateAdaptiveNextStep({
+      candidateSeniority: 'senior',
+      previousRounds: [
+        ...existingRounds.filter(r => r.roundIndex !== currentRoundIdx),
+        {
+          roundIndex: currentRoundIdx,
+          definitionId: def.id,
+          taskTitle: def.title,
+          modality: def.simulation_type as WorkRoundModality,
+          difficulty: def.difficulty_level || 3,
+          competencyName: def.competency_name,
+          skillName: def.skill_name,
+          startedAt: currentDynamicState.current_round_started_at || session.created_at || new Date().toISOString(),
+          submittedAt: new Date().toISOString(),
+          overallScore: Math.round(overallScore * 100),
+          alternativeValidity,
+          confidence: calibratedConfidence,
+          uncertainty: epistemicUncertainty,
+          misconceptionsDiagnosed: (teachingPayload.misconceptions || []).map((m: any) => m.conceptName || m.concept_name).filter(Boolean),
+          status: 'evaluated'
+        }
+      ],
+      latestEvaluation: {
+        overall_score: Math.round(overallScore * 100),
+        alternative_validity: alternativeValidity,
+        confidence_score: calibratedConfidence,
+        uncertainty_score: epistemicUncertainty,
+        teaching_payload: teachingPayload
+      },
+      availableSimulations: SEED_SIMULATIONS
+    });
+
+    const completedRoundRecord: SimulationRoundRecord = {
+      roundIndex: currentRoundIdx,
+      definitionId: def.id,
+      taskTitle: def.title,
+      modality: def.simulation_type as WorkRoundModality,
+      difficulty: def.difficulty_level || 3,
+      competencyName: def.competency_name,
+      skillName: def.skill_name,
+      startedAt: currentDynamicState.current_round_started_at || session.created_at || new Date().toISOString(),
+      submittedAt: new Date().toISOString(),
+      overallScore: Math.round(overallScore * 100),
+      alternativeValidity,
+      confidence: calibratedConfidence,
+      uncertainty: epistemicUncertainty,
+      misconceptionsDiagnosed: adaptiveResult.decision.priorState.diagnosedMisconceptions,
+      adaptationDecision: adaptiveResult.decision,
+      status: 'evaluated'
+    };
+
+    const updatedRounds = [
+      ...existingRounds.filter(r => r.roundIndex !== currentRoundIdx),
+      completedRoundRecord
+    ];
+
+    const updatedDynamicState = {
+      ...currentDynamicState,
+      current_round_index: currentRoundIdx,
+      rounds_history: updatedRounds,
+      latest_adaptation_decision: adaptiveResult.decision,
+      progression: adaptiveResult.progressionSummary
+    };
+
+    // Persist evaluation with Phase 6, 7 & 8 columns (alternative_validity, deterministic_verification_json, teaching_payload_json, adaptation_decision_json)
     await c.env.DB.prepare(
       `INSERT INTO simulation_evaluation 
-       (id, session_id, user_id, definition_id, overall_score, dimension_scores_json, observable_evidence_json, model_interpretation_json, remediation_recommendation_json, confidence_score, uncertainty_score, observed_facts_json, provenance_json, submission_hash, submission_version, alternative_validity, deterministic_verification_json, teaching_payload_json, human_review_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'unreviewed')`
+       (id, session_id, user_id, definition_id, overall_score, dimension_scores_json, observable_evidence_json, model_interpretation_json, remediation_recommendation_json, confidence_score, uncertainty_score, observed_facts_json, provenance_json, submission_hash, submission_version, alternative_validity, deterministic_verification_json, teaching_payload_json, adaptation_decision_json, human_review_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 'unreviewed')`
     ).bind(
       evalId, sessionId, user.id, def.id,
       overallScore,
@@ -3038,15 +3365,16 @@ Return ONLY valid JSON matching this schema:
       submissionHash,
       alternativeValidity,
       JSON.stringify(deterministicResult),
-      JSON.stringify(teachingPayload)
+      JSON.stringify(teachingPayload),
+      JSON.stringify(adaptiveResult.decision)
     ).run();
 
-    // Mark session as evaluated & completed
+    // Mark session round as evaluated (keeping session open for continuous work rounds)
     await c.env.DB.prepare(
       `UPDATE simulation_session 
-       SET status = 'completed', candidate_work_json = ?, updated_at = CURRENT_TIMESTAMP 
+       SET status = 'evaluated', candidate_work_json = ?, dynamic_state_json = ?, updated_at = CURRENT_TIMESTAMP 
        WHERE id = ?`
-    ).bind(JSON.stringify(final_output), sessionId).run();
+    ).bind(JSON.stringify(final_output), JSON.stringify(updatedDynamicState), sessionId).run();
 
     // Downstream Sync 1: Synchronize to readiness_evidence_ledger for M05 consumption
     const ledgerId = crypto.randomUUID();
@@ -3171,6 +3499,15 @@ Return ONLY valid JSON matching this schema:
       model_interpretation: modelInterpretationRecord,
       remediation_recommendations: remediationTasks,
       teaching_payload: teachingPayload,
+      adaptation_decision: adaptiveResult.decision,
+      progression: {
+        round_index: currentRoundIdx,
+        rounds_completed: updatedRounds.length,
+        competencies_covered: adaptiveResult.progressionSummary.competenciesCovered,
+        competencies_remaining: adaptiveResult.progressionSummary.competenciesRemaining,
+        coverage_ratio: adaptiveResult.progressionSummary.coverageRatio,
+        can_proceed_to_next_module: true
+      },
       confidence_score: calibratedConfidence,
       uncertainty_score: epistemicUncertainty,
       provenance: provenanceData,
@@ -3186,7 +3523,202 @@ Return ONLY valid JSON matching this schema:
     }
   });
 
-  // 8. Get Evaluation Details (Phase 6 & 7 enhanced)
+  // 7a. Phase 8: Transition to Next Adaptive Work Round
+  app.post('/m3/simulations/sessions/:id/next', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const sessionId = c.req.param('id');
+      const session = await c.env.DB.prepare(
+        'SELECT * FROM simulation_session WHERE id = ? AND user_id = ?'
+      ).bind(sessionId, user.id).first();
+
+      if (!session) return c.json({ error: 'Session not found' }, 404);
+
+      const currentDynamicState = JSON.parse((session.dynamic_state_json as string) || '{}');
+      const existingRounds: SimulationRoundRecord[] = currentDynamicState.rounds_history || [];
+
+      // Fetch latest evaluation
+      const latestEval = await c.env.DB.prepare(
+        'SELECT * FROM simulation_evaluation WHERE session_id = ? AND user_id = ? ORDER BY created_at DESC'
+      ).bind(sessionId, user.id).first();
+
+      const latestEvalPayload = latestEval ? {
+        overall_score: Number(latestEval.overall_score),
+        alternative_validity: latestEval.alternative_validity,
+        confidence_score: latestEval.confidence_score,
+        uncertainty_score: latestEval.uncertainty_score,
+        teaching_payload: JSON.parse((latestEval.teaching_payload_json as string) || '{}')
+      } : undefined;
+
+      // Evaluate next step
+      const adaptiveResult = evaluateAdaptiveNextStep({
+        candidateSeniority: 'senior',
+        previousRounds: existingRounds,
+        latestEvaluation: latestEvalPayload,
+        availableSimulations: SEED_SIMULATIONS
+      });
+
+      const nextDef = adaptiveResult.selectedSimulation;
+      const nextRoundIndex = (currentDynamicState.current_round_index || existingRounds.length || 1) + 1;
+
+      const newRoundRecord: SimulationRoundRecord = {
+        roundIndex: nextRoundIndex,
+        definitionId: nextDef.id,
+        taskTitle: nextDef.title,
+        modality: nextDef.simulation_type as WorkRoundModality,
+        difficulty: nextDef.difficulty_level || 3,
+        competencyName: nextDef.competency_name,
+        skillName: nextDef.skill_name,
+        startedAt: new Date().toISOString(),
+        status: 'active'
+      };
+
+      const updatedRounds = [...existingRounds, newRoundRecord];
+      const updatedDynamicState = {
+        ...currentDynamicState,
+        current_round_index: nextRoundIndex,
+        current_round_started_at: new Date().toISOString(),
+        rounds_history: updatedRounds,
+        latest_adaptation_decision: adaptiveResult.decision,
+        progression: adaptiveResult.progressionSummary,
+        injected: false,
+        injection: null
+      };
+
+      // Update simulation_session
+      await c.env.DB.prepare(
+        `UPDATE simulation_session 
+         SET definition_id = ?, status = 'active', current_step = 1,
+             candidate_work_json = ?, dynamic_state_json = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`
+      ).bind(
+        nextDef.id,
+        JSON.stringify(nextDef.scenario?.starting_data || {}),
+        JSON.stringify(updatedDynamicState),
+        sessionId
+      ).run();
+
+      const scaledTask = scaleTaskToCandidateSeniority(
+        seedSimulationToTaskDefinition(nextDef, nextRoundIndex),
+        'senior'
+      );
+
+      return c.json({
+        success: true,
+        session_id: sessionId,
+        round_index: nextRoundIndex,
+        definition: nextDef,
+        task: scaledTask,
+        adaptation_decision: adaptiveResult.decision,
+        progression: adaptiveResult.progressionSummary
+      });
+    } catch (err: any) {
+      console.error('Error transitioning to next adaptive round:', err);
+      return c.json({ success: false, error: err.message || 'Error advancing to next round' }, 500);
+    }
+  });
+
+  // 7b. Phase 8: Explicit Proceed to Next Module (Module 4 / Interviews)
+  app.post('/m3/simulations/sessions/:id/proceed', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const sessionId = c.req.param('id');
+      const session = await c.env.DB.prepare(
+        'SELECT * FROM simulation_session WHERE id = ? AND user_id = ?'
+      ).bind(sessionId, user.id).first();
+
+      if (!session) return c.json({ error: 'Session not found' }, 404);
+
+      const currentDynamicState = JSON.parse((session.dynamic_state_json as string) || '{}');
+      const rounds: SimulationRoundRecord[] = currentDynamicState.rounds_history || [];
+
+      // Verify at least one round evaluated
+      if (rounds.length === 0 && session.status !== 'evaluated') {
+        return c.json({ error: 'Must complete and submit at least one simulation round before proceeding.' }, 400);
+      }
+
+      // Mark session as completed
+      await c.env.DB.prepare(
+        `UPDATE simulation_session 
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`
+      ).bind(sessionId).run();
+
+      await logAuditEvent(c, (session.organization_id as string) || 'org_default_public', user.id, 'COMPLETE_MODULE_M03', 'SIMULATION_SESSION', sessionId, {
+        total_rounds: rounds.length
+      });
+
+      const meanScore = rounds.length > 0
+        ? Math.round(rounds.reduce((acc, r) => acc + (r.overallScore || 0), 0) / rounds.length)
+        : 75;
+
+      return c.json({
+        success: true,
+        session_id: sessionId,
+        status: 'completed',
+        total_rounds_completed: rounds.length,
+        overall_proficiency_mean: meanScore,
+        recommended_next_module: 'M04_INTERVIEWS',
+        redirect_url: '/interviews'
+      });
+    } catch (err: any) {
+      console.error('Error proceeding to next module:', err);
+      return c.json({ success: false, error: err.message || 'Error proceeding to next module' }, 500);
+    }
+  });
+
+  // 7c. Phase 8: Get Complete Multi-Round Progression State
+  app.get('/m3/simulations/sessions/:id/progression', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const sessionId = c.req.param('id');
+      const session = await c.env.DB.prepare(
+        'SELECT * FROM simulation_session WHERE id = ? AND user_id = ?'
+      ).bind(sessionId, user.id).first();
+
+      if (!session) return c.json({ error: 'Session not found' }, 404);
+
+      const currentDynamicState = JSON.parse((session.dynamic_state_json as string) || '{}');
+      const rounds: SimulationRoundRecord[] = currentDynamicState.rounds_history || [];
+
+      const assessedCompetencies = new Set(rounds.map(r => (r.competencyName || '').toLowerCase()));
+      const meanScore = rounds.length > 0
+        ? Math.round(rounds.reduce((acc, r) => acc + (r.overallScore || 0), 0) / rounds.length)
+        : 0;
+
+      const progressionState: SessionProgressionState = {
+        sessionId: session.id,
+        status: session.status as any,
+        currentRoundIndex: currentDynamicState.current_round_index || rounds.length || 1,
+        rounds,
+        latestAdaptationDecision: currentDynamicState.latest_adaptation_decision,
+        competencyCoverage: {
+          totalRequired: 5,
+          assessed: assessedCompetencies.size,
+          remaining: currentDynamicState.progression?.competenciesRemaining || [],
+          coverageRatio: currentDynamicState.progression?.coverageRatio || 0
+        },
+        overallProficiencyMean: meanScore,
+        cumulativeUncertainty: currentDynamicState.latest_adaptation_decision?.priorState?.uncertainty || 0.15,
+        canProceedToNextModule: rounds.length >= 1
+      };
+
+      return c.json({
+        success: true,
+        progression: progressionState
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // 8. Get Evaluation Details (Phase 6, 7 & 8 enhanced)
   app.get('/m3/simulations/sessions/:id/evaluation', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -3212,6 +3744,7 @@ Return ONLY valid JSON matching this schema:
         model_interpretation: JSON.parse((evaluation.model_interpretation_json as string) || '{}'),
         remediation_recommendations: JSON.parse((evaluation.remediation_recommendation_json as string) || '[]'),
         teaching_payload: JSON.parse((evaluation.teaching_payload_json as string) || '{}'),
+        adaptation_decision: JSON.parse((evaluation.adaptation_decision_json as string) || '{}'),
         confidence_score: Number(evaluation.confidence_score || 0.85),
         uncertainty_score: Number(evaluation.uncertainty_score || 0.15),
         provenance: JSON.parse((evaluation.provenance_json as string) || '{}'),

@@ -1296,5 +1296,116 @@ export function validateTeachingPayload(payload: any): payload is M3TeachingPayl
   );
 }
 
+// =============================================================================
+// PHASE 8: ADAPTIVE CONTINUOUS WORK-ROUND CONTRACTS
+// =============================================================================
+
+export type AdaptationReasonType =
+  | 'increase_difficulty'        // high proficiency + low uncertainty -> elevate cognitive/technical complexity
+  | 'decrease_difficulty'        // high struggle/breakdown -> scaffold, reduce complexity
+  | 'remediate_misconception'    // test specific diagnosed misconception from previous round
+  | 'test_prerequisite'         // missing foundational theory/concept
+  | 'broaden_coverage'          // under-assessed JD competency
+  | 'test_practical_execution'  // strong reasoning but incomplete implementation
+  | 'test_reasoning_rigor'      // executed code without clear rationale
+  | 'transfer_domain'           // test same competency in another domain/modality
+  | 'stress_constraint'         // altered constraints (what-if: scale, memory, latency)
+  | 'validate_improvement'      // re-verify competence after pedagogical drill
+  | 'reduce_uncertainty';       // high variance/uncertainty in skill estimate
+
+export interface AdaptationDecision {
+  decisionId: string;
+  timestamp: string;
+  roundIndex: number;
+  reasonType: AdaptationReasonType;
+  targetCompetency: string;
+  targetSkill: string;
+  targetDomain: string;
+  targetDifficulty: number; // 1 to 5
+  targetModality: WorkRoundModality;
+  internalRationale: string; // auditable statistical/pedagogical justification
+  candidateFocusPreview: string; // friendly focus without internal model routing jargon
+  priorState: {
+    priorScore: number;
+    alternativeValidity: AlternativeValidity;
+    confidence: number;
+    uncertainty: number;
+    diagnosedMisconceptions: string[];
+    skillsCoveredCount: number;
+    competenciesRemainingCount: number;
+  };
+  selectionScores?: {
+    uncertaintyWeight: number;
+    misconceptionWeight: number;
+    coverageWeight: number;
+    recencyPenalty: number;
+    finalUtilityScore: number;
+  };
+}
+
+export interface SimulationRoundRecord {
+  roundIndex: number;
+  definitionId: string;
+  taskTitle: string;
+  modality: WorkRoundModality;
+  difficulty: number;
+  competencyName: string;
+  skillName: string;
+  startedAt: string;
+  submittedAt?: string;
+  overallScore?: number;
+  alternativeValidity?: AlternativeValidity;
+  confidence?: number;
+  uncertainty?: number;
+  misconceptionsDiagnosed?: string[];
+  adaptationDecision?: AdaptationDecision;
+  status: 'active' | 'evaluated' | 'completed';
+}
+
+export interface SessionProgressionState {
+  sessionId: string;
+  status: 'active' | 'in_progress' | 'evaluated' | 'completed' | 'abandoned';
+  currentRoundIndex: number;
+  rounds: SimulationRoundRecord[];
+  latestAdaptationDecision?: AdaptationDecision;
+  competencyCoverage: {
+    totalRequired: number;
+    assessed: number;
+    remaining: string[];
+    coverageRatio: number;
+  };
+  overallProficiencyMean: number;
+  cumulativeUncertainty: number;
+  canProceedToNextModule: boolean;
+}
+
+export function validateAdaptationDecision(decision: any): decision is AdaptationDecision {
+  return Boolean(
+    decision &&
+    typeof decision === 'object' &&
+    typeof decision.decisionId === 'string' &&
+    typeof decision.roundIndex === 'number' &&
+    typeof decision.reasonType === 'string' &&
+    typeof decision.targetCompetency === 'string' &&
+    typeof decision.targetSkill === 'string' &&
+    typeof decision.targetDifficulty === 'number' &&
+    typeof decision.internalRationale === 'string' &&
+    typeof decision.candidateFocusPreview === 'string' &&
+    decision.priorState
+  );
+}
+
+export function validateProgressionState(state: any): state is SessionProgressionState {
+  return Boolean(
+    state &&
+    typeof state === 'object' &&
+    typeof state.sessionId === 'string' &&
+    typeof state.currentRoundIndex === 'number' &&
+    Array.isArray(state.rounds) &&
+    state.competencyCoverage &&
+    typeof state.canProceedToNextModule === 'boolean'
+  );
+}
+
 
 
