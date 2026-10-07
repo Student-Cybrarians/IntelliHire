@@ -15,7 +15,7 @@ async function main() {
   await context.addCookies([
     {
       name: 'intellihire_session',
-      value: 'f3b67eb6-8f98-4543-a2d8-fb75bd9da9fd',
+      value: '94cd5482-5b66-4f33-9954-9bf585c29154',
       domain: 'intellihire-v3.pages.dev',
       path: '/',
       httpOnly: true,

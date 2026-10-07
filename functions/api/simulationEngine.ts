@@ -2,6 +2,15 @@ import { Hono } from 'hono';
 import type { Bindings, UserSession } from './[[route]]';
 import { getSessionUser, logAuditEvent } from './[[route]]';
 
+export * from '../../src/shared/m3WorkRoundContracts';
+import {
+  CandidateContext,
+  JobContext,
+  CompetencyTarget,
+  TaskDefinition,
+  seedSimulationToTaskDefinition
+} from '../../src/shared/m3WorkRoundContracts';
+
 export interface SimulationScenario {
   background: string;
   objective: string;
@@ -332,7 +341,208 @@ async function ensureDefinitionInDb(db: any, def: (typeof SEED_SIMULATIONS)[0], 
   }
 }
 
+/**
+ * Phase 1 Foundation: Context Aggregator Helper
+ * Resolves CandidateContext and JobContext from D1 database
+ */
+export async function resolveCandidateJobContext(
+  db: any,
+  userId: string,
+  organizationId: string,
+  requisitionId?: string
+): Promise<{ candidateContext: CandidateContext; jobContext: JobContext; targets: CompetencyTarget[] }> {
+  // 1. Fetch Candidate Profile
+  const profileRow = await db.prepare(
+    `SELECT headline, target_role, experience_level, primary_domain, skills_json, bio, readiness_score, target_domain_id, target_occupation_id
+     FROM candidate_profile WHERE user_id = ?`
+  ).bind(userId).first();
+
+  const targetRole = (profileRow?.target_role as string) || 'Senior Software Engineer';
+  const seniority = (profileRow?.experience_level as string) || 'senior';
+  const readiness = Number(profileRow?.readiness_score || 0.5);
+
+  let extractedSkills: string[] = [];
+  try {
+    if (profileRow?.skills_json) {
+      extractedSkills = JSON.parse(profileRow.skills_json as string);
+    }
+  } catch (_) {}
+
+  // 2. Fetch Active Resume / Context
+  const activeContext = await db.prepare(
+    `SELECT id, resume_id FROM candidate_context WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
+  ).bind(userId).first();
+
+  const activeResumeId = (activeContext?.resume_id as string) || undefined;
+  const contextId = activeContext?.id as string | undefined;
+
+  // 3. Fetch Claims
+  const verifiedClaims: Array<{ claim: string; category?: string; source: string; confidence: number }> = [];
+  if (contextId) {
+    try {
+      const claims = await db.prepare(
+        `SELECT claim_type, claim_value, confidence_score FROM candidate_claim WHERE context_id = ? LIMIT 20`
+      ).bind(contextId).all();
+      for (const cl of (claims?.results || [])) {
+        verifiedClaims.push({
+          claim: cl.claim_value as string,
+          category: cl.claim_type as string,
+          source: 'm01_resume',
+          confidence: Number(cl.confidence_score || 0.85)
+        });
+        if (cl.claim_type === 'skill' && !extractedSkills.includes(cl.claim_value as string)) {
+          extractedSkills.push(cl.claim_value as string);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 4. Fetch Diagnosed Gaps & Proficiency Estimates
+  let diagnosedGaps: any[] = [];
+  try {
+    const gapRows = await db.prepare(
+      `SELECT p.skill_id, s.name as skill_name, p.proficiency_estimate, p.uncertainty_estimate
+       FROM candidate_skill_proficiency_v2 p
+       LEFT JOIN skill s ON p.skill_id = s.id
+       WHERE p.user_id = ? AND (p.proficiency_estimate < 0.65 OR p.uncertainty_estimate > 0.4)`
+    ).bind(userId).all();
+
+    diagnosedGaps = (gapRows?.results || []).map((g: any) => ({
+      skillId: g.skill_id as string,
+      skillName: (g.skill_name as string) || 'Target Competency',
+      gapType: Number(g.proficiency_estimate) < 0.5 ? 'low_demonstration' : 'high_uncertainty',
+      severity: Number(g.uncertainty_estimate) > 0.6 ? 'critical' : 'moderate',
+      recommendation: `Target ${g.skill_name} in adaptive work round.`
+    }));
+  } catch (_) {}
+
+  const candidateContext: CandidateContext = {
+    userId,
+    organizationId,
+    targetRole,
+    targetDomainId: (profileRow?.target_domain_id as string) || undefined,
+    targetOccupationId: (profileRow?.target_occupation_id as string) || undefined,
+    seniorityLevel: seniority,
+    activeResumeId,
+    extractedSkills,
+    verifiedClaims,
+    currentReadinessScore: readiness,
+    diagnosedGaps
+  };
+
+  // 5. Fetch Job Context
+  let jobRow: any = null;
+  if (requisitionId) {
+    try {
+      jobRow = await db.prepare(`SELECT * FROM job_requisition WHERE id = ?`).bind(requisitionId).first();
+    } catch (_) {}
+  }
+  if (!jobRow) {
+    try {
+      jobRow = await db.prepare(
+        `SELECT * FROM job_requisition WHERE organization_id = ? ORDER BY created_at DESC LIMIT 1`
+      ).bind(organizationId).first();
+    } catch (_) {}
+  }
+
+  const jobTitle = (jobRow?.title as string) || targetRole;
+  const jobSeniority = (jobRow?.seniority_level as string) || seniority;
+  let requiredSkills: string[] = [];
+  let keyRequirements: string[] = [];
+
+  if (jobRow?.parsed_requirements_json) {
+    try {
+      const parsed = JSON.parse(jobRow.parsed_requirements_json as string);
+      keyRequirements = parsed.requirements || [];
+      requiredSkills = parsed.skills || [];
+    } catch (_) {}
+  }
+
+  // Also check job_description_context if available
+  if (keyRequirements.length === 0) {
+    try {
+      const jdCtx = await db.prepare(
+        `SELECT raw_text, requirements_json FROM job_description_context WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`
+      ).bind(userId).first();
+      if (jdCtx?.requirements_json) {
+        const parsed = JSON.parse(jdCtx.requirements_json as string);
+        keyRequirements = parsed.requirements || [];
+        requiredSkills = parsed.skills || [];
+      }
+    } catch (_) {}
+  }
+
+  if (requiredSkills.length === 0) {
+    requiredSkills = ['System Architecture', 'API Design', 'Performance Optimization'];
+  }
+
+  const jobContext: JobContext = {
+    requisitionId: (jobRow?.id as string) || undefined,
+    jobTitle,
+    targetSeniority: jobSeniority,
+    targetDomain: (jobRow?.role_category as string) || 'software',
+    requiredCompetencies: requiredSkills.map((sk: string) => ({
+      name: sk,
+      priority: 'required'
+    })),
+    requiredSkills,
+    rawJobDescription: (jobRow?.raw_jd_text as string) || undefined,
+    keyRequirements
+  };
+
+  // 6. Assemble Competency Targets
+  const targets: CompetencyTarget[] = diagnosedGaps.length > 0
+    ? diagnosedGaps.map((gap: any) => ({
+        id: `tgt-${gap.skillId || encodeURIComponent(gap.skillName)}`,
+        name: gap.skillName,
+        domain: candidateContext.targetDomainId || 'software',
+        skillName: gap.skillName,
+        skillId: gap.skillId,
+        targetProficiency: 0.80,
+        currentProficiency: 0.45,
+        uncertaintyEstimate: 0.55,
+        diagnosisSource: 'm02_assessment_gap',
+        rationale: `Diagnosed from candidate assessment gap (${gap.gapType})`
+      }))
+    : requiredSkills.slice(0, 3).map((sk: string) => ({
+        id: `tgt-${encodeURIComponent(sk)}`,
+        name: sk,
+        domain: 'software',
+        skillName: sk,
+        targetProficiency: 0.80,
+        currentProficiency: 0.50,
+        uncertaintyEstimate: 0.50,
+        diagnosisSource: 'job_requirement',
+        rationale: `Required competency from target role specification: ${sk}`
+      }));
+
+  return { candidateContext, jobContext, targets };
+}
+
 export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
+
+  // 1a. Phase 1: Context Aggregator Route for Work Round Engine Targeting
+  app.get('/m3/simulations/context', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const reqId = c.req.query('requisition_id');
+
+      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId, reqId);
+      return c.json({
+        success: true,
+        candidate_context: bundle.candidateContext,
+        job_context: bundle.jobContext,
+        competency_targets: bundle.targets
+      });
+    } catch (err: any) {
+      console.error('Error in /m3/simulations/context:', err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
 
   // 1. List Simulation Definitions (with M02 Gap-Targeting)
   app.get('/m3/simulations/definitions', async (c) => {
@@ -440,6 +650,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
             resumed: true,
             session_id: existing.id,
             definition: def,
+            task: seedSimulationToTaskDefinition(def, existing.current_step || 1),
             session: {
               id: existing.id,
               status: existing.status,
@@ -474,6 +685,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
         resumed: false,
         session_id: sessionId,
         definition: def,
+        task: seedSimulationToTaskDefinition(def, 1),
         session: {
           id: sessionId,
           status: 'in_progress',
