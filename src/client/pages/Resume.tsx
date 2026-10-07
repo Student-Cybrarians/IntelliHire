@@ -5,6 +5,7 @@ import {
   Briefcase, ChevronRight, XCircle, FileQuestion, Sparkles, RefreshCw, 
   RotateCcw, Download, Check, Clock, X, AlertTriangle, ShieldCheck, Edit3 
 } from 'lucide-react';
+import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
 
 export default function Resume() {
   const [file, setFile] = useState<File | null>(null);
@@ -986,6 +987,12 @@ export default function Resume() {
             </div>
           </div>
         )}
+
+        {/* Global Candidate Journey Navigation */}
+        <ModuleNavigationFooter 
+          currentModule="M01" 
+          isCompleted={Boolean(matchData || resumeData)} 
+        />
       </div>
     </div>
   );

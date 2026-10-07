@@ -5,6 +5,7 @@ import {
   Clock, AlertTriangle, BarChart3, Brain, ArrowLeft, 
   ShieldCheck, Sparkles, BookOpen
 } from 'lucide-react';
+import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
 
 type AttemptState = 'loading' | 'intro' | 'in_progress' | 'evaluating' | 'completed' | 'error';
 type ItemType = 'multiple_choice' | 'short_answer' | 'scenario' | 'practical' | 'reasoning';
@@ -376,6 +377,8 @@ export default function AssessmentV2() {
             </button>
           </div>
         </div>
+
+        <ModuleNavigationFooter currentModule="M02" isCompleted={false} />
       </div>
     );
   }
@@ -464,13 +467,15 @@ export default function AssessmentV2() {
               </div>
               <button 
                 onClick={() => navigate('/dashboard')}
-                className="w-full py-3 rounded-lg font-medium text-white bg-[#FF4103] hover:bg-[#e03200]"
+                className="w-full py-3 rounded-lg font-medium text-white bg-[#001f2e] border border-[#063750] hover:bg-[#002f47] transition-colors mb-4"
               >
                 Return to Command Center
               </button>
             </div>
           </div>
         </div>
+
+        <ModuleNavigationFooter currentModule="M02" isCompleted={true} />
       </div>
     );
   }
@@ -680,6 +685,8 @@ export default function AssessmentV2() {
             </div>
           </div>
         </div>
+
+        <ModuleNavigationFooter currentModule="M02" isCompleted={itemCount >= 5} />
       </div>
     </div>
   );

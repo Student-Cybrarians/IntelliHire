@@ -6,6 +6,7 @@ import {
   Clock, Sparkles, Filter, ChevronRight, BookOpen, Laptop, MessageSquare, AlertCircle
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
+import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
 
 interface CandidateListItem {
   id: string;
@@ -1168,6 +1169,13 @@ export default function Module5Analytics() {
           </div>
         )}
 
+        {/* Global Candidate Journey Navigation */}
+        <ModuleNavigationFooter
+          currentModule="M05"
+          isCompleted={true}
+          nextCustomPath="/dashboard"
+          nextCustomTitle="Command Center"
+        />
       </div>
     </DashboardLayout>
   );

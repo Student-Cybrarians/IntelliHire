@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import PublicLanding from './pages/PublicLanding';
 import About from './pages/About';
@@ -18,6 +19,46 @@ import InterviewPrep from './pages/InterviewPrep';
 import Module3Simulation from './pages/Module3Simulation';
 import TrainingCurriculum from './pages/TrainingCurriculum';
 import ProtectedRoute from './components/ProtectedRoute';
+
+function Module3RouteDispatcher() {
+  const [role, setRole] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/auth/me', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then(res => res.json())
+      .then((data: any) => {
+        if (active) {
+          setRole(data?.user?.role || 'candidate');
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRole('candidate');
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white text-sm font-semibold">
+        Loading Module 3...
+      </div>
+    );
+  }
+
+  if (role === 'recruiter' || role === 'org_admin') {
+    return <Module3Pipeline />;
+  }
+
+  return <Module3Simulation />;
+}
 
 export default function App() {
   return (
@@ -44,8 +85,8 @@ export default function App() {
       <Route path="/prep" element={<ProtectedRoute><InterviewPrep /></ProtectedRoute>} />
       <Route path="/assessment/:skill_id" element={<ProtectedRoute><Assessment /></ProtectedRoute>} />
 
-      {/* Module 3: Requisition Match & Pipeline */}
-      <Route path="/module-3" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
+      {/* Module 3: Simulation (Candidate) & Pipeline (Recruiter) */}
+      <Route path="/module-3" element={<ProtectedRoute><Module3RouteDispatcher /></ProtectedRoute>} />
       <Route path="/requisitions" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
       <Route path="/candidates" element={<ProtectedRoute allowedRoles={['recruiter', 'org_admin']}><Module3Pipeline /></ProtectedRoute>} />
 

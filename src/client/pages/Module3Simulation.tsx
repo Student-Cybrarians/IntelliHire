@@ -9,6 +9,7 @@ import {
 import DashboardLayout from './dashboard/DashboardLayout';
 import UniversalWorkSurfaceDispatcher from '../components/m3/UniversalWorkSurfaceDispatcher';
 import { ExecutionResultPayload } from '../components/m3/WorkSurfaceTypes';
+import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
 
 interface SimulationDef {
   id: string;
@@ -86,7 +87,19 @@ export default function Module3Simulation() {
         setActiveSim(s.definition);
         setSessionId(s.id);
         setCurrentStep(s.current_step || 1);
-        setCandidateWork(s.candidate_work || s.definition?.scenario?.starting_data || {});
+
+        let initialWork = s.candidate_work || s.definition?.scenario?.starting_data || {};
+        try {
+          const localDraft = localStorage.getItem(`m3_draft_${s.id}`);
+          if (localDraft) {
+            const parsedDraft = JSON.parse(localDraft);
+            if (parsedDraft && Object.keys(parsedDraft).length > 0) {
+              initialWork = parsedDraft;
+            }
+          }
+        } catch (_) {}
+
+        setCandidateWork(initialWork);
         setTelemetryCount(s.telemetry_events_count || 0);
         if (s.dynamic_state?.injected) {
           setDynamicAlert(s.dynamic_state.injection);
@@ -119,6 +132,14 @@ export default function Module3Simulation() {
     loadDefinitions();
     checkActiveSession();
   }, []);
+
+  // Sync candidate work to local draft storage for resilient recovery
+  useEffect(() => {
+    if (!sessionId || !candidateWork || Object.keys(candidateWork).length === 0) return;
+    try {
+      localStorage.setItem(`m3_draft_${sessionId}`, JSON.stringify(candidateWork));
+    } catch (_) {}
+  }, [sessionId, candidateWork]);
 
   const startSimulation = async (def: SimulationDef, forceNew: boolean = false) => {
     setLoading(true);
@@ -157,6 +178,9 @@ export default function Module3Simulation() {
     if (!sessionId) return;
     if (!window.confirm('Are you sure you want to abandon this simulation session? Your progress will be reset.')) return;
     try {
+      try {
+        localStorage.removeItem(`m3_draft_${sessionId}`);
+      } catch (_) {}
       await fetch(`/api/m3/simulations/sessions/${sessionId}/abandon`, { method: 'POST' });
     } catch (_) {}
     setActiveSim(null);
@@ -169,6 +193,26 @@ export default function Module3Simulation() {
     setExecutionResult(null);
     setIsExecuting(false);
     loadDefinitions();
+  };
+
+  const handleBeforeNavigate = async () => {
+    if (sessionId && !evaluation) {
+      try {
+        await recordAction('candidate_navigate_save', { step: currentStep }, candidateWork);
+      } catch (e) {
+        console.warn('Draft auto-save warning:', e);
+      }
+    } else if (sessionId && evaluation && !completionSummary) {
+      try {
+        await fetch(`/api/m3/simulations/sessions/${sessionId}/proceed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        console.warn('Proceed finalization warning on navigation:', e);
+      }
+    }
+    return true;
   };
 
   const recordAction = async (actionType: string, payload: any, updatedWork?: any) => {
@@ -254,7 +298,7 @@ export default function Module3Simulation() {
   };
 
   const submitWork = async () => {
-    if (!sessionId) return;
+    if (!sessionId || submitting) return;
     setSubmitting(true);
     try {
       const res = await fetch(`/api/m3/simulations/sessions/${sessionId}/submit`, {
@@ -267,6 +311,9 @@ export default function Module3Simulation() {
       });
       const data = await res.json() as any;
       if (data.success) {
+        try {
+          localStorage.removeItem(`m3_draft_${sessionId}`);
+        } catch (_) {}
         setEvaluation(data);
         if (data.adaptation_decision) {
           setAdaptationDecision(data.adaptation_decision);
@@ -275,9 +322,11 @@ export default function Module3Simulation() {
           setProgressionSummary(data.progression);
           setCurrentRoundIndex(data.progression.round_index || currentRoundIndex);
         }
+      } else {
+        alert(data.error || 'Failed to submit simulation for evaluation. Please retry.');
       }
-    } catch (e) {
-      alert('Failed to submit simulation for evaluation');
+    } catch (e: any) {
+      alert(`Network error submitting simulation: ${e.message || 'Please check connection and retry.'}`);
     } finally {
       setSubmitting(false);
     }
@@ -1383,6 +1432,14 @@ export default function Module3Simulation() {
             </div>
           </div>
         )}
+
+        {/* Global Candidate Journey Navigation */}
+        <ModuleNavigationFooter
+          currentModule="M03"
+          isCompleted={Boolean(completionSummary || evaluation || (roundsHistory && roundsHistory.length > 0))}
+          onBeforeNavigate={handleBeforeNavigate}
+          saveStatusText={sessionId ? (submitting ? 'Evaluating candidate simulation…' : 'Session preserved to cloud ledger') : undefined}
+        />
       </div>
     </DashboardLayout>
   );

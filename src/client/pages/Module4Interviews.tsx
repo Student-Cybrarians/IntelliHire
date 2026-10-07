@@ -5,6 +5,7 @@ import {
   HelpCircle, MessageSquare, Star, ArrowRight, RefreshCw, BarChart2
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
+import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
 
 interface Protocol {
   id: string;
@@ -603,6 +604,12 @@ export default function Module4Interviews() {
           </div>
         )}
 
+        {/* Global Candidate Journey Navigation */}
+        <ModuleNavigationFooter
+          currentModule="M04"
+          isCompleted={Boolean(synthesis)}
+          saveStatusText={sessionId ? (submittingTurn ? 'Synthesizing response…' : 'Interview turn synchronized') : undefined}
+        />
       </div>
     </DashboardLayout>
   );

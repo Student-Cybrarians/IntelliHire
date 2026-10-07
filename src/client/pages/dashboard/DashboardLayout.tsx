@@ -115,13 +115,13 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
               <Link 
                 to="/simulation" 
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  isActive('/simulation') || isActive('/technical-sandbox') || isActive('/sandbox')
+                  isActive('/simulation') || isActive('/technical-sandbox') || isActive('/sandbox') || isActive('/module-3')
                     ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
                     : 'text-slate-300 hover:text-white hover:bg-[#002538]'
                 }`}
                 title="Module 3 · Technical Round"
               >
-                <Laptop className={`w-4 h-4 shrink-0 ${isActive('/simulation') || isActive('/technical-sandbox') || isActive('/sandbox') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
+                <Laptop className={`w-4 h-4 shrink-0 ${isActive('/simulation') || isActive('/technical-sandbox') || isActive('/sandbox') || isActive('/module-3') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
                 <span className="truncate">Module 3 · Technical Round</span>
               </Link>
 
