@@ -80,16 +80,34 @@ export default function AssessmentV2() {
 
   const loadBlueprints = async () => {
     try {
+      // 1. Check if an active in-progress attempt already exists for candidate
+      try {
+        const activeRes = await fetch('/api/m2/attempts/active');
+        if (activeRes.ok) {
+          const activeData = await activeRes.json() as any;
+          if (activeData.success && activeData.attempt?.id) {
+            const activeId = activeData.attempt.id;
+            setAttemptId(activeId);
+            setStartTime(Date.now());
+            setState('in_progress');
+            await fetchNextItem(activeId);
+            return;
+          }
+        }
+      } catch (_) {
+        // Continue to load blueprints if active attempt check fails
+      }
+
+      // 2. Load available blueprints
       const res = await fetch('/api/m2/blueprints');
       const data = await res.json() as any;
-      if (data.success) {
-        setBlueprints(data.blueprints || []);
-        setState('intro');
-      } else {
-        // Auto-generate a blueprint from candidate context if none exist
-        setState('intro');
+      const bps = Array.isArray(data.blueprints) ? data.blueprints : [];
+      setBlueprints(bps);
+      if (bps.length > 0 && !selectedBlueprint) {
+        setSelectedBlueprint(bps[0].id);
       }
-    } catch (e) {
+      setState('intro');
+    } catch (e: any) {
       setError('Failed to load assessment blueprints');
       setState('error');
     }
@@ -97,25 +115,55 @@ export default function AssessmentV2() {
 
   const startAttempt = async () => {
     setState('loading');
+    setError('');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const res = await fetch('/api/m2/attempts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blueprint_id: selectedBlueprint })
+        body: JSON.stringify({ blueprint_id: selectedBlueprint || undefined }),
+        signal: controller.signal
       });
-      const data = await res.json() as any;
-      if (!res.ok || !data.success) {
+      clearTimeout(timeoutId);
+
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
+      const aid = data.attempt_id || data.id;
+      if (!res.ok || (!data.success && !aid)) {
         setError(data.error || 'Failed to start assessment');
         setState('error');
         return;
       }
-      setAttemptId(data.attempt_id);
+
+      setAttemptId(aid);
       setStartTime(Date.now());
       setState('in_progress');
-      fetchNextItem(data.attempt_id);
-    } catch (e) {
-      setError('Network error starting assessment');
+      await fetchNextItem(aid);
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      if (e.name === 'AbortError') {
+        setError('Assessment initialization timed out. Please try again.');
+      } else {
+        setError(e.message || 'Network error starting assessment');
+      }
       setState('error');
+    }
+  };
+
+  const handleRetry = () => {
+    setError('');
+    if (attemptId) {
+      setState('in_progress');
+      fetchNextItem(attemptId);
+    } else {
+      startAttempt();
     }
   };
 
@@ -127,9 +175,18 @@ export default function AssessmentV2() {
         await completeAttempt(aid);
         return;
       }
-      if (data.success && data.item) {
-        setCurrentItem(data.item);
-        try { setItemContent(JSON.parse(data.item.content_json)); } catch { setItemContent({ question: data.item.content_json }); }
+      const item = data.item;
+      if (item && item.id) {
+        setCurrentItem(item);
+        let parsedContent = item.content_json;
+        if (typeof parsedContent === 'string') {
+          try {
+            parsedContent = JSON.parse(parsedContent);
+          } catch {
+            parsedContent = { question: item.content_json };
+          }
+        }
+        setItemContent(parsedContent);
         setSelectedOption(null);
         setFreeTextResponse('');
         setLastEvaluation(null);
@@ -138,8 +195,8 @@ export default function AssessmentV2() {
         setError(data.error || 'No items available');
         setState('error');
       }
-    } catch (e) {
-      setError('Failed to fetch next question');
+    } catch (e: any) {
+      setError(e.message || 'Failed to fetch next question');
       setState('error');
     }
   };
@@ -243,7 +300,10 @@ export default function AssessmentV2() {
             <button onClick={() => navigate('/dashboard')} className="px-4 py-2.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white">
               Back to Dashboard
             </button>
-            <button onClick={() => { setError(''); setState('intro'); }} className="px-4 py-2.5 rounded-lg bg-[#FF4103] text-white hover:bg-[#e03200]">
+            <button onClick={() => { setError(''); setState('intro'); }} className="px-4 py-2.5 rounded-lg bg-slate-700 text-slate-200 hover:text-white">
+              Back to Overview
+            </button>
+            <button onClick={handleRetry} className="px-4 py-2.5 rounded-lg bg-[#FF4103] text-white hover:bg-[#e03200]">
               Try Again
             </button>
           </div>
@@ -301,7 +361,7 @@ export default function AssessmentV2() {
                 >
                   <option value="">Auto-generate from your profile</option>
                   {blueprints.map(bp => (
-                    <option key={bp.id} value={bp.id}>{bp.target_role || 'General'} — v{bp.version}</option>
+                    <option key={bp.id} value={bp.id}>{bp.title || bp.target_role || 'General Technical Aptitude'} — v{bp.version}</option>
                   ))}
                 </select>
               </div>

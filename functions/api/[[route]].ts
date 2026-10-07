@@ -2359,10 +2359,24 @@ app.get('/m2/blueprints', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
+  const orgId = dbUser?.organization_id || 'org_default_public';
 
-  const results = await c.env.DB.prepare('SELECT * FROM assessment_blueprint WHERE organization_id = ?').bind(dbUser.organization_id).all();
-  return c.json({ blueprints: results.results });
+  let results = await c.env.DB.prepare('SELECT * FROM assessment_blueprint WHERE organization_id = ? AND is_active = 1').bind(orgId).all();
+  if (!results.results || results.results.length === 0) {
+    results = await c.env.DB.prepare('SELECT * FROM assessment_blueprint WHERE is_active = 1').all();
+  }
+
+  const blueprints = (results.results || []).map((bp: any) => {
+    let conf: any = {};
+    try { conf = JSON.parse(bp.configuration_json || '{}'); } catch {}
+    return {
+      ...bp,
+      title: conf.title || bp.target_role || 'General Assessment',
+      ...conf
+    };
+  });
+
+  return c.json({ success: true, blueprints });
 });
 
 app.get('/m2/blueprints/:id', async (c) => {
@@ -2870,39 +2884,88 @@ app.post('/m2/items/generate', async (c) => {
 
 // Assessment Attempts
 app.post('/m2/attempts', async (c) => {
+  try {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+    const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+
+    const body = await c.req.json().catch(() => ({}));
+    const { blueprint_id, purpose, context_data_json } = body || {};
+
+    // 1. Idempotency & Resumption: check if candidate already has an in-progress attempt
+    const activeAttempt = await c.env.DB.prepare(
+      "SELECT id, blueprint_id, status, adaptive_state_json FROM assessment_attempt WHERE user_id = ? AND status = 'in_progress' ORDER BY created_at DESC LIMIT 1"
+    ).bind(user.id).first();
+
+    if (activeAttempt) {
+      return c.json({
+        success: true,
+        attempt_id: activeAttempt.id,
+        id: activeAttempt.id,
+        status: 'in_progress',
+        resumed: true,
+        purpose: purpose || 'recruitment'
+      });
+    }
+
+    // 2. Resolve blueprint if not provided or invalid
+    let resolvedBlueprintId = blueprint_id;
+    if (!resolvedBlueprintId) {
+      const bpRow = await c.env.DB.prepare(
+        'SELECT id FROM assessment_blueprint WHERE (organization_id = ? OR organization_id = ?) AND is_active = 1 ORDER BY created_at ASC LIMIT 1'
+      ).bind(orgId, 'org_default_public').first();
+      resolvedBlueprintId = bpRow?.id;
+    }
+
+    if (!resolvedBlueprintId) {
+      // Create fallback default blueprint to guarantee FK validity
+      resolvedBlueprintId = 'bp_general_tech';
+      await c.env.DB.prepare(
+        'INSERT OR IGNORE INTO assessment_blueprint (id, organization_id, target_role, configuration_json, is_active) VALUES (?, ?, ?, ?, 1)'
+      ).bind(resolvedBlueprintId, orgId, 'General Software Engineer', JSON.stringify({ title: 'General Technical Aptitude & Systems Engineering' })).run();
+    }
+
+    const id = crypto.randomUUID();
+    const initialAdaptiveState = {
+      skillEstimates: {},
+      usedItems: [],
+      itemCount: 0
+    };
+
+    const attemptPurpose = purpose || 'recruitment';
+    const provenance = generatePurposeProvenance(attemptPurpose, {
+      organization_id: orgId,
+      user_id: user.id,
+      attempt_id: id,
+      ip_address: c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1'
+    });
+
+    const mergedContext = {
+      ...(context_data_json || {}),
+      purpose: attemptPurpose,
+      purpose_provenance: provenance
+    };
+
+    await c.env.DB.prepare(
+      'INSERT INTO assessment_attempt (id, user_id, blueprint_id, status, adaptive_state_json, context_data_json) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(id, user.id, resolvedBlueprintId, 'in_progress', JSON.stringify(initialAdaptiveState), JSON.stringify(mergedContext)).run();
+    
+    await logAuditEvent(c, orgId, user.id, 'START', 'ATTEMPT', id, { purpose: attemptPurpose });
+    return c.json({ success: true, attempt_id: id, id, status: 'in_progress', purpose: attemptPurpose });
+  } catch (err: any) {
+    console.error('Error starting assessment attempt:', err);
+    return c.json({ success: false, error: err.message || 'Failed to start assessment attempt' }, 500);
+  }
+});
+
+app.get('/m2/attempts/active', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-  if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
-
-  const { blueprint_id, purpose, context_data_json } = await c.req.json();
-  const id = crypto.randomUUID();
-  const initialAdaptiveState = {
-    skillEstimates: {},
-    usedItems: [],
-    itemCount: 0
-  };
-
-  const attemptPurpose = purpose || 'recruitment';
-  const provenance = generatePurposeProvenance(attemptPurpose, {
-    organization_id: dbUser.organization_id as string,
-    user_id: user.id,
-    attempt_id: id,
-    ip_address: c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1'
-  });
-
-  const mergedContext = {
-    ...(context_data_json || {}),
-    purpose: attemptPurpose,
-    purpose_provenance: provenance
-  };
-
-  await c.env.DB.prepare(
-    'INSERT INTO assessment_attempt (id, user_id, blueprint_id, status, adaptive_state_json, context_data_json) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(id, user.id, blueprint_id, 'in_progress', JSON.stringify(initialAdaptiveState), JSON.stringify(mergedContext)).run();
-  
-  await logAuditEvent(c, dbUser.organization_id as string, user.id, 'START', 'ATTEMPT', id, { purpose: attemptPurpose });
-  return c.json({ id, purpose: attemptPurpose });
+  const attempt = await c.env.DB.prepare(
+    "SELECT * FROM assessment_attempt WHERE user_id = ? AND status = 'in_progress' ORDER BY created_at DESC LIMIT 1"
+  ).bind(user.id).first();
+  return c.json({ success: true, attempt: attempt || null });
 });
 
 app.get('/m2/attempts/:id', async (c) => {
@@ -2911,110 +2974,209 @@ app.get('/m2/attempts/:id', async (c) => {
   const attemptId = c.req.param('id');
   const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ? AND user_id = ?').bind(attemptId, user.id).first();
   if (!attempt) return c.json({ error: 'Not found' }, 404);
-  return c.json({ attempt });
+  return c.json({ success: true, attempt });
 });
 
 app.get('/m2/attempts/:id/next', async (c) => {
-  const user = await getSessionUser(c);
-  if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const attemptId = c.req.param('id');
-  
-  const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ? AND user_id = ?').bind(attemptId, user.id).first();
-  if (!attempt) return c.json({ error: 'Not found' }, 404);
-  if (attempt.status !== 'in_progress') return c.json({ error: 'Attempt not in progress' }, 400);
+  try {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const attemptId = c.req.param('id');
+    
+    const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ? AND user_id = ?').bind(attemptId, user.id).first();
+    if (!attempt) return c.json({ error: 'Not found' }, 404);
+    if (attempt.status !== 'in_progress') return c.json({ success: true, completed: true, status: attempt.status });
 
-  const state = JSON.parse((attempt.adaptive_state_json as string) || '{}');
-  const usedItems = state.usedItems || [];
-  const itemCount = state.itemCount || 0;
-  
-  if (itemCount >= 20) { // Max items threshold
-    await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed' WHERE id = ?").bind(attemptId).run();
-    return c.json({ completed: true });
-  }
-
-  // Simplified Adaptive Selection: Pick highest uncertainty skill
-  const skillUncertainties = state.skillEstimates || {};
-  let targetSkill = null;
-  let maxUncertainty = 0;
-  
-  for (const [skillId, stats] of Object.entries(skillUncertainties)) {
-    const s = stats as any;
-    if (s.uncertainty > maxUncertainty) {
-      maxUncertainty = s.uncertainty;
-      targetSkill = skillId;
+    const state = JSON.parse((attempt.adaptive_state_json as string) || '{}');
+    const usedItems: string[] = state.usedItems || [];
+    const itemCount: number = state.itemCount || 0;
+    
+    if (itemCount >= 20) { // Max items threshold
+      await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?").bind(attemptId).run();
+      return c.json({ success: true, completed: true });
     }
+
+    // Adaptive Selection: Pick highest uncertainty skill
+    const skillUncertainties = state.skillEstimates || {};
+    let targetSkill = null;
+    let maxUncertainty = 0;
+    
+    for (const [skillId, stats] of Object.entries(skillUncertainties)) {
+      const s = stats as any;
+      if (s.uncertainty > maxUncertainty) {
+        maxUncertainty = s.uncertainty;
+        targetSkill = skillId;
+      }
+    }
+
+    let itemQuery = 'SELECT * FROM assessment_item_v2 WHERE validation_status IN (?, ?)';
+    const params: any[] = ['published', 'ai_validated'];
+    
+    if (targetSkill) {
+      itemQuery += ' AND skill_id = ?';
+      params.push(targetSkill);
+    }
+    
+    if (usedItems.length > 0) {
+      itemQuery += ` AND id NOT IN (${usedItems.map(() => '?').join(',')})`;
+      params.push(...usedItems);
+    }
+    itemQuery += ' ORDER BY difficulty_level ASC LIMIT 1';
+
+    let nextItem = await c.env.DB.prepare(itemQuery).bind(...params).first();
+    
+    // Fallback: If no item found for specific targetSkill, search across all available published items
+    if (!nextItem && targetSkill) {
+      let fallbackQuery = 'SELECT * FROM assessment_item_v2 WHERE validation_status IN (?, ?)';
+      const fallbackParams: any[] = ['published', 'ai_validated'];
+      if (usedItems.length > 0) {
+        fallbackQuery += ` AND id NOT IN (${usedItems.map(() => '?').join(',')})`;
+        fallbackParams.push(...usedItems);
+      }
+      fallbackQuery += ' ORDER BY difficulty_level ASC LIMIT 1';
+      nextItem = await c.env.DB.prepare(fallbackQuery).bind(...fallbackParams).first();
+    }
+
+    if (!nextItem) {
+      // If candidate answered all items available in item bank, complete attempt
+      await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?").bind(attemptId).run();
+      return c.json({ success: true, completed: true });
+    }
+
+    state.usedItems = [...usedItems, nextItem.id];
+    state.itemCount = itemCount + 1;
+    state.lastSelectionReason = targetSkill ? `Targeted skill ${targetSkill} with uncertainty ${maxUncertainty}` : 'Progressive verification';
+
+    await c.env.DB.prepare('UPDATE assessment_attempt SET adaptive_state_json = ? WHERE id = ?').bind(JSON.stringify(state), attemptId).run();
+
+    return c.json({ success: true, item: nextItem, completed: false });
+  } catch (err: any) {
+    console.error('Error in next item:', err);
+    return c.json({ success: false, error: err.message || 'Failed to fetch next question' }, 500);
   }
-
-  // If no state or all below threshold, try to get a random skill from blueprint if we could, 
-  // for simplicity here we query items not used.
-  let itemQuery = 'SELECT * FROM assessment_item_v2 WHERE validation_status IN (?, ?)';
-  const params: any[] = ['ai_validated', 'published'];
-  
-  if (targetSkill) {
-    itemQuery += ' AND skill_id = ?';
-    params.push(targetSkill);
-  }
-  
-  if (usedItems.length > 0) {
-    itemQuery += ` AND id NOT IN (${usedItems.map(() => '?').join(',')})`;
-    params.push(...usedItems);
-  }
-  itemQuery += ' LIMIT 1';
-
-  const nextItem = await c.env.DB.prepare(itemQuery).bind(...params).first();
-  
-  if (!nextItem) {
-    // Terminate if no more items
-    await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed' WHERE id = ?").bind(attemptId).run();
-    return c.json({ completed: true });
-  }
-
-  state.usedItems = [...usedItems, nextItem.id];
-  state.itemCount = itemCount + 1;
-  state.lastSelectionReason = targetSkill ? `Targeted skill ${targetSkill} with uncertainty ${maxUncertainty}` : 'Exploration';
-
-  await c.env.DB.prepare('UPDATE assessment_attempt SET adaptive_state_json = ? WHERE id = ?').bind(JSON.stringify(state), attemptId).run();
-
-  return c.json({ item: nextItem, completed: false });
 });
 
 app.post('/m2/attempts/:id/respond', async (c) => {
+  try {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
     const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-    if (!dbUser?.organization_id) return c.json({ error: 'Org not found' }, 403);
-  
+    const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+
     const attemptId = c.req.param('id');
     const body = await c.req.json();
     const item_id = body.item_id;
     const response_data_json = body.response_data || body.response_data_json;
     const responseId = crypto.randomUUID();
-  
+
     await c.env.DB.prepare(
       'INSERT INTO assessment_response_v2 (id, attempt_id, item_id, response_data_json) VALUES (?, ?, ?, ?)'
     ).bind(responseId, attemptId, item_id, JSON.stringify(response_data_json)).run();
-  
-    await logAuditEvent(c, dbUser.organization_id as string, user.id, 'RESPOND', 'ATTEMPT', attemptId, { response_id: responseId });
-  
+
+    await logAuditEvent(c, orgId, user.id, 'RESPOND', 'ATTEMPT', attemptId, { response_id: responseId });
+
     const item = await c.env.DB.prepare('SELECT * FROM assessment_item_v2 WHERE id = ?').bind(item_id).first();
     const attempt = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE id = ?').bind(attemptId).first();
     if (!item || !attempt) return c.json({ success: true, id: responseId });
-  
+
     const evaluation = await evaluateAndTeach(c.env, { id: responseId, ...body }, item, attempt, response_data_json);
-  
+
     return c.json({ 
       success: true, 
       id: responseId,
       evaluation
     });
-  });
+  } catch (err: any) {
+    console.error('Error submitting response:', err);
+    return c.json({ success: false, error: err.message || 'Failed to submit response' }, 500);
+  }
+});
 
-  app.post('/m2/attempts/:id/complete', async (c) => {
+app.post('/m2/attempts/:id/complete', async (c) => {
+  try {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    const attemptId = c.req.param('id');
+    await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?").bind(attemptId, user.id).run();
+    return c.json({ success: true });
+  } catch (err: any) {
+    console.error('Error completing attempt:', err);
+    return c.json({ success: false, error: err.message || 'Failed to complete attempt' }, 500);
+  }
+});
+
+// Candidate Proficiency Profile
+app.get('/m2/proficiency', async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
-  const attemptId = c.req.param('id');
-  await c.env.DB.prepare("UPDATE assessment_attempt SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?").bind(attemptId, user.id).run();
-  return c.json({ success: true });
+  const results = await c.env.DB.prepare(`
+    SELECT p.id, p.user_id, p.skill_id, p.proficiency_estimate, p.uncertainty_estimate, p.evidence_status, p.last_updated_at,
+           COALESCE(s.name, p.skill_id) as skill_name
+    FROM candidate_skill_proficiency_v2 p
+    LEFT JOIN skill s ON p.skill_id = s.id
+    WHERE p.user_id = ?
+    ORDER BY p.last_updated_at DESC
+  `).bind(user.id).all();
+  return c.json({ success: true, proficiency: results.results || [] });
+});
+
+// Candidate Gap Analysis
+app.get('/m2/gaps', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  
+  const gapResults = await c.env.DB.prepare(`
+    SELECT g.id, g.user_id, g.skill_id, g.gap_type, g.severity, g.evidence_json, g.recommendation, g.created_at,
+           COALESCE(s.name, g.skill_id) as skill_name
+    FROM candidate_gap g
+    LEFT JOIN skill s ON g.skill_id = s.id
+    WHERE g.user_id = ?
+    ORDER BY g.created_at DESC
+  `).bind(user.id).all();
+
+  if (gapResults.results && gapResults.results.length > 0) {
+    return c.json({ success: true, gaps: gapResults.results });
+  }
+
+  // Fallback: derive gaps from evaluated proficiency
+  const lowProf = await c.env.DB.prepare(`
+    SELECT p.skill_id, COALESCE(s.name, p.skill_id) as skill_name, p.proficiency_estimate, p.uncertainty_estimate
+    FROM candidate_skill_proficiency_v2 p
+    LEFT JOIN skill s ON p.skill_id = s.id
+    WHERE p.user_id = ? AND p.proficiency_estimate < 0.7
+  `).bind(user.id).all();
+
+  const derivedGaps = (lowProf.results || []).map((row: any) => ({
+    skill_id: row.skill_id,
+    skill_name: row.skill_name,
+    gap_type: row.proficiency_estimate < 0.4 ? 'critical_deficiency' : 'partial_mastery',
+    severity: row.proficiency_estimate < 0.4 ? 'high' : 'medium',
+    recommendation: `Recommended focused practice on ${row.skill_name} to strengthen mastery.`
+  }));
+
+  return c.json({ success: true, gaps: derivedGaps });
+});
+
+// Evidence Package Generation
+app.get('/m2/evidence-package', async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  const prof = await c.env.DB.prepare(`
+    SELECT p.*, COALESCE(s.name, p.skill_id) as skill_name
+    FROM candidate_skill_proficiency_v2 p
+    LEFT JOIN skill s ON p.skill_id = s.id
+    WHERE p.user_id = ?
+  `).bind(user.id).all();
+  const attempts = await c.env.DB.prepare('SELECT * FROM assessment_attempt WHERE user_id = ? ORDER BY created_at DESC LIMIT 5').bind(user.id).all();
+  return c.json({
+    success: true,
+    package: {
+      user_id: user.id,
+      generated_at: new Date().toISOString(),
+      proficiencies: prof.results || [],
+      attempts: attempts.results || []
+    }
+  });
 });
 
 // Evaluation
