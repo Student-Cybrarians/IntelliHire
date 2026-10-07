@@ -21,6 +21,7 @@ interface SimulationDef {
   rubric: any;
   is_recommended_for_gap?: boolean;
   recommendation_reason?: string;
+  user_session_status?: string | null;
 }
 
 export default function Module3Simulation() {
@@ -57,11 +58,32 @@ export default function Module3Simulation() {
     }
   };
 
+  const checkActiveSession = async () => {
+    try {
+      const res = await fetch('/api/m3/simulations/sessions/active');
+      const data = await res.json() as any;
+      if (data.success && data.active_session) {
+        const s = data.active_session;
+        setActiveSim(s.definition);
+        setSessionId(s.id);
+        setCurrentStep(s.current_step || 1);
+        setCandidateWork(s.candidate_work || s.definition?.scenario?.starting_data || {});
+        setTelemetryCount(s.telemetry_events_count || 0);
+        if (s.dynamic_state?.injected) {
+          setDynamicAlert(s.dynamic_state.injection);
+        }
+      }
+    } catch (e) {
+      console.warn('No active simulation session restored:', e);
+    }
+  };
+
   useEffect(() => {
     loadDefinitions();
+    checkActiveSession();
   }, []);
 
-  const startSimulation = async (def: SimulationDef) => {
+  const startSimulation = async (def: SimulationDef, forceNew: boolean = false) => {
     setLoading(true);
     setEvaluation(null);
     setDynamicAlert(null);
@@ -70,23 +92,42 @@ export default function Module3Simulation() {
       const res = await fetch('/api/m3/simulations/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ definition_id: def.id })
+        body: JSON.stringify({ definition_id: def.id, force_new: forceNew })
       });
-      const data = await res.json() as any;
-      if (data.success) {
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && data.success) {
         setActiveSim(def);
         setSessionId(data.session_id);
         setCurrentStep(data.session.current_step || 1);
         setCandidateWork(data.session.candidate_work || def.scenario.starting_data || {});
+        setTelemetryCount(data.session.telemetry_events_count || 0);
         if (data.session.dynamic_state?.injected) {
           setDynamicAlert(data.session.dynamic_state.injection);
         }
+      } else {
+        alert(data.error || 'Error starting simulation session');
       }
     } catch (e) {
       alert('Error starting simulation session');
     } finally {
       setLoading(false);
     }
+  };
+
+  const abandonSession = async () => {
+    if (!sessionId) return;
+    if (!window.confirm('Are you sure you want to abandon this simulation session? Your progress will be reset.')) return;
+    try {
+      await fetch(`/api/m3/simulations/sessions/${sessionId}/abandon`, { method: 'POST' });
+    } catch (_) {}
+    setActiveSim(null);
+    setSessionId(null);
+    setEvaluation(null);
+    setCandidateWork({});
+    setTelemetryCount(0);
+    setCurrentStep(1);
+    setDynamicAlert(null);
+    loadDefinitions();
   };
 
   const recordAction = async (actionType: string, payload: any, updatedWork?: any) => {
@@ -173,7 +214,7 @@ export default function Module3Simulation() {
 
           {activeSim && (
             <button
-              onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); }}
+              onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); }}
               className="px-4 py-2.5 rounded-xl bg-[#001f2e] border border-[#063750] text-slate-300 hover:text-white text-xs font-bold flex items-center gap-2 transition-colors"
             >
               <Layers className="w-4 h-4" />
@@ -223,7 +264,19 @@ export default function Module3Simulation() {
                       <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103] bg-[#FF4103]/10 px-2 py-0.5 rounded">
                         {sim.simulation_type.replace('_', ' ')}
                       </span>
-                      <span className="text-xs text-slate-400 font-mono">Level {sim.difficulty_level}</span>
+                      <div className="flex items-center gap-2">
+                        {sim.user_session_status === 'in_progress' && (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                            In Progress
+                          </span>
+                        )}
+                        {sim.user_session_status === 'completed' && (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                            Completed
+                          </span>
+                        )}
+                        <span className="text-xs text-slate-400 font-mono">Level {sim.difficulty_level}</span>
+                      </div>
                     </div>
 
                     {sim.is_recommended_for_gap && (
@@ -249,10 +302,20 @@ export default function Module3Simulation() {
 
                   <button
                     onClick={() => startSimulation(sim)}
-                    className="w-full mt-6 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-[#FF4103]/20 transition-all"
+                    className={`w-full mt-6 py-2.5 rounded-xl text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md transition-all ${
+                      sim.user_session_status === 'in_progress'
+                        ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/20'
+                        : 'bg-[#FF4103] hover:bg-[#e03200] shadow-[#FF4103]/20'
+                    }`}
                   >
                     <Play className="w-3.5 h-3.5" />
-                    <span>Launch Simulation Workspace</span>
+                    <span>
+                      {sim.user_session_status === 'in_progress'
+                        ? 'Resume Simulation Workspace'
+                        : sim.user_session_status === 'completed'
+                        ? 'Restart Simulation Workspace'
+                        : 'Launch Simulation Workspace'}
+                    </span>
                   </button>
                 </div>
               ))}
@@ -287,6 +350,13 @@ export default function Module3Simulation() {
                   </button>
                 )}
                 <span className="text-xs text-slate-500 font-mono">{telemetryCount} actions logged</span>
+                <button
+                  onClick={abandonSession}
+                  className="px-3 py-1.5 rounded-lg bg-red-950/20 border border-red-500/30 text-red-400 hover:bg-red-900/30 text-xs font-bold transition-all"
+                  title="Abandon this simulation session and return to catalog"
+                >
+                  Abandon
+                </button>
               </div>
             </div>
 
@@ -594,7 +664,7 @@ export default function Module3Simulation() {
                   <span>Evidence recorded into Candidate Portfolio & verified readiness updated.</span>
                 </div>
                 <button
-                  onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); }}
+                  onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); }}
                   className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-[#FF4103]/20"
                 >
                   <ArrowRight className="w-4 h-4" />

@@ -280,4 +280,33 @@ describe('Priority 15: M03 Technical / Domain / Professional Simulation Intellig
     const data = await res.json() as any;
     expect(data.error).toContain('Valid definition_id required');
   });
+
+  it('9. GET /api/m3/simulations/sessions/active returns the candidate active session for page reload', async () => {
+    const env = createMockEnv({ session_id: 'sim-sess-1', definition_id: 'sim-tech-rate-limiter' });
+    const req = new Request('http://localhost/api/m3/simulations/sessions/active', {
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.active_session).toBeDefined();
+    expect(data.active_session.id).toBe('sim-sess-1');
+    expect(data.active_session.definition.id).toBe('sim-tech-rate-limiter');
+  });
+
+  it('10. POST /api/m3/simulations/sessions/:id/abandon marks session abandoned', async () => {
+    const env = createMockEnv({ session_id: 'sim-sess-1' });
+    const req = new Request('http://localhost/api/m3/simulations/sessions/sim-sess-1/abandon', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.abandoned).toBe(true);
+  });
 });

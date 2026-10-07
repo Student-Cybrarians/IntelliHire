@@ -300,6 +300,38 @@ class TokenBucketRateLimiter {
   }
 ];
 
+async function ensureDefinitionInDb(db: any, def: (typeof SEED_SIMULATIONS)[0], orgId: string) {
+  try {
+    const existing = await db.prepare('SELECT id FROM simulation_definition WHERE id = ?').bind(def.id).first();
+    if (!existing) {
+      await db.prepare(
+        `INSERT INTO simulation_definition (
+          id, organization_id, title, occupation_code, target_role, domain, simulation_type,
+          competency_name, skill_name, difficulty_level, scenario_json, dynamic_injection_json,
+          expected_output_schema_json, rubric_json, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+      ).bind(
+        def.id,
+        orgId,
+        def.title,
+        def.occupation_code,
+        def.target_role,
+        def.domain,
+        def.simulation_type,
+        def.competency_name,
+        def.skill_name,
+        def.difficulty_level || 2,
+        JSON.stringify(def.scenario || {}),
+        JSON.stringify(def.dynamic_injection || {}),
+        JSON.stringify({ type: def.scenario?.expected_output_type || 'string' }),
+        JSON.stringify(def.rubric || {})
+      ).run();
+    }
+  } catch (e) {
+    console.warn('ensureDefinitionInDb notice:', e);
+  }
+}
+
 export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // 1. List Simulation Definitions (with M02 Gap-Targeting)
@@ -320,12 +352,24 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
     const gapSkillNames = (candidateGaps.results || []).map((g: any) => (g.skill_name || '').toLowerCase());
 
+    // Check candidate's sessions for status indicators
+    let sessionMap = new Map<string, string>();
+    try {
+      const candidateSessions = await c.env.DB.prepare(
+        `SELECT definition_id, status FROM simulation_session WHERE user_id = ?`
+      ).bind(user.id).all();
+      for (const row of (candidateSessions.results || [])) {
+        sessionMap.set(row.definition_id as string, row.status as string);
+      }
+    } catch (_) {}
+
     // Filter seed simulations
     let results = SEED_SIMULATIONS.map(sim => {
       const isTargetedGap = gapSkillNames.some(g => sim.skill_name.toLowerCase().includes(g) || sim.competency_name.toLowerCase().includes(g));
       return {
         ...sim,
         is_recommended_for_gap: isTargetedGap,
+        user_session_status: sessionMap.get(sim.id) || null,
         recommendation_reason: isTargetedGap 
           ? `Directly targets diagnosed uncertainty in ${sim.skill_name} from M02 assessment` 
           : 'Standard domain competency simulation'
@@ -366,63 +410,139 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // 3. Start or Resume Simulation Session
   app.post('/m3/simulations/sessions', async (c) => {
-    const user = await getSessionUser(c);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-    const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
 
-    const { definition_id } = await c.req.json().catch(() => ({}));
-    const def = SEED_SIMULATIONS.find(s => s.id === definition_id);
-    if (!def) return c.json({ error: 'Valid definition_id required' }, 400);
+      const body = await c.req.json().catch(() => ({}));
+      const { definition_id, force_new } = body;
+      const def = SEED_SIMULATIONS.find(s => s.id === definition_id);
+      if (!def) return c.json({ error: 'Valid definition_id required' }, 400);
 
-    // Check for existing active session to resume
-    const existing = await c.env.DB.prepare(
-      `SELECT * FROM simulation_session 
-       WHERE user_id = ? AND definition_id = ? AND status IN ('active', 'in_progress')
-       ORDER BY updated_at DESC LIMIT 1`
-    ).bind(user.id, def.id).first();
+      // Self-healing: Ensure definition exists in simulation_definition table to guarantee FK integrity
+      await ensureDefinitionInDb(c.env.DB, def, orgId);
 
-    if (existing) {
+      // Check for existing active session to resume unless force_new requested
+      if (!force_new) {
+        const existing = await c.env.DB.prepare(
+          `SELECT * FROM simulation_session 
+           WHERE user_id = ? AND definition_id = ? AND status IN ('active', 'in_progress')
+           ORDER BY updated_at DESC LIMIT 1`
+        ).bind(user.id, def.id).first();
+
+        if (existing) {
+          const tevents = JSON.parse((existing.telemetry_events_json as string) || '[]');
+          return c.json({
+            success: true,
+            resumed: true,
+            session_id: existing.id,
+            definition: def,
+            session: {
+              id: existing.id,
+              status: existing.status,
+              current_step: existing.current_step,
+              candidate_work: JSON.parse((existing.candidate_work_json as string) || '{}'),
+              dynamic_state: JSON.parse((existing.dynamic_state_json as string) || '{}'),
+              telemetry_events_count: tevents.length
+            }
+          });
+        }
+      } else {
+        // Abandon any existing active session for this definition
+        await c.env.DB.prepare(
+          `UPDATE simulation_session SET status = 'abandoned', updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND definition_id = ? AND status IN ('active', 'in_progress')`
+        ).bind(user.id, def.id).run();
+      }
+
+      const sessionId = crypto.randomUUID();
+      const initialWork = def.scenario.starting_data || {};
+
+      await c.env.DB.prepare(
+        `INSERT INTO simulation_session 
+         (id, user_id, organization_id, definition_id, status, current_step, dynamic_state_json, candidate_work_json, telemetry_events_json)
+         VALUES (?, ?, ?, ?, 'in_progress', 1, '{}', ?, '[]')`
+      ).bind(sessionId, user.id, orgId, def.id, JSON.stringify(initialWork)).run();
+
+      await logAuditEvent(c, orgId, user.id, 'START', 'SIMULATION_SESSION', sessionId, { definition_id: def.id });
+
       return c.json({
         success: true,
-        resumed: true,
-        session_id: existing.id,
+        resumed: false,
+        session_id: sessionId,
         definition: def,
         session: {
-          id: existing.id,
-          status: existing.status,
-          current_step: existing.current_step,
-          candidate_work: JSON.parse((existing.candidate_work_json as string) || '{}'),
-          dynamic_state: JSON.parse((existing.dynamic_state_json as string) || '{}')
+          id: sessionId,
+          status: 'in_progress',
+          current_step: 1,
+          candidate_work: initialWork,
+          dynamic_state: {},
+          telemetry_events_count: 0
         }
       });
+    } catch (err: any) {
+      console.error('Error starting simulation session:', err);
+      return c.json({ success: false, error: err.message || 'Error starting simulation session' }, 500);
     }
+  });
 
-    const sessionId = crypto.randomUUID();
-    const initialWork = def.scenario.starting_data || {};
+  // 3a. Get active session for current candidate (across any definition, for refresh restoration)
+  app.get('/m3/simulations/sessions/active', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    await c.env.DB.prepare(
-      `INSERT INTO simulation_session 
-       (id, user_id, organization_id, definition_id, status, current_step, dynamic_state_json, candidate_work_json, telemetry_events_json)
-       VALUES (?, ?, ?, ?, 'in_progress', 1, '{}', ?, '[]')`
-    ).bind(sessionId, user.id, orgId, def.id, JSON.stringify(initialWork)).run();
+      const session = await c.env.DB.prepare(
+        `SELECT * FROM simulation_session 
+         WHERE user_id = ? AND status IN ('active', 'in_progress')
+         ORDER BY updated_at DESC LIMIT 1`
+      ).bind(user.id).first();
 
-    await logAuditEvent(c, orgId, user.id, 'START', 'SIMULATION_SESSION', sessionId, { definition_id: def.id });
-
-    return c.json({
-      success: true,
-      resumed: false,
-      session_id: sessionId,
-      definition: def,
-      session: {
-        id: sessionId,
-        status: 'in_progress',
-        current_step: 1,
-        candidate_work: initialWork,
-        dynamic_state: {}
+      if (!session) {
+        return c.json({ success: true, active_session: null });
       }
-    });
+
+      const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id);
+      const tevents = JSON.parse((session.telemetry_events_json as string) || '[]');
+
+      return c.json({
+        success: true,
+        active_session: {
+          id: session.id,
+          definition_id: session.definition_id,
+          status: session.status,
+          current_step: session.current_step,
+          definition: def,
+          candidate_work: JSON.parse((session.candidate_work_json as string) || '{}'),
+          dynamic_state: JSON.parse((session.dynamic_state_json as string) || '{}'),
+          telemetry_events_count: tevents.length,
+          updated_at: session.updated_at
+        }
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // 3b. Abandon active session
+  app.post('/m3/simulations/sessions/:id/abandon', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const sessionId = c.req.param('id');
+      await c.env.DB.prepare(
+        `UPDATE simulation_session SET status = 'abandoned', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_id = ?`
+      ).bind(sessionId, user.id).run();
+
+      return c.json({ success: true, abandoned: true });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
   });
 
   // 4. Get Session State
@@ -528,13 +648,14 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // 7. Submit Work & Multi-Dimensional Evaluation (Phases 6, 7 & 8)
   app.post('/m3/simulations/sessions/:id/submit', async (c) => {
-    const user = await getSessionUser(c);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const sessionId = c.req.param('id');
-    const session = await c.env.DB.prepare(
-      'SELECT * FROM simulation_session WHERE id = ? AND user_id = ?'
-    ).bind(sessionId, user.id).first();
+      const sessionId = c.req.param('id');
+      const session = await c.env.DB.prepare(
+        'SELECT * FROM simulation_session WHERE id = ? AND user_id = ?'
+      ).bind(sessionId, user.id).first();
 
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
@@ -609,34 +730,43 @@ Return ONLY valid JSON matching this schema:
   ]
 }`;
 
-        const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${c.env.NVIDIA_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'meta/muse-glimmer-30b',
-            messages: [
-              { role: 'system', content: 'You are an expert practical performance assessor. Return ONLY valid JSON.' },
-              { role: 'user', content: evalPrompt }
-            ],
-            temperature: 0.1,
-            max_tokens: 1200
-          })
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        try {
+          const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${c.env.NVIDIA_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'meta/muse-glimmer-30b',
+              messages: [
+                { role: 'system', content: 'You are an expert practical performance assessor. Return ONLY valid JSON.' },
+                { role: 'user', content: evalPrompt }
+              ],
+              temperature: 0.1,
+              max_tokens: 600
+            }),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
 
-        if (aiResp.ok) {
-          const aiData = await aiResp.json() as any;
-          const content = aiData.choices?.[0]?.message?.content || '{}';
-          const parsed = JSON.parse(content.substring(content.indexOf('{'), content.lastIndexOf('}') + 1));
-          if (typeof parsed.overall_score === 'number') {
-            overallScore = parsed.overall_score;
-            dimensionScores = parsed.dimension_scores || {};
-            observableEvidence = parsed.observable_evidence || {};
-            modelInterpretation = parsed.model_interpretation || {};
-            remediationTasks = parsed.remediation_recommendation || [];
+          if (aiResp.ok) {
+            const aiData = await aiResp.json() as any;
+            const content = aiData.choices?.[0]?.message?.content || '{}';
+            const parsed = JSON.parse(content.substring(content.indexOf('{'), content.lastIndexOf('}') + 1));
+            if (typeof parsed.overall_score === 'number') {
+              overallScore = parsed.overall_score;
+              dimensionScores = parsed.dimension_scores || {};
+              observableEvidence = parsed.observable_evidence || {};
+              modelInterpretation = parsed.model_interpretation || {};
+              remediationTasks = parsed.remediation_recommendation || [];
+            }
           }
+        } catch (fetchErr) {
+          clearTimeout(timeoutId);
+          console.warn('AI evaluation timed out or failed, falling back to deterministic rubric scoring:', fetchErr);
         }
       } catch (_) {}
     }
@@ -755,6 +885,10 @@ Return ONLY valid JSON matching this schema:
         readiness_updated: true
       }
     });
+    } catch (err: any) {
+      console.error('Error submitting simulation for evaluation:', err);
+      return c.json({ success: false, error: err.message || 'Error evaluating simulation' }, 500);
+    }
   });
 
   // 8. Get Evaluation Details
