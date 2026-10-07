@@ -16,6 +16,10 @@ import {
   TaskDefinition,
   WorkRoundModality,
   seedSimulationToTaskDefinition,
+  scaleTaskToCandidateSeniority,
+  normalizeSeniorityLevel,
+  calculateTaskRepetitionFingerprint,
+  validateUniversalTaskDefinition,
   sanitizeContextForTaskTargeting,
   validateAssessmentContext
 } from '../../src/shared/m3WorkRoundContracts';
@@ -313,6 +317,168 @@ class TokenBucketRateLimiter {
         { name: 'rebuttal_logic', weight: 0.25, description: 'Force majeure counter-argument', criteria: 'Points out vendor failed to failover to secondary geo-redundant site.' },
         { name: 'tone_and_communication', weight: 0.25, description: 'Professional assertiveness', criteria: 'Rigorous legal firmness without emotional or inflammatory language.' },
         { name: 'procedural_compliance', weight: 0.20, description: 'Preserves rights without premature breach', criteria: 'Respects 30-day cure timeline while locking in claims.' }
+      ]
+    }
+  },
+  {
+    id: 'sim-tech-cloudflare-workers-failover',
+    title: 'Cloudflare Workers & Edge KV Failover Architecture',
+    occupation_code: '15-1252.00',
+    target_role: 'Cloud & Edge Infrastructure Engineer',
+    domain: 'software',
+    simulation_type: 'coding',
+    competency_name: 'Cloud, Edge & Distributed Systems',
+    skill_name: 'Cloudflare Workers & Edge Execution',
+    difficulty_level: 3,
+    scenario: {
+      background: 'A globally distributed worker gateway routes live candidate traffic across primary and secondary origin clusters. Intermittent transatlantic fiber latency causes origin timeouts.',
+      objective: 'Implement resilient edge health-checking, stale-while-revalidate KV caching, and circuit-breaking fallback in a Cloudflare Worker request handler.',
+      initial_requirements: [
+        'Route requests to healthy origin with exponential moving average latency tracking',
+        'Serve stale cached KV response within 20ms when origin returns 5xx or times out',
+        'Emit structured telemetry attributes on error state'
+      ],
+      constraints: [
+        'Worker runtime execution must not exceed 128MB memory limit',
+        'Origin subrequest timeout must terminate within 1500ms'
+      ],
+      starting_data: {
+        template_code: `// Cloudflare Worker Resilient Edge Handler
+export default {
+  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
+    // TODO: Implement health-checking and KV fallback
+    return new Response('Edge Gateway Operational', { status: 200 });
+  }
+};`
+      },
+      tools_available: ['TypeScript Code Editor', 'Edge Simulator', 'KV Namespace Inspector'],
+      expected_output_type: 'source_code'
+    },
+    dynamic_injection: {
+      trigger_step: 2,
+      alert_title: 'ORIGIN BROWN-OUT: Primary Database Connection Pool Exhausted',
+      new_requirement: 'Primary origin database pool enters lock contention. Edge worker must temporarily redirect 80% of read traffic to cached replicas without stale reads exceeding 120 seconds.',
+      constraint_change: 'Must not evict valid security auth tokens from edge KV during eviction.',
+      rationale: 'Evaluates graceful edge degradation under origin saturation.'
+    },
+    rubric: {
+      dimensions: [
+        { name: 'resilience', weight: 0.35, description: 'Circuit breaking and failover', criteria: 'Absorbs origin downtime without throwing unhandled 5xx exceptions.' },
+        { name: 'correctness', weight: 0.30, description: 'Edge handler correctness', criteria: 'Properly implements fetch interception and KV cache lookup.' },
+        { name: 'adaptability', weight: 0.20, description: 'Brownout response', criteria: 'Implements read redirection safely.' },
+        { name: 'code_quality', weight: 0.15, description: 'Edge TypeScript patterns', criteria: 'Clean TypeScript types and minimal memory overhead.' }
+      ]
+    }
+  },
+  {
+    id: 'sim-tech-api-relational-indexing',
+    title: 'PostgreSQL Index Optimization & Execution Plan Tuning',
+    occupation_code: '15-1254.00',
+    target_role: 'Senior Backend Engineer',
+    domain: 'software',
+    simulation_type: 'coding',
+    competency_name: 'API Design & Relational Modeling',
+    skill_name: 'API Design & Relational Modeling',
+    difficulty_level: 3,
+    scenario: {
+      background: 'The core candidate audit ledger table with 40M rows experiences seq scans during batch export, locking database CPU at 98%.',
+      objective: 'Analyze the EXPLAIN ANALYZE plan, write composite index migrations, and rewrite the query to utilize index-only scans without table locks.',
+      initial_requirements: [
+        'Eliminate heap fetches on timestamp and tenant_id filtering',
+        'Create zero-downtime concurrent index migration SQL',
+        'Benchmark query runtime reduction below 100ms'
+      ],
+      constraints: [
+        'Total index disk footprint must not exceed 20% of base table size',
+        'Migration must execute CONCURRENTLY without ACCESS EXCLUSIVE locks'
+      ],
+      starting_data: {
+        raw_query: 'SELECT user_id, event_type, created_at FROM candidate_audit_event WHERE tenant_id = $1 AND created_at >= $2 ORDER BY created_at DESC LIMIT 50;'
+      },
+      tools_available: ['SQL Query Editor', 'Execution Plan Visualizer', 'Index Footprint Calculator'],
+      expected_output_type: 'sql_migration'
+    },
+    rubric: {
+      dimensions: [
+        { name: 'correctness', weight: 0.35, description: 'Index-only scan utilization', criteria: 'Eliminates table heap access for targeted query.' },
+        { name: 'architecture', weight: 0.35, description: 'Safe migration strategy', criteria: 'Includes CONCURRENTLY modifier and handles lock timeouts.' },
+        { name: 'code_quality', weight: 0.30, description: 'Optimal column ordering', criteria: 'Orders equality columns before range columns in composite index.' }
+      ]
+    }
+  },
+  {
+    id: 'sim-tech-security-zero-trust',
+    title: 'Zero-Trust Microservice Network Policy & Lateral Movement Triage',
+    occupation_code: '15-1212.00',
+    target_role: 'Security Engineer',
+    domain: 'software',
+    simulation_type: 'coding',
+    competency_name: 'Security Operations & Incident Response',
+    skill_name: 'Security Operations & Incident Response',
+    difficulty_level: 4,
+    scenario: {
+      background: 'An internal compromised pod in the payment cluster attempted lateral egress to the secrets vault service over non-standard ports.',
+      objective: 'Draft declarative Kubernetes NetworkPolicies to enforce zero-trust default-deny egress, isolate compromised namespaces, and mandate mTLS SPIFFE verification.',
+      initial_requirements: [
+        'Define default-deny ingress and egress policies for the payments namespace',
+        'Allow strictly required DNS (port 53 UDP) and Vault API (port 8200 TCP) egress',
+        'Draft an incident triage memo detailing remediation and containment steps'
+      ],
+      constraints: [
+        'Legitimate payment processing pipelines must not experience traffic drops',
+        'Must specify CIDR blocks and podSelector labels explicitly'
+      ],
+      starting_data: {
+        cluster_layout: 'Namespace: payments (3 pods: api, worker, db-proxy); Namespace: vault (vault-server:8200)'
+      },
+      tools_available: ['NetworkPolicy YAML Editor', 'Traffic Flow Simulator', 'Audit Log Inspector'],
+      expected_output_type: 'network_policy_yaml_and_memo'
+    },
+    rubric: {
+      dimensions: [
+        { name: 'correctness', weight: 0.40, description: 'Zero-trust policy completeness', criteria: 'Prevents lateral movement while permitting legitimate Vault traffic.' },
+        { name: 'resilience', weight: 0.35, description: 'Blast radius containment', criteria: 'Strict default-deny rules with explicit port and protocol declarations.' },
+        { name: 'communication', weight: 0.25, description: 'Incident response protocol', criteria: 'Clear, actionable forensic triage report.' }
+      ]
+    }
+  },
+  {
+    id: 'sim-project-critical-path-recovery',
+    title: 'Critical Path Delay & Cross-Functional Resource Reallocation',
+    occupation_code: '11-9041.00',
+    target_role: 'Technical Program Manager',
+    domain: 'operations',
+    simulation_type: 'operational_triage',
+    competency_name: 'Delivery Governance & Program Management',
+    skill_name: 'Project Management & Operational Governance',
+    difficulty_level: 3,
+    scenario: {
+      background: 'Three weeks before GA release, the authentication microservice security audit uncovers 4 critical findings requiring 12 developer-days of remediation.',
+      objective: 'Re-calculate the project critical path, fast-track non-dependent milestones, and reallocate engineering capacity across streams to preserve the launch date without scope compromise.',
+      initial_requirements: [
+        'Identify slack/float across workstreams Alpha, Beta, and Gamma',
+        'Reassign 2 senior backend engineers from non-critical stream Beta to auth remediation',
+        'Formulate a stakeholder trade-off briefing with revised milestone gates'
+      ],
+      constraints: [
+        'Customer compliance audit milestone cannot slip past November 1st',
+        'Zero reduction in mandatory security testing coverage permitted'
+      ],
+      starting_data: {
+        workstreams: [
+          { name: 'Auth & IAM', duration_days: 18, critical_path: true, team_size: 2 },
+          { name: 'Billing UI', duration_days: 10, critical_path: false, float_days: 8, team_size: 3 },
+          { name: 'Analytics Pipeline', duration_days: 14, critical_path: false, float_days: 4, team_size: 2 }
+        ]
+      },
+      tools_available: ['Critical Path Network Diagram', 'Resource Loading Chart', 'Stakeholder Memo Editor'],
+      expected_output_type: 'project_recovery_plan'
+    },
+    rubric: {
+      dimensions: [
+        { name: 'decision_quality', weight: 0.35, description: 'Resource leveling and critical path analysis', criteria: 'Accurately identifies float and rebalances headcount to critical path.' },
+        { name: 'risk_management', weight: 0.35, description: 'Preservation of security quality gates', criteria: 'Resists dropping security fixes; protects compliance deadlines.' },
+        { name: 'stakeholder_communication', weight: 0.30, description: 'Executive memo clarity', criteria: 'Clear schedule risk communication with explicit milestone triggers.' }
       ]
     }
   }
@@ -967,6 +1133,147 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     }
   });
 
+  // 1c. Phase 3: Deliver ONE Scaled, Adaptive Universal Task at a time
+  app.get('/m3/tasks/next', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const reqId = c.req.query('requisition_id');
+      const purpose = (c.req.query('purpose') as AssessmentPurpose) || 'practice';
+
+      // 1. Resolve full candidate context & prioritized targets
+      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId, reqId, purpose);
+      const targets = bundle.targets || [];
+
+      // 2. Query candidate's past simulation sessions to discover already attempted tasks
+      let pastDefinitionIds: string[] = [];
+      try {
+        const pastSessions = await c.env.DB.prepare(
+          'SELECT definition_id FROM simulation_session WHERE user_id = ? ORDER BY created_at DESC LIMIT 20'
+        ).bind(user.id).all();
+        pastDefinitionIds = (pastSessions.results || []).map((r: any) => r.definition_id as string);
+      } catch (_) {}
+
+      // 3. Find matching seed simulation targeting the highest-priority non-repeated target
+      let matchedSeed: any = null;
+      let matchedTarget: CompetencyTarget | null = null;
+
+      for (const target of targets) {
+        const targetSkill = target.skillName.toLowerCase();
+        const targetComp = target.name.toLowerCase();
+
+        // Find candidate seed matching this target
+        const candidateSeeds = SEED_SIMULATIONS.filter(sim => {
+          const simSkill = sim.skill_name.toLowerCase();
+          const simComp = sim.competency_name.toLowerCase();
+          return simSkill === targetSkill ||
+                 simComp === targetComp ||
+                 simSkill.includes(targetSkill) ||
+                 targetSkill.includes(simSkill) ||
+                 simComp.includes(targetComp) ||
+                 targetComp.includes(simComp);
+        });
+
+        // Filter out seeds candidate has recently done
+        const unattempted = candidateSeeds.find(s => !pastDefinitionIds.includes(s.id));
+        if (unattempted) {
+          matchedSeed = unattempted;
+          matchedTarget = target;
+          break;
+        }
+      }
+
+      // If no targeted unattempted seed found, fallback to any unattempted seed in the catalogue
+      if (!matchedSeed) {
+        matchedSeed = SEED_SIMULATIONS.find(s => !pastDefinitionIds.includes(s.id));
+        if (matchedSeed) {
+          matchedTarget = targets.find(t => t.domain === matchedSeed.domain) || targets[0] || null;
+        }
+      }
+
+      // If all seeds in the catalogue have been attempted, fallback to first seed
+      if (!matchedSeed) {
+        matchedSeed = SEED_SIMULATIONS[0];
+        matchedTarget = targets[0] || null;
+      }
+
+      // 4. Transform to TaskDefinition
+      const baseTask = seedSimulationToTaskDefinition(matchedSeed, pastDefinitionIds.length + 1);
+      if (matchedTarget) {
+        baseTask.competencyTarget = matchedTarget;
+      }
+
+      // 5. Seniority scaling
+      const candidateSeniority = bundle.candidateContext?.seniorityLevel || bundle.jobContext?.targetSeniority || 'mid';
+      const scaledTask = scaleTaskToCandidateSeniority(baseTask, candidateSeniority);
+
+      // 6. Validation
+      const isValid = validateUniversalTaskDefinition(scaledTask);
+
+      return c.json({
+        success: true,
+        task: scaledTask,
+        is_valid: isValid,
+        targeting_reason: matchedTarget?.rationale || `Directly targets ${scaledTask.competencyTarget.name}`,
+        candidate_seniority: candidateSeniority,
+        diversity_context: {
+          past_rounds_completed: pastDefinitionIds.length,
+          task_form: scaledTask.taskForm,
+          task_family: scaledTask.taskFamily,
+          modality: scaledTask.modality,
+          cognitive_dimensions: scaledTask.cognitiveDimensions
+        }
+      });
+    } catch (err: any) {
+      console.error('Error in /m3/tasks/next:', err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // 1d. Phase 3: Universal Task Quality & Safety Validator
+  app.post('/m3/tasks/validate', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const body = await c.req.json().catch(() => ({}));
+      const task = body.task;
+
+      if (!task) {
+        return c.json({ success: false, error: 'Task payload is required' }, 400);
+      }
+
+      const isValid = validateUniversalTaskDefinition(task);
+      const errors: string[] = [];
+
+      if (!task.id) errors.push('Missing task id');
+      if (!task.modality) errors.push('Missing task modality');
+      if (!task.competencyTarget) errors.push('Missing competencyTarget');
+      if (!task.scenario?.objective) errors.push('Missing scenario objective');
+      if (!task.scenario?.initialRequirements || task.scenario.initialRequirements.length === 0) errors.push('Missing initial requirements');
+      if (!task.rubric?.dimensions || task.rubric.dimensions.length === 0) errors.push('Missing rubric dimensions');
+      if (!task.coreModel) errors.push('Missing coreModel');
+
+      // Safety check for sensitive demographic traits
+      const { sensitiveTraitsFound } = sanitizeContextForTaskTargeting(task);
+
+      return c.json({
+        success: true,
+        is_valid: isValid && errors.length === 0,
+        errors,
+        safety_passed: sensitiveTraitsFound.length === 0,
+        sensitive_violations: sensitiveTraitsFound,
+        quality_score: isValid && sensitiveTraitsFound.length === 0 ? 0.95 : 0.40
+      });
+    } catch (err: any) {
+      console.error('Error in /m3/tasks/validate:', err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
   // 1. List Simulation Definitions (Enriched with Multi-Objective Targeting)
   app.get('/m3/simulations/definitions', async (c) => {
     const user = await getSessionUser(c);
@@ -1065,9 +1372,45 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       const orgId = (dbUser?.organization_id as string) || 'org_default_public';
 
       const body = await c.req.json().catch(() => ({}));
-      const { definition_id, force_new } = body;
-      const def = SEED_SIMULATIONS.find(s => s.id === definition_id);
+      let { definition_id, force_new } = body;
+
+      // Phase 3: Support adaptive next task selection
+      let def = SEED_SIMULATIONS.find(s => s.id === definition_id);
+      if (!def && (definition_id === 'adaptive_next' || !definition_id)) {
+        let pastDefinitionIds: string[] = [];
+        try {
+          const pastSessions = await c.env.DB.prepare(
+            'SELECT definition_id FROM simulation_session WHERE user_id = ? ORDER BY created_at DESC LIMIT 20'
+          ).bind(user.id).all();
+          pastDefinitionIds = (pastSessions.results || []).map((r: any) => r.definition_id as string);
+        } catch (_) {}
+
+        const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId);
+        const targets = bundle.targets || [];
+        for (const target of targets) {
+          const targetSkill = target.skillName.toLowerCase();
+          const targetComp = target.name.toLowerCase();
+          const match = SEED_SIMULATIONS.find(sim => {
+            const simSkill = sim.skill_name.toLowerCase();
+            const simComp = sim.competency_name.toLowerCase();
+            return (simSkill === targetSkill || simComp === targetComp || simSkill.includes(targetSkill) || targetSkill.includes(simSkill)) &&
+                   !pastDefinitionIds.includes(sim.id);
+          });
+          if (match) {
+            def = match;
+            break;
+          }
+        }
+        if (!def) {
+          def = SEED_SIMULATIONS.find(s => !pastDefinitionIds.includes(s.id)) || SEED_SIMULATIONS[0];
+        }
+      }
+
       if (!def) return c.json({ error: 'Valid definition_id required' }, 400);
+
+      // Resolve candidate seniority for scaling
+      const profile = await c.env.DB.prepare('SELECT experience_level FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+      const candSeniority = (profile?.experience_level as string) || 'mid';
 
       // Self-healing: Ensure definition exists in simulation_definition table to guarantee FK integrity
       await ensureDefinitionInDb(c.env.DB, def, orgId);
@@ -1087,7 +1430,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
             resumed: true,
             session_id: existing.id,
             definition: def,
-            task: seedSimulationToTaskDefinition(def, existing.current_step || 1),
+            task: scaleTaskToCandidateSeniority(seedSimulationToTaskDefinition(def, existing.current_step || 1), candSeniority),
             session: {
               id: existing.id,
               status: existing.status,
@@ -1122,7 +1465,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
         resumed: false,
         session_id: sessionId,
         definition: def,
-        task: seedSimulationToTaskDefinition(def, 1),
+        task: scaleTaskToCandidateSeniority(seedSimulationToTaskDefinition(def, 1), candSeniority),
         session: {
           id: sessionId,
           status: 'in_progress',

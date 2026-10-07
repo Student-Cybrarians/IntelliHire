@@ -252,8 +252,92 @@ export interface WorkSurface {
 }
 
 // -----------------------------------------------------------------------------
-// 5. Task Definition Contract
+// 5. Universal Task Definition & Extensible Archetype Contracts
 // -----------------------------------------------------------------------------
+
+export type TaskForm =
+  | 'direct_problem'
+  | 'scenario'
+  | 'case_study'
+  | 'debugging'
+  | 'practical_execution'
+  | 'analysis'
+  | 'system_design'
+  | 'written_response'
+  | 'quantitative_calculation'
+  | 'strategic_decision'
+  | 'what_if_simulation'
+  | 'constraint_shift'
+  | 'alternative_evaluation'
+  | 'reasoning_explanation'
+  | 'artifact_critique'
+  | 'artifact_improvement';
+
+export type CognitiveDimension =
+  | 'knowledge_application'
+  | 'analytical_reasoning'
+  | 'technical_execution'
+  | 'problem_solving'
+  | 'judgment_and_tradeoffs'
+  | 'communication'
+  | 'creativity'
+  | 'strategic_alignment'
+  | 'risk_and_ethics'
+  | 'adaptability'
+  | 'practical_performance';
+
+export type TaskFamily =
+  // Technical families
+  | 'coding'
+  | 'debugging'
+  | 'code_review'
+  | 'algorithms'
+  | 'sql_data'
+  | 'data_analysis'
+  | 'system_design'
+  | 'cloud_infrastructure'
+  | 'cybersecurity'
+  | 'troubleshooting'
+  | 'technical_docs'
+  | 'configuration'
+  // Non-Technical families
+  | 'financial_modeling'
+  | 'operations_management'
+  | 'marketing_strategy'
+  | 'sales_enablement'
+  | 'hr_people'
+  | 'customer_success'
+  | 'procurement_vendor'
+  | 'legal_compliance'
+  | 'project_management'
+  | 'executive_decision';
+
+export interface TaskSeniorityScope {
+  level: SeniorityLevel | string;
+  ambiguityLevel: 'low' | 'moderate' | 'high' | 'very_high';
+  systemScope: 'local_component' | 'subsystem' | 'cross_system' | 'enterprise_strategic';
+  expectedAutonomy: 'procedural' | 'independent' | 'architectural' | 'organizational';
+  complexityFactor: number; // 1.0 - 2.5
+}
+
+export interface TaskCoreModel {
+  input: string;
+  constraints: string[];
+  cognitiveOperation: string;
+  expectedOutput: string;
+  observableEvidence: string[];
+  evaluationCriteria: string[];
+}
+
+export interface ObservableEvidenceCriteria {
+  requiredArtifacts: string[];
+  demonstratedBehaviors: string[];
+  measurableIndicators: Array<{
+    name: string;
+    description: string;
+    threshold?: string;
+  }>;
+}
 
 export interface DynamicInjectionSpec {
   triggerStep: number;
@@ -276,6 +360,12 @@ export interface TaskDefinition {
   modality: WorkRoundModality;
   competencyTarget: CompetencyTarget;
   difficultyLevel: number; // 1 to 5
+  taskForm?: TaskForm;
+  taskFamily?: TaskFamily;
+  cognitiveDimensions?: CognitiveDimension[];
+  seniorityScope?: TaskSeniorityScope;
+  coreModel?: TaskCoreModel;
+  observableCriteria?: ObservableEvidenceCriteria;
   scenario: {
     background: string;
     objective: string;
@@ -290,6 +380,8 @@ export interface TaskDefinition {
     dimensions: RubricDimension[];
     hiddenCriteria?: string[];
   };
+  repetitionFingerprint?: string;
+  qualityScore?: number;
   timeAllottedSeconds?: number;
   provenance: ProvenanceRecord;
 }
@@ -497,6 +589,16 @@ export function validateEvaluation(evalObj: Partial<Evaluation>): evalObj is Eva
 /**
  * Adapter helper to transform legacy Seed Simulation definitions into modern WorkRound TaskDefinition
  */
+export function calculateTaskRepetitionFingerprint(title: string, objective: string, skill: string): string {
+  const norm = `${title.toLowerCase().trim()}|${objective.toLowerCase().trim()}|${skill.toLowerCase().trim()}`;
+  let hash = 0;
+  for (let i = 0; i < norm.length; i++) {
+    hash = ((hash << 5) - hash) + norm.charCodeAt(i);
+    hash |= 0;
+  }
+  return `fp-${Math.abs(hash).toString(16)}`;
+}
+
 export function seedSimulationToTaskDefinition(
   seed: {
     id: string;
@@ -515,10 +617,55 @@ export function seedSimulationToTaskDefinition(
   roundIndex: number = 1
 ): TaskDefinition {
   const modality = (seed.simulation_type as WorkRoundModality) || 'custom';
+
+  let taskForm: TaskForm = 'practical_execution';
+  let taskFamily: TaskFamily = 'coding';
+  if (seed.simulation_type === 'financial_analysis') {
+    taskForm = 'quantitative_calculation';
+    taskFamily = 'financial_modeling';
+  } else if (seed.simulation_type === 'operational_triage') {
+    taskForm = 'scenario';
+    taskFamily = 'operations_management';
+  } else if (seed.simulation_type === 'written_response') {
+    taskForm = 'written_response';
+    taskFamily = 'legal_compliance';
+  } else if (seed.simulation_type === 'incident_investigation') {
+    taskForm = 'debugging';
+    taskFamily = 'troubleshooting';
+  }
+
+  const coreModel: TaskCoreModel = {
+    input: seed.scenario?.background || '',
+    constraints: seed.scenario?.constraints || [],
+    cognitiveOperation: seed.scenario?.objective || '',
+    expectedOutput: seed.scenario?.expected_output_type || 'work_product',
+    observableEvidence: seed.scenario?.initial_requirements || [],
+    evaluationCriteria: (seed.rubric?.dimensions || []).map((d: any) => `${d.name}: ${d.criteria}`)
+  };
+
+  const seniorityScope: TaskSeniorityScope = {
+    level: 'senior',
+    ambiguityLevel: 'moderate',
+    systemScope: 'subsystem',
+    expectedAutonomy: 'independent',
+    complexityFactor: 1.5
+  };
+
   return {
     id: seed.id,
     roundIndex,
     modality,
+    taskForm,
+    taskFamily,
+    cognitiveDimensions: [
+      'technical_execution',
+      'analytical_reasoning',
+      'problem_solving',
+      'judgment_and_tradeoffs',
+      'adaptability'
+    ],
+    seniorityScope,
+    coreModel,
     competencyTarget: {
       id: `target-${seed.id}`,
       name: seed.competency_name,
@@ -556,12 +703,132 @@ export function seedSimulationToTaskDefinition(
       })),
       hiddenCriteria: seed.rubric?.hidden_criteria
     },
+    repetitionFingerprint: calculateTaskRepetitionFingerprint(seed.title, seed.scenario?.objective || '', seed.skill_name),
+    qualityScore: 0.94,
     timeAllottedSeconds: 1800,
     provenance: {
       sourceModule: 'catalog_seed',
       generatorMethod: 'catalog_seed',
       recordedAt: new Date().toISOString()
     }
+  };
+}
+
+export function normalizeSeniorityLevel(seniorityStr?: string): 'entry' | 'junior' | 'mid' | 'senior' | 'lead' | 'manager' | 'executive' {
+  const s = (seniorityStr || 'mid').toLowerCase().trim();
+  if (s.includes('entry') || s.includes('intern') || s.includes('assoc')) return 'entry';
+  if (s.includes('junior')) return 'junior';
+  if (s.includes('senior') || s.includes('sr')) return 'senior';
+  if (s.includes('lead') || s.includes('staff') || s.includes('principal')) return 'lead';
+  if (s.includes('manager') || s.includes('head')) return 'manager';
+  if (s.includes('director') || s.includes('vp') || s.includes('exec') || s.includes('chief')) return 'executive';
+  return 'mid';
+}
+
+export function scaleTaskToCandidateSeniority(baseTask: TaskDefinition, targetSeniority?: string): TaskDefinition {
+  const normLevel = normalizeSeniorityLevel(targetSeniority || baseTask.seniorityScope?.level);
+  
+  const profiles: Record<string, {
+    ambiguity: 'low' | 'moderate' | 'high' | 'very_high';
+    scope: 'local_component' | 'subsystem' | 'cross_system' | 'enterprise_strategic';
+    autonomy: 'procedural' | 'independent' | 'architectural' | 'organizational';
+    complexityFactor: number;
+    timeAllotted: number;
+  }> = {
+    entry: { ambiguity: 'low', scope: 'local_component', autonomy: 'procedural', complexityFactor: 1.0, timeAllotted: 1200 },
+    junior: { ambiguity: 'low', scope: 'local_component', autonomy: 'independent', complexityFactor: 1.2, timeAllotted: 1500 },
+    mid: { ambiguity: 'moderate', scope: 'subsystem', autonomy: 'independent', complexityFactor: 1.5, timeAllotted: 1800 },
+    senior: { ambiguity: 'high', scope: 'cross_system', autonomy: 'architectural', complexityFactor: 1.8, timeAllotted: 2100 },
+    lead: { ambiguity: 'high', scope: 'cross_system', autonomy: 'architectural', complexityFactor: 2.1, timeAllotted: 2400 },
+    manager: { ambiguity: 'very_high', scope: 'enterprise_strategic', autonomy: 'organizational', complexityFactor: 2.3, timeAllotted: 2400 },
+    executive: { ambiguity: 'very_high', scope: 'enterprise_strategic', autonomy: 'organizational', complexityFactor: 2.5, timeAllotted: 2700 }
+  };
+
+  const prof = profiles[normLevel] || profiles.mid;
+  const constraints = [...(baseTask.scenario.operationalConstraints || [])];
+  let expectedOutput = baseTask.scenario.expectedOutputType || 'work_product';
+
+  if (normLevel === 'entry' || normLevel === 'junior') {
+    constraints.push('Implementation must pass all unit tests without modifying function signatures.');
+    expectedOutput = 'Fully passing implementation with boundary condition unit tests.';
+  } else if (normLevel === 'mid') {
+    constraints.push('Must handle asynchronous retries with exponential backoff and circuit breaking.');
+    expectedOutput = 'Production-ready service implementation with comprehensive error propagation.';
+  } else if (normLevel === 'senior' || normLevel === 'lead') {
+    constraints.push('Must guarantee atomic state transitions under concurrent multi-region contention.');
+    constraints.push('Design must detail failover degraded mode with bounded p99 latency SLO (<15ms).');
+    expectedOutput = 'Resilient architectural implementation accompanied by technical trade-off RFC.';
+  } else {
+    constraints.push('Must provide executive ROI and capital expenditure sensitivity model under varying adoption rates.');
+    constraints.push('Identify regulatory, security, and human capital trade-offs with explicit mitigation milestones.');
+    expectedOutput = 'Strategic decision memo, financial sensitivity schedule, and executive presentation.';
+  }
+
+  // Adjust rubric dimension weights
+  const dimensions = baseTask.rubric.dimensions.map(d => ({ ...d }));
+  if (normLevel === 'senior' || normLevel === 'lead') {
+    for (const d of dimensions) {
+      if (['architecture', 'resilience', 'decision_quality', 'system_design'].includes(d.name)) {
+        d.weight = Math.max(d.weight, 0.35);
+      } else if (d.name === 'correctness') {
+        d.weight = Math.min(d.weight, 0.20);
+      }
+    }
+  } else if (normLevel === 'manager' || normLevel === 'executive') {
+    for (const d of dimensions) {
+      if (['decision_quality', 'communication', 'adaptability', 'strategic_alignment'].includes(d.name)) {
+        d.weight = Math.max(d.weight, 0.35);
+      }
+    }
+  }
+
+  // Re-normalize weights so sum is strictly 1.00
+  const totalWeight = dimensions.reduce((acc, d) => acc + d.weight, 0);
+  if (totalWeight > 0) {
+    for (const d of dimensions) {
+      d.weight = Math.round((d.weight / totalWeight) * 100) / 100;
+    }
+    const currentSum = dimensions.reduce((acc, d) => acc + d.weight, 0);
+    const diff = Math.round((1.0 - currentSum) * 100) / 100;
+    if (dimensions.length > 0 && diff !== 0) {
+      dimensions[0].weight = Math.round((dimensions[0].weight + diff) * 100) / 100;
+    }
+  }
+
+  const updatedCoreModel: TaskCoreModel = baseTask.coreModel ? {
+    ...baseTask.coreModel,
+    constraints,
+    expectedOutput,
+    evaluationCriteria: dimensions.map(d => `${d.name}: ${d.criteria}`)
+  } : {
+    input: baseTask.scenario.background,
+    constraints,
+    cognitiveOperation: baseTask.scenario.objective,
+    expectedOutput,
+    observableEvidence: baseTask.scenario.initialRequirements,
+    evaluationCriteria: dimensions.map(d => `${d.name}: ${d.criteria}`)
+  };
+
+  return {
+    ...baseTask,
+    seniorityScope: {
+      level: normLevel,
+      ambiguityLevel: prof.ambiguity,
+      systemScope: prof.scope,
+      expectedAutonomy: prof.autonomy,
+      complexityFactor: prof.complexityFactor
+    },
+    timeAllottedSeconds: prof.timeAllotted,
+    scenario: {
+      ...baseTask.scenario,
+      operationalConstraints: constraints,
+      expectedOutputType: expectedOutput
+    },
+    rubric: {
+      ...baseTask.rubric,
+      dimensions
+    },
+    coreModel: updatedCoreModel
   };
 }
 
@@ -662,9 +929,22 @@ export function validateAssessmentContext(ctx: Partial<AssessmentContext>): ctx 
     Array.isArray(ctx.evidenceLedger) &&
     Array.isArray(ctx.gapSignals) &&
     Array.isArray(ctx.prioritizedTargets) &&
-    ctx.primaryRecommendedTarget &&
     ctx.securityGovernance &&
     ctx.securityGovernance.sensitiveAttributesExcluded === true
   );
 }
 
+export function validateUniversalTaskDefinition(task: Partial<TaskDefinition>): task is TaskDefinition {
+  return Boolean(
+    task &&
+    typeof task.id === 'string' &&
+    typeof task.modality === 'string' &&
+    task.competencyTarget &&
+    task.scenario &&
+    typeof task.scenario.objective === 'string' &&
+    Array.isArray(task.scenario.initialRequirements) &&
+    task.rubric &&
+    Array.isArray(task.rubric.dimensions) &&
+    task.rubric.dimensions.length > 0
+  );
+}
