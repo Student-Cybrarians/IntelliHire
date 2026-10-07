@@ -621,14 +621,25 @@ export async function resolveCandidateJobContext(
 
   const jobTitle = (jobRow?.title as string) || targetRole;
   const jobSeniority = (jobRow?.seniority_level as string) || seniority;
+  const normalizeStringArray = (arr: any): string[] => {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(item => {
+      if (typeof item === 'string') return item.trim();
+      if (item && typeof item === 'object') {
+        return String(item.requirement || item.skill || item.name || item.title || item.text || '').trim();
+      }
+      return String(item || '').trim();
+    }).filter(s => s.length > 0);
+  };
+
   let requiredSkills: string[] = [];
   let keyRequirements: string[] = [];
 
   if (jobRow?.parsed_requirements_json) {
     try {
       const parsed = JSON.parse(jobRow.parsed_requirements_json as string);
-      keyRequirements = parsed.requirements || [];
-      requiredSkills = parsed.skills || [];
+      keyRequirements = normalizeStringArray(parsed.requirements || []);
+      requiredSkills = normalizeStringArray(parsed.skills || []);
     } catch (_) {}
   }
 
@@ -639,8 +650,9 @@ export async function resolveCandidateJobContext(
       ).bind(userId).first();
       if (jdCtx?.requirements_json) {
         const parsed = JSON.parse(jdCtx.requirements_json as string);
-        keyRequirements = parsed.requirements || [];
-        requiredSkills = parsed.skills || [];
+        const rawReqs = parsed.requirements || (Array.isArray(parsed) ? parsed : []);
+        keyRequirements = normalizeStringArray(rawReqs);
+        requiredSkills = normalizeStringArray(parsed.skills || []);
       }
     } catch (_) {}
   }
@@ -751,8 +763,14 @@ export async function resolveCandidateJobContext(
 
   for (const [sKey, sInfo] of candidateSkillPool.entries()) {
     const lowerSKey = sKey.toLowerCase();
-    const isExplicitlyRequired = requiredSkills.some(s => s.toLowerCase() === lowerSKey || s.toLowerCase().includes(lowerSKey)) ||
-      keyRequirements.some(req => req.toLowerCase().includes(lowerSKey));
+    const isExplicitlyRequired = requiredSkills.some(s => {
+      const sStr = typeof s === 'string' ? s.toLowerCase() : String((s as any)?.skill || (s as any)?.name || '').toLowerCase();
+      return sStr === lowerSKey || sStr.includes(lowerSKey);
+    }) ||
+      keyRequirements.some(req => {
+        const rStr = typeof req === 'string' ? req.toLowerCase() : String((req as any)?.requirement || (req as any)?.title || '').toLowerCase();
+        return rStr.includes(lowerSKey);
+      });
 
     const jobRelevance = isExplicitlyRequired ? 1.0 : (requiredSkills.length > 0 ? 0.6 : 0.5);
     const uncertaintyDeficit = Math.max(0.0, Math.min(1.0, sInfo.unc));
