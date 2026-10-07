@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS simulation_evaluation (
   provenance_json TEXT NOT NULL DEFAULT '{}',
   submission_hash TEXT,
   submission_version INTEGER NOT NULL DEFAULT 1,
+  alternative_validity TEXT DEFAULT 'correct',
+  deterministic_verification_json TEXT DEFAULT '{}',
   human_review_status TEXT NOT NULL DEFAULT 'unreviewed',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

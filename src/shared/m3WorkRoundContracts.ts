@@ -1093,3 +1093,85 @@ export function validateEvidencePackage(pkg: Partial<M3EvidencePackage>): pkg is
   );
 }
 
+// -----------------------------------------------------------------------------
+// 7. Phase 6: Multi-Dimensional AI & Deterministic Evaluation Contracts
+// -----------------------------------------------------------------------------
+
+export type AlternativeValidity =
+  | 'correct'
+  | 'partially_correct'
+  | 'incomplete'
+  | 'context_dependent'
+  | 'alternative_valid'
+  | 'incorrect'
+  | 'insufficient_information';
+
+export const VALID_ALTERNATIVE_VALIDITIES: readonly AlternativeValidity[] = [
+  'correct',
+  'partially_correct',
+  'incomplete',
+  'context_dependent',
+  'alternative_valid',
+  'incorrect',
+  'insufficient_information'
+] as const;
+
+export interface DeterministicTestResult {
+  name: string;
+  passed: boolean;
+  details?: string;
+  executionTimeMs?: number;
+}
+
+export interface DeterministicVerificationResult {
+  passed: boolean;
+  score: number; // 0.0 - 1.0
+  testResults: DeterministicTestResult[];
+  checksPerformed: string[];
+  syntaxValid: boolean;
+  schemaValid: boolean;
+  metrics?: Record<string, any>;
+  errors?: string[];
+}
+
+export interface EvaluationDimensionScore {
+  dimension: string;
+  score: number; // 0.0 - 1.0
+  weight: number; // 0.0 - 1.0
+  criteria: string;
+  evidencePoints: string[];
+  qualitativeFeedback: string;
+}
+
+export interface CalibratedEvaluationResult {
+  overallScore: number; // 0.0 - 1.0
+  alternativeValidity: AlternativeValidity;
+  alternativeValidityRationale: string;
+  dimensionScores: Record<string, number>;
+  detailedDimensions?: EvaluationDimensionScore[];
+  deterministicVerification: DeterministicVerificationResult;
+  observableEvidence: {
+    keyActionsIdentified: string[];
+    tradeOffsIdentified: string[];
+    constraintAdherence: string;
+  };
+  modelInterpretation: ModelInterpretationRecord;
+  remediationRecommendations: Array<{
+    m02SkillTarget: string;
+    recommendedStudy: string;
+    recommendedPractice: string;
+  }>;
+  calibratedConfidence: number; // 0.0 - 1.0
+  epistemicUncertainty: number;  // 0.0 - 1.0
+  evaluatorMetadata: {
+    evaluatorType: 'deterministic_first' | 'hybrid_ai' | 'deterministic_fallback';
+    modelIdentifier: string;
+    brierCalibrationScore?: number;
+  };
+}
+
+export function isValidAlternativeValidity(val: string): val is AlternativeValidity {
+  return VALID_ALTERNATIVE_VALIDITIES.includes(val as AlternativeValidity);
+}
+
+

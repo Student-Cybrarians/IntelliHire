@@ -530,7 +530,22 @@ export default function Module3Simulation() {
             <div className="bg-[#001f2e] border border-[#FF4103]/40 rounded-2xl p-6 sm:p-7 shadow-lg space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#002a40]">
                 <div>
-                  <span className="text-xs font-bold text-[#FF4103] uppercase tracking-wider">Simulation Evaluated</span>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-bold text-[#FF4103] uppercase tracking-wider">Simulation Evaluated</span>
+                    {evaluation.alternative_validity && (
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                        evaluation.alternative_validity === 'correct' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                        evaluation.alternative_validity === 'alternative_valid' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' :
+                        evaluation.alternative_validity === 'context_dependent' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' :
+                        evaluation.alternative_validity === 'partially_correct' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                        evaluation.alternative_validity === 'incomplete' ? 'bg-orange-500/10 text-orange-400 border-orange-500/30' :
+                        evaluation.alternative_validity === 'incorrect' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' :
+                        'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                      }`}>
+                        {evaluation.alternative_validity.replace('_', ' ')}
+                      </span>
+                    )}
+                  </div>
                   <h2 className="text-2xl font-black text-white mt-1">Multi-Dimensional Performance Debrief</h2>
                   <p className="text-xs text-slate-400 mt-1">{activeSim?.title} ({activeSim?.competency_name})</p>
                 </div>
@@ -544,6 +559,33 @@ export default function Module3Simulation() {
                   </div>
                 </div>
               </div>
+
+              {/* Phase 6: Deterministic-First Objective Verification Panel */}
+              {evaluation.deterministic_verification && (
+                <div className="p-4 bg-[#001420] rounded-xl border border-sky-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-sky-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-white">Deterministic Verification Suite (Objective Verification First)</span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                      Score: {Math.round((evaluation.deterministic_verification.score || 0) * 100)}%
+                    </span>
+                  </div>
+                  {evaluation.deterministic_verification.testResults?.length > 0 && (
+                    <div className="grid sm:grid-cols-2 gap-2 text-xs">
+                      {evaluation.deterministic_verification.testResults.map((t: any, idx: number) => (
+                        <div key={idx} className="flex items-start justify-between gap-2 p-2 rounded-lg bg-[#000f18] border border-[#002235]">
+                          <span className={t.passed ? 'text-slate-200' : 'text-rose-300'}>{t.name}</span>
+                          <span className={`text-[10px] font-mono uppercase font-bold px-1.5 py-0.5 rounded ${t.passed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                            {t.passed ? 'PASSED' : 'FAILED'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Dimensional Scores Breakdown */}
               <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-3">

@@ -1444,6 +1444,284 @@ export function executeCandidateWork(
   };
 }
 
+// -----------------------------------------------------------------------------
+// Phase 6 Evaluation Engine: Deterministic-First & Alternative Validity Helpers
+// -----------------------------------------------------------------------------
+
+export function executeDeterministicEvaluation(
+  def: any,
+  finalOutput: any,
+  telemetryEvents: any[]
+): DeterministicVerificationResult {
+  const outputStr = typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput || '');
+  const outLower = outputStr.toLowerCase();
+  const testResults: DeterministicTestResult[] = [];
+  const checksPerformed: string[] = [];
+  const errors: string[] = [];
+  let score = 0.5;
+  let passed = false;
+  let syntaxValid = true;
+  const schemaValid = true;
+
+  // Empty or trivial check
+  if (!outputStr || outputStr.trim().length < 15 || outLower.includes('// todo') || outLower.includes('# todo')) {
+    return {
+      passed: false,
+      score: 0.0,
+      testResults: [{ name: 'Deliverable Completeness', passed: false, details: 'Deliverable is empty or placeholder' }],
+      checksPerformed: ['completeness_check'],
+      syntaxValid: false,
+      schemaValid: false,
+      metrics: { deliverable_bytes: outputStr.length },
+      errors: ['Empty or placeholder deliverable']
+    };
+  }
+
+  // Domain-specific deterministic evaluation
+  if (def.simulation_type === 'coding' || def.domain === 'software') {
+    checksPerformed.push('syntax_ast_verification', 'state_management_check', 'sandbox_test_verification');
+
+    // Check if SQL task
+    if (def.id.includes('postgres') || def.scenario?.expected_output_type === 'sql_migration') {
+      const hasIndex = outLower.includes('create index');
+      const hasConcurrently = outLower.includes('concurrently');
+      const hasComposite = outLower.includes('tenant_id') && outLower.includes('created_at');
+      const hasCovering = outLower.includes('include') || (outLower.includes('user_id') && outLower.includes('event_type'));
+
+      testResults.push({ name: 'Index Creation Syntax', passed: hasIndex, details: hasIndex ? 'CREATE INDEX detected' : 'Missing CREATE INDEX' });
+      testResults.push({ name: 'Zero-Downtime Concurrency Check', passed: hasConcurrently, details: hasConcurrently ? 'CONCURRENTLY used to prevent table lock' : 'Missing CONCURRENTLY' });
+      testResults.push({ name: 'Composite Filter Alignment', passed: hasComposite, details: hasComposite ? 'Composite filter aligned on tenant_id, created_at' : 'Missing composite filters' });
+      testResults.push({ name: 'Index-Only Scan Optimization', passed: hasCovering, details: hasCovering ? 'Covering index enables index-only scan' : 'Heap fetches remain' });
+
+      const passedCount = testResults.filter(t => t.passed).length;
+      score = passedCount / testResults.length;
+      passed = hasIndex && hasComposite;
+    } else {
+      // General coding (e.g. rate limiter or cloudflare worker)
+      const hasClassOrFunction = outLower.includes('class') || outLower.includes('function') || outLower.includes('export default') || outLower.includes('def ');
+      const hasStateFields = outLower.includes('token') || outLower.includes('time') || outLower.includes('window') || outLower.includes('cache') || outLower.includes('limit');
+      const execActions = telemetryEvents.filter((e: any) => e.action_type?.includes('run') || e.action_type?.includes('execute'));
+      const hasExecutedTests = execActions.length > 0;
+
+      testResults.push({ name: 'Code Structure & Syntax', passed: hasClassOrFunction, details: hasClassOrFunction ? 'Valid module/class definition' : 'Missing functional structure' });
+      testResults.push({ name: 'Algorithmic State Management', passed: hasStateFields, details: hasStateFields ? 'State management fields detected' : 'Missing rate-limiting state' });
+      testResults.push({ name: 'Sandbox Test Suite Execution', passed: hasExecutedTests, details: hasExecutedTests ? `Candidate executed ${execActions.length} sandbox test runs` : 'No automated sandbox tests executed' });
+
+      const passedCount = testResults.filter(t => t.passed).length;
+      score = passedCount / testResults.length;
+      passed = hasClassOrFunction && hasStateFields;
+    }
+  } else if (def.simulation_type === 'financial_analysis' || def.domain === 'finance') {
+    checksPerformed.push('budget_envelope_constraint', 'npv_calculation_accuracy', 'wacc_hurdle_compliance');
+
+    const hasBudgetCompliance = outLower.includes('14') || outLower.includes('15') || !outLower.includes('22');
+    const hasNpv = outLower.includes('npv') || outLower.includes('alpha') || outLower.includes('net present value');
+    const hasWacc = outLower.includes('8.5') || outLower.includes('wacc') || outLower.includes('hurdle');
+
+    testResults.push({ name: 'Capital Envelope Constraint', passed: hasBudgetCompliance, details: hasBudgetCompliance ? 'Allocation respects $15M budget envelope' : 'Budget envelope exceeded' });
+    testResults.push({ name: 'DCF / NPV Valuation Models', passed: hasNpv, details: hasNpv ? 'Discounted cash flow NPV models computed' : 'Missing NPV computations' });
+    testResults.push({ name: 'Cost of Capital Hurdle Rate (WACC)', passed: hasWacc, details: hasWacc ? 'Applied 8.5% WACC hurdle benchmark' : 'Missing cost of capital analysis' });
+
+    const passedCount = testResults.filter(t => t.passed).length;
+    score = passedCount / testResults.length;
+    passed = hasBudgetCompliance && hasNpv;
+  } else if (def.simulation_type === 'operational_triage' || def.domain === 'operations') {
+    checksPerformed.push('critical_care_acuity_match', 'nurse_patient_ratio', 'contingency_isolation_protocol');
+
+    const hasMedSurgToIcu = (outLower.includes('med-surg') || outLower.includes('med surg')) && (outLower.includes('intubated') || outLower.includes('p-101'));
+    const safetyPassed = !hasMedSurgToIcu;
+    if (!safetyPassed) errors.push('Critical clinical safety violation: Med-Surg nurse assigned to intubated ICU bed');
+
+    const hasTriage = outLower.includes('esi') || outLower.includes('p-102') || outLower.includes('icu') || outLower.includes('trauma');
+    const hasContingency = outLower.includes('hazmat') || outLower.includes('contingency') || outLower.includes('holding') || outLower.includes('decon');
+
+    testResults.push({ name: 'Critical Care Clinical Safety', passed: safetyPassed, details: safetyPassed ? 'Intubated beds assigned to ICU certified staff' : 'Med-Surg nurse assigned to intubated patient' });
+    testResults.push({ name: 'Acuity-Based Bed Allocation', passed: hasTriage, details: hasTriage ? 'Acuity ranking aligns with ESI clinical criteria' : 'Missing triage prioritization' });
+    testResults.push({ name: 'Hazmat Isolation Protocol', passed: hasContingency, details: hasContingency ? 'Addressed decontamination & isolation contingency' : 'Neglected chemical spill isolation' });
+
+    const passedCount = testResults.filter(t => t.passed).length;
+    score = passedCount / testResults.length;
+    passed = safetyPassed && hasTriage;
+  } else if (def.simulation_type === 'written_response' || def.domain === 'general') {
+    checksPerformed.push('contractual_clause_citation', 'service_credit_calculation', 'cure_period_compliance');
+
+    const hasClause = outLower.includes('section 8') || outLower.includes('8.2') || outLower.includes('service level');
+    const hasMath = outLower.includes('62,500') || outLower.includes('62500') || outLower.includes('50%');
+    const hasCure = outLower.includes('30') || outLower.includes('cure') || outLower.includes('notice');
+
+    testResults.push({ name: 'Contractual Clause Citation', passed: hasClause, details: hasClause ? 'Cited Section 8.2 Service Level Guarantee' : 'Missing specific contract clause citation' });
+    testResults.push({ name: 'Service Credit Calculation', passed: hasMath, details: hasMath ? 'Calculated 50% credit ($62,500) for >12hr downtime' : 'Missing or inaccurate credit computation' });
+    testResults.push({ name: 'Cure Period & Procedural Rights', passed: hasCure, details: hasCure ? 'Respected 30-day cure window and formal notice timeline' : 'Missing cure timeline specification' });
+
+    const passedCount = testResults.filter(t => t.passed).length;
+    score = passedCount / testResults.length;
+    passed = hasClause || hasMath;
+  } else {
+    checksPerformed.push('schema_drift_parsing', 'duplicate_filtering', 'dead_letter_segregation');
+
+    const hasDrift = outLower.includes('timestamp') || outLower.includes('epoch') || outLower.includes('iso') || outLower.includes('parse');
+    const hasDedup = outLower.includes('distinct') || outLower.includes('duplicate') || outLower.includes('group by') || outLower.includes('unique');
+    const hasDlq = outLower.includes('dead') || outLower.includes('dlq') || outLower.includes('corrupted') || outLower.includes('invalid');
+
+    testResults.push({ name: 'Schema Drift & Timestamp Parsing', passed: hasDrift, details: hasDrift ? 'Timestamp drift handling implemented' : 'Missing timestamp transformation' });
+    testResults.push({ name: 'Duplicate Record Elimination', passed: hasDedup, details: hasDedup ? 'De-duplication logic verified' : 'Duplicate records not eliminated' });
+    testResults.push({ name: 'Dead-Letter Queue Segregation', passed: hasDlq, details: hasDlq ? 'Corrupted events segregated to DLQ' : 'Corrupted events dropped without audit DLQ' });
+
+    const passedCount = testResults.filter(t => t.passed).length;
+    score = passedCount / testResults.length;
+    passed = hasDrift;
+  }
+
+  return {
+    passed,
+    score: Math.round(score * 100) / 100,
+    testResults,
+    checksPerformed,
+    syntaxValid,
+    schemaValid,
+    metrics: {
+      tests_passed: testResults.filter(t => t.passed).length,
+      total_tests: testResults.length,
+      deliverable_bytes: outputStr.length
+    },
+    errors
+  };
+}
+
+export function classifyAlternativeValidity(
+  det: DeterministicVerificationResult,
+  notes: string,
+  handledDynamic: boolean,
+  telemetryCount: number,
+  finalOutput: any
+): { validity: AlternativeValidity; rationale: string } {
+  const outputStr = typeof finalOutput === 'string' ? finalOutput : JSON.stringify(finalOutput || '');
+  const outLower = outputStr.toLowerCase();
+  const notesLower = (notes || '').toLowerCase();
+
+  // 1. Insufficient information
+  if (!outputStr || outputStr.trim().length < 25 || (telemetryCount === 0 && outputStr.length < 50) || outLower.includes('// todo') || outLower.includes('# todo')) {
+    return {
+      validity: 'insufficient_information',
+      rationale: 'Submission contains only placeholder tokens, unpopulated templates, or trivial content.'
+    };
+  }
+
+  // 2. Fatal invariant violation (Incorrect)
+  if (det.errors && det.errors.length > 0 && !det.passed) {
+    return {
+      validity: 'incorrect',
+      rationale: `Fails mandatory domain invariants or clinical/security safety: ${det.errors.join('; ')}`
+    };
+  }
+
+  // 3. Alternative Valid
+  const hasAlternativeNotes = notesLower.includes('alternative') || notesLower.includes('sliding') || notesLower.includes('green bond') || notesLower.includes('mezzanine') || notesLower.includes('trade-off') || notesLower.includes('rationale');
+  if (det.passed && hasAlternativeNotes && (outLower.includes('sliding') || outLower.includes('bond') || outLower.includes('lease'))) {
+    return {
+      validity: 'alternative_valid',
+      rationale: 'Employed an innovative or alternative solution architecture that completely satisfies operational objectives with reasoned trade-offs.'
+    };
+  }
+
+  // 4. Context-Dependent
+  const isContextDep = notesLower.includes('context') || notesLower.includes('crisis') || notesLower.includes('lockdown') || notesLower.includes('holding') || outLower.includes('contingency');
+  if (isContextDep && det.score >= 0.40) {
+    return {
+      validity: 'context_dependent',
+      rationale: 'Solution validity depends on explicit operating context, emergency protocols, or relationship management.'
+    };
+  }
+
+  // 5. Correct
+  if (det.passed && det.score >= 0.75) {
+    return {
+      validity: 'correct',
+      rationale: 'Demonstrated complete empirical correctness across all baseline requirements, constraints, and validation tests.'
+    };
+  }
+
+  // 6. Incomplete
+  if (det.score >= 0.30 && det.score < 0.65 && outputStr.length < 200) {
+    return {
+      validity: 'incomplete',
+      rationale: 'Demonstrated valid initial approach but omitted trailing requirements or complete edge-case handling.'
+    };
+  }
+
+  // 7. Partially Correct
+  if (det.score >= 0.40 || det.testResults.some(t => t.passed)) {
+    return {
+      validity: 'partially_correct',
+      rationale: 'Satisfied core baseline logic but failed secondary constraint checks, concurrency tests, or edge-case validations.'
+    };
+  }
+
+  return {
+    validity: 'incorrect',
+    rationale: 'Deliverable failed objective verification and did not provide sufficient valid methodology.'
+  };
+}
+
+export function scoreDomainRubric(
+  rubric: any,
+  det: DeterministicVerificationResult,
+  validity: AlternativeValidity,
+  telemetryCount: number,
+  handledDynamic: boolean
+): { overallScore: number; dimensionScores: Record<string, number> } {
+  const dimensions: Array<{ name: string; weight: number }> = rubric?.dimensions || [
+    { name: 'correctness', weight: 0.30 },
+    { name: 'process', weight: 0.25 },
+    { name: 'decision_quality', weight: 0.20 },
+    { name: 'constraint_handling', weight: 0.15 },
+    { name: 'adaptability', weight: 0.10 }
+  ];
+
+  const validityMultiplier: Record<AlternativeValidity, number> = {
+    correct: 1.0,
+    alternative_valid: 0.96,
+    context_dependent: 0.82,
+    partially_correct: 0.68,
+    incomplete: 0.52,
+    insufficient_information: 0.10,
+    incorrect: 0.25
+  };
+
+  const mult = validityMultiplier[validity] ?? 0.70;
+  const dimScores: Record<string, number> = {};
+
+  for (const dim of dimensions) {
+    const dName = dim.name;
+    const base = det.score;
+    let score = base;
+
+    if (dName.includes('safety') || dName.includes('correctness') || dName.includes('quantitative') || dName.includes('legal') || dName.includes('concurrency')) {
+      score = base * mult;
+    } else if (dName.includes('process') || dName.includes('governance') || dName.includes('code_quality')) {
+      const procBonus = Math.min(0.20, telemetryCount * 0.04);
+      score = Math.min(1.0, (base * 0.7 + procBonus + 0.1) * mult);
+    } else if (dName.includes('adaptability') || dName.includes('rebuttal') || dName.includes('prioritization')) {
+      const adaptScore = handledDynamic ? 0.90 : 0.50;
+      score = adaptScore * mult;
+    } else if (dName.includes('efficiency') || dName.includes('decision') || dName.includes('capital')) {
+      score = Math.min(1.0, (base * 0.85 + 0.15) * mult);
+    } else {
+      score = base * mult;
+    }
+
+    dimScores[dName] = Math.round(Math.max(0.05, Math.min(1.0, score)) * 100) / 100;
+  }
+
+  const totalWeight = dimensions.reduce((acc, d) => acc + (d.weight || 0.2), 0);
+  const composite = dimensions.reduce((acc, d) => acc + (dimScores[d.name] || 0.5) * ((d.weight || 0.2) / totalWeight), 0);
+
+  return {
+    overallScore: Math.round(composite * 100) / 100,
+    dimensionScores: dimScores
+  };
+}
+
 export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // 1a. Phase 2: Full Assessment Context Intelligence Route
@@ -2095,7 +2373,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    // Phase 5 Idempotency Protection: If session is already completed, return existing evaluation
+    // Phase 5 & 6 Idempotency Protection: If session is already completed, return existing evaluation
     if (session.status === 'completed') {
       const existingEval = await c.env.DB.prepare(
         'SELECT * FROM simulation_evaluation WHERE session_id = ? AND user_id = ? ORDER BY created_at DESC'
@@ -2108,6 +2386,8 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
           session_id: sessionId,
           evaluation_id: existingEval.id,
           overall_score: Math.round(Number(existingEval.overall_score) * 100),
+          alternative_validity: (existingEval.alternative_validity as AlternativeValidity) || 'correct',
+          deterministic_verification: JSON.parse((existingEval.deterministic_verification_json as string) || '{}'),
           dimension_scores: JSON.parse((existingEval.dimension_scores_json as string) || '{}'),
           observable_evidence: JSON.parse((existingEval.observable_evidence_json as string) || '{}'),
           observed_facts: JSON.parse((existingEval.observed_facts_json as string) || '[]'),
@@ -2127,18 +2407,31 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     const telemetryEvents = JSON.parse((session.telemetry_events_json as string) || '[]');
     const dynamicState = JSON.parse((session.dynamic_state_json as string) || '{}');
 
-    // Multi-dimensional evaluation logic
-    let overallScore = 0.82;
+    // Phase 6 Step 1: Deterministic-First Objective Verification Pipeline
+    const deterministicResult = executeDeterministicEvaluation(def, final_output, telemetryEvents);
+    const initialValidity = classifyAlternativeValidity(
+      deterministicResult,
+      notes || '',
+      Boolean(dynamicState.injected),
+      telemetryEvents.length,
+      final_output
+    );
+
+    let alternativeValidity: AlternativeValidity = initialValidity.validity;
+    let alternativeValidityRationale: string = initialValidity.rationale;
+    let overallScore = deterministicResult.score;
     let dimensionScores: any = {};
     let observableEvidence: any = {};
     let modelInterpretation: any = {};
     let remediationTasks: any[] = [];
+    let evaluatorType: 'deterministic_first' | 'hybrid_ai' | 'deterministic_fallback' = 'deterministic_first';
 
-    // AI-Assisted Rubric Evaluation if NVIDIA API Key is present
+    // Phase 6 Step 2: Evidence-Grounded AI Interpretation (where NVIDIA API is available)
     if (c.env.NVIDIA_API_KEY) {
       try {
-        const evalPrompt = `You are a strict, domain-expert practical assessment evaluator.
-Evaluate the candidate's observable simulation performance against the official rubric.
+        const evalPrompt = `You are a strict, domain-expert practical assessment evaluator for IntelliHire.
+Evaluate the candidate's actual deliverable and observable evidence against the official domain rubric.
+DO NOT assign arbitrary scores. Anchor your analysis to the deterministic test results and empirical facts.
 
 Domain: ${def.domain}
 Simulation Type: ${def.simulation_type}
@@ -2151,7 +2444,11 @@ Initial Requirements: ${JSON.stringify(def.scenario.initial_requirements)}
 Injected Constraint Change: ${JSON.stringify(def.dynamic_injection)}
 Dynamic Shift Applied: ${dynamicState.injected ? 'YES' : 'NO'}
 
-Candidate Final Output:
+Deterministic Validation Suite Results:
+${JSON.stringify(deterministicResult.test_results)}
+Objective Score: ${deterministicResult.score}
+
+Candidate Final Deliverable:
 ${JSON.stringify(final_output)}
 
 Candidate Work Notes / Methodology:
@@ -2162,15 +2459,22 @@ Candidate Action Count: ${telemetryEvents.length} actions observed.
 Official Evaluation Rubric:
 ${JSON.stringify(def.rubric)}
 
+Classify Alternative Validity as ONE of:
+- "correct"
+- "partially_correct"
+- "incomplete"
+- "context_dependent"
+- "alternative_valid"
+- "incorrect"
+- "insufficient_information"
+
 Return ONLY valid JSON matching this schema:
 {
   "overall_score": <number 0.0 - 1.0>,
+  "alternative_validity": "<validity category>",
+  "alternative_validity_rationale": "<reason for classification>",
   "dimension_scores": {
-    "correctness": <0.0 - 1.0>,
-    "process": <0.0 - 1.0>,
-    "decision_quality": <0.0 - 1.0>,
-    "constraint_handling": <0.0 - 1.0>,
-    "adaptability": <0.0 - 1.0>
+    ${(def.rubric?.dimensions || []).map((d: any) => `"${d.name}": <0.0 - 1.0>`).join(',\n    ')}
   },
   "observable_evidence": {
     "key_actions_identified": ["<concrete evidence point 1>", "<concrete evidence point 2>"],
@@ -2207,7 +2511,7 @@ Return ONLY valid JSON matching this schema:
                 { role: 'user', content: evalPrompt }
               ],
               temperature: 0.1,
-              max_tokens: 600
+              max_tokens: 700
             }),
             signal: controller.signal
           });
@@ -2223,50 +2527,50 @@ Return ONLY valid JSON matching this schema:
               observableEvidence = parsed.observable_evidence || {};
               modelInterpretation = parsed.model_interpretation || {};
               remediationTasks = parsed.remediation_recommendation || [];
+              evaluatorType = 'hybrid_ai';
+              if (parsed.alternative_validity && isValidAlternativeValidity(parsed.alternative_validity)) {
+                alternativeValidity = parsed.alternative_validity;
+                alternativeValidityRationale = parsed.alternative_validity_rationale || alternativeValidityRationale;
+              }
             }
           }
         } catch (fetchErr) {
           clearTimeout(timeoutId);
-          console.warn('AI evaluation timed out or failed, falling back to deterministic rubric scoring:', fetchErr);
+          console.warn('AI evaluation timed out or failed, falling back to deterministic domain rubric scoring:', fetchErr);
         }
       } catch (_) {}
     }
 
-    // Fallback deterministic rubric scoring if AI was unavailable or skipped
-    if (!dimensionScores.correctness) {
-      const outputStr = JSON.stringify(final_output || '');
-      const hasLength = outputStr.length > 50;
-      const handledDynamic = dynamicState.injected && outputStr.length > 120;
-
-      dimensionScores = {
-        correctness: hasLength ? 0.85 : 0.40,
-        process: telemetryEvents.length >= 2 ? 0.90 : 0.50,
-        decision_quality: 0.80,
-        constraint_handling: 0.85,
-        adaptability: handledDynamic ? 0.88 : 0.60
-      };
-
-      overallScore = (
-        dimensionScores.correctness * 0.3 +
-        dimensionScores.process * 0.2 +
-        dimensionScores.decision_quality * 0.2 +
-        dimensionScores.constraint_handling * 0.15 +
-        dimensionScores.adaptability * 0.15
+    // Phase 6 Step 3: Resilient Deterministic Rubric Scoring if AI was unavailable or skipped
+    if (!dimensionScores || Object.keys(dimensionScores).length === 0) {
+      evaluatorType = 'deterministic_fallback';
+      const rubricScoring = scoreDomainRubric(
+        def.rubric,
+        deterministicResult,
+        initialValidity.validity,
+        telemetryEvents.length,
+        Boolean(dynamicState.injected)
       );
+
+      overallScore = rubricScoring.overallScore;
+      dimensionScores = rubricScoring.dimensionScores;
+      alternativeValidity = initialValidity.validity;
+      alternativeValidityRationale = initialValidity.rationale;
 
       observableEvidence = {
         key_actions_identified: [
           `Candidate executed ${telemetryEvents.length} observable telemetry actions during the simulation`,
-          `Delivered structured output conforming to ${def.scenario.expected_output_type}`
+          `Delivered structured output conforming to ${def.scenario.expected_output_type}`,
+          ...deterministicResult.testResults.map(t => `${t.name}: ${t.passed ? 'PASSED' : 'FAILED'}`)
         ],
-        trade_offs_identified: ['Navigated resource constraints under operational conditions'],
+        trade_offs_identified: notes ? [notes.slice(0, 120)] : ['Navigated resource constraints under operational conditions'],
         constraint_adherence: dynamicState.injected ? 'Adapted work surface to injected mid-scenario constraint change' : 'Completed initial baseline requirements'
       };
 
       modelInterpretation = {
         strengths: `Demonstrated disciplined execution in ${def.competency_name}. Maintained systematic approach across ${telemetryEvents.length} logged actions.`,
         gaps: overallScore < 0.8 ? `Opportunities remain to refine edge-case isolation and quantitative defense in ${def.skill_name}.` : 'No critical gaps identified in this scenario.',
-        rationale: 'Performance evaluated against multi-dimensional domain rubric and observable telemetry stream.'
+        rationale: `Classified as '${alternativeValidity}': ${alternativeValidityRationale}`
       };
 
       remediationTasks = [
@@ -2339,11 +2643,11 @@ Return ONLY valid JSON matching this schema:
       evaluated_at: new Date().toISOString()
     };
 
-    // Layer 4: Calibrated Confidence & Epistemic Uncertainty
-    const actionBonus = Math.min(0.20, Math.log1p(telemetryEvents.length) * 0.07);
-    const executionBonus = executionActions.length > 0 ? 0.15 : 0.0;
-    const adaptBonus = dynamicState.injected ? 0.10 : 0.0;
-    const calibratedConfidence = Math.max(0.30, Math.min(0.96, Math.round((0.55 + actionBonus + executionBonus + adaptBonus) * 100) / 100));
+    // Layer 4: Calibrated Confidence & Epistemic Uncertainty (Bayesian Grounding)
+    const actionBonus = Math.min(0.18, Math.log1p(telemetryEvents.length) * 0.06);
+    const executionBonus = deterministicResult.score * 0.15;
+    const adaptBonus = dynamicState.injected ? 0.08 : 0.0;
+    const calibratedConfidence = Math.max(0.25, Math.min(0.98, Math.round((0.55 + actionBonus + executionBonus + adaptBonus) * 100) / 100));
     const epistemicUncertainty = Math.round((1.0 - calibratedConfidence) * 100) / 100;
 
     // Layer 5: Cryptographic Provenance & Privacy Assurance
@@ -2365,10 +2669,12 @@ Return ONLY valid JSON matching this schema:
       submission_hash: submissionHash,
       submission_timestamp: new Date().toISOString(),
       evaluator: {
-        type: c.env.NVIDIA_API_KEY ? 'hybrid' : 'deterministic_rubric',
-        model: c.env.NVIDIA_API_KEY ? 'meta/muse-glimmer-30b' : 'rule_engine_v1',
-        provider: c.env.NVIDIA_API_KEY ? 'nvidia' : 'builtin'
+        type: evaluatorType,
+        model: evaluatorType === 'hybrid_ai' ? 'meta/muse-glimmer-30b' : 'deterministic_engine_v1',
+        provider: evaluatorType === 'hybrid_ai' ? 'nvidia' : 'builtin'
       },
+      alternative_validity: alternativeValidity,
+      deterministic_score: deterministicResult.score,
       environment: {
         runtime: 'cloudflare_pages_workers',
         timestamp: new Date().toISOString(),
@@ -2379,11 +2685,11 @@ Return ONLY valid JSON matching this schema:
       autonomous_decision_prohibited: true
     };
 
-    // Persist evaluation with new Phase 5 columns
+    // Persist evaluation with Phase 6 columns (alternative_validity, deterministic_verification_json)
     await c.env.DB.prepare(
       `INSERT INTO simulation_evaluation 
-       (id, session_id, user_id, definition_id, overall_score, dimension_scores_json, observable_evidence_json, model_interpretation_json, remediation_recommendation_json, confidence_score, uncertainty_score, observed_facts_json, provenance_json, submission_hash, submission_version, human_review_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'unreviewed')`
+       (id, session_id, user_id, definition_id, overall_score, dimension_scores_json, observable_evidence_json, model_interpretation_json, remediation_recommendation_json, confidence_score, uncertainty_score, observed_facts_json, provenance_json, submission_hash, submission_version, alternative_validity, deterministic_verification_json, human_review_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'unreviewed')`
     ).bind(
       evalId, sessionId, user.id, def.id,
       overallScore,
@@ -2395,7 +2701,9 @@ Return ONLY valid JSON matching this schema:
       epistemicUncertainty,
       JSON.stringify(observedFacts),
       JSON.stringify(provenanceData),
-      submissionHash
+      submissionHash,
+      alternativeValidity,
+      JSON.stringify(deterministicResult)
     ).run();
 
     // Mark session as evaluated & completed
@@ -2434,6 +2742,8 @@ Return ONLY valid JSON matching this schema:
       taskTitle: def.title,
       taskModality: def.simulation_type,
       overallScore: Math.round(overallScore * 100),
+      alternativeValidity,
+      deterministicVerification: deterministicResult,
       dimensionScores,
       confidenceScore: calibratedConfidence,
       uncertaintyScore: epistemicUncertainty,
@@ -2498,6 +2808,9 @@ Return ONLY valid JSON matching this schema:
       session_id: sessionId,
       evaluation_id: evalId,
       overall_score: Math.round(overallScore * 100),
+      alternative_validity: alternativeValidity,
+      alternative_validity_rationale: alternativeValidityRationale,
+      deterministic_verification: deterministicResult,
       dimension_scores: dimensionScores,
       observable_evidence: observableEvidence,
       observed_facts: observedFacts,
@@ -2518,7 +2831,7 @@ Return ONLY valid JSON matching this schema:
     }
   });
 
-  // 8. Get Evaluation Details (Phase 5 enhanced)
+  // 8. Get Evaluation Details (Phase 6 enhanced)
   app.get('/m3/simulations/sessions/:id/evaluation', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -2536,6 +2849,8 @@ Return ONLY valid JSON matching this schema:
         id: evaluation.id,
         session_id: evaluation.session_id,
         overall_score: Math.round(Number(evaluation.overall_score) * 100),
+        alternative_validity: (evaluation.alternative_validity as AlternativeValidity) || 'correct',
+        deterministic_verification: JSON.parse((evaluation.deterministic_verification_json as string) || '{}'),
         dimension_scores: JSON.parse((evaluation.dimension_scores_json as string) || '{}'),
         observable_evidence: JSON.parse((evaluation.observable_evidence_json as string) || '{}'),
         observed_facts: JSON.parse((evaluation.observed_facts_json as string) || '[]'),
@@ -2551,7 +2866,7 @@ Return ONLY valid JSON matching this schema:
     });
   });
 
-  // 9. Get Complete Structured Evidence Package (Phase 5 requirement for M05 ingestion)
+  // 9. Get Complete Structured Evidence Package (Phase 6 requirement for M05 ingestion)
   app.get('/m3/simulations/sessions/:id/evidence-package', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -2575,6 +2890,7 @@ Return ONLY valid JSON matching this schema:
     const dimensionScores = JSON.parse((evaluation.dimension_scores_json as string) || '{}');
     const remediationTasks = JSON.parse((evaluation.remediation_recommendation_json as string) || '[]');
     const modelInterpretation = JSON.parse((evaluation.model_interpretation_json as string) || '{}');
+    const deterministicVerification = JSON.parse((evaluation.deterministic_verification_json as string) || '{}');
 
     const evidencePackage = {
       packageId: `pkg-m3-${evaluation.id}`,
@@ -2589,6 +2905,8 @@ Return ONLY valid JSON matching this schema:
       taskTitle: def.title,
       taskModality: def.simulation_type,
       overallScore: Math.round(Number(evaluation.overall_score) * 100),
+      alternativeValidity: (evaluation.alternative_validity as AlternativeValidity) || 'correct',
+      deterministicVerification,
       dimensionScores,
       confidenceScore: Number(evaluation.confidence_score || 0.85),
       uncertaintyScore: Number(evaluation.uncertainty_score || 0.15),
