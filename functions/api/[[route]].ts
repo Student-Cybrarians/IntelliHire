@@ -3321,6 +3321,48 @@ registerReadinessEvidenceRoutes(app);
 import { registerTrainingEngineRoutes } from './trainingEngine';
 registerTrainingEngineRoutes(app);
 
+// Priority 19: NVIDIA Model Registry & AI Safety Guardrails
+import { NVIDIA_MODEL_CATALOG, checkSafetyGuardrail, invokeNvidiaChat } from './nvidiaModelRegistry';
+
+app.get('/nvidia/models', (c) => {
+  return c.json({
+    models: NVIDIA_MODEL_CATALOG,
+    configured: Boolean(c.env.NVIDIA_API_KEY && !c.env.NVIDIA_API_KEY.startsWith('your_')),
+    default_model: c.env.NVIDIA_MODEL || 'meta/muse-glimmer-30b',
+  });
+});
+
+app.post('/nvidia/guardrail', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const prompt = body.prompt || '';
+  const result = await checkSafetyGuardrail(c.env.NVIDIA_API_KEY, prompt, body.category || 'general');
+  return c.json(result);
+});
+
+app.post('/nvidia/chat', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const messages = body.messages || [];
+  const model = body.model || 'meta/muse-glimmer-30b';
+
+  const userPrompt = messages
+    .filter((m: any) => m.role === 'user')
+    .map((m: any) => m.content)
+    .join('\n');
+  const guard = await checkSafetyGuardrail(c.env.NVIDIA_API_KEY, userPrompt);
+  if (!guard.safe) {
+    return c.json({ error: 'Safety Policy Violation', details: guard }, 400);
+  }
+
+  const result = await invokeNvidiaChat(c.env, {
+    model,
+    messages,
+    temperature: body.temperature,
+    maxTokens: body.max_tokens,
+  });
+
+  return c.json(result);
+});
+
 export const onRequest = handle(app);
 
 
