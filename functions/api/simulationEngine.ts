@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Bindings, UserSession } from './[[route]]';
 import { getSessionUser, logAuditEvent } from './[[route]]';
+import { DynamicTaskSynthesizer } from './m3DynamicTaskSynthesizer';
 
 export * from '../../src/shared/m3WorkRoundContracts';
 import {
@@ -27,7 +28,11 @@ import {
   AdaptationDecision,
   AdaptationReasonType,
   SimulationRoundRecord,
-  SessionProgressionState
+  SessionProgressionState,
+  SimulationDefinitionConfig,
+  SimulationDefinitionRecord,
+  validateSimulationDefinitionConfig,
+  recordToSimulationConfig
 } from '../../src/shared/m3WorkRoundContracts';
 
 export interface SimulationScenario {
@@ -490,37 +495,96 @@ export default {
   }
 ];
 
-async function ensureDefinitionInDb(db: any, def: (typeof SEED_SIMULATIONS)[0], orgId: string) {
+export async function ensureDefinitionInDb(db: any, def: SimulationDefinitionConfig | (typeof SEED_SIMULATIONS)[0], orgId: string) {
   try {
     const existing = await db.prepare('SELECT id FROM simulation_definition WHERE id = ?').bind(def.id).first();
     if (!existing) {
+      const scenarioObj = def.scenario || {};
+      const expSchema = (def as any).expected_output_schema || { type: scenarioObj?.expected_output_type || 'string' };
       await db.prepare(
         `INSERT INTO simulation_definition (
           id, organization_id, title, occupation_code, target_role, domain, simulation_type,
-          competency_name, skill_name, difficulty_level, scenario_json, dynamic_injection_json,
-          expected_output_schema_json, rubric_json, is_active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+          competency_name, skill_name, difficulty_level, seniority_level, task_form, task_family,
+          work_surface_type, scenario_json, dynamic_injection_json, expected_output_schema_json,
+          rubric_json, metadata_json, version, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
       ).bind(
         def.id,
         orgId,
         def.title,
-        def.occupation_code,
+        def.occupation_code || null,
         def.target_role,
         def.domain,
         def.simulation_type,
         def.competency_name,
         def.skill_name,
         def.difficulty_level || 2,
-        JSON.stringify(def.scenario || {}),
-        JSON.stringify(def.dynamic_injection || {}),
-        JSON.stringify({ type: def.scenario?.expected_output_type || 'string' }),
-        JSON.stringify(def.rubric || {})
+        (def as any).seniority_level || 'mid',
+        (def as any).task_form || 'scenario',
+        (def as any).task_family || 'coding',
+        (def as any).work_surface_type || 'code_editor',
+        JSON.stringify(scenarioObj),
+        def.dynamic_injection ? JSON.stringify(def.dynamic_injection) : null,
+        JSON.stringify(expSchema),
+        JSON.stringify(def.rubric || {}),
+        JSON.stringify((def as any).metadata || {}),
+        (def as any).version || 1
       ).run();
     }
   } catch (e) {
     console.warn('ensureDefinitionInDb notice:', e);
   }
 }
+
+export async function resolveUserOrgId(db: any, user: any): Promise<string> {
+  if (user?.organization_id) return user.organization_id;
+  try {
+    if (db && typeof db.prepare === 'function') {
+      const dbUser = await db.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+      if (dbUser?.organization_id) return dbUser.organization_id as string;
+    }
+  } catch (_) {}
+  return 'org_default_public';
+}
+
+/**
+ * Resolves a simulation definition by ID with strict tenant isolation.
+ * Checks the in-memory catalog (public seeds) first, then queries the D1 database
+ * ensuring the definition belongs to the caller's organization or is public.
+ */
+export async function resolveDefinition(
+  db: any,
+  id: string,
+  orgId?: string
+): Promise<SimulationDefinitionConfig | null> {
+  if (!id) return null;
+
+  // 1. Check in-memory catalog (public seeds)
+  const seed = SEED_SIMULATIONS.find(s => s.id === id);
+  if (seed) return seed as SimulationDefinitionConfig;
+
+  if (!db || typeof db.prepare !== 'function') return null;
+
+  // 2. Query D1 simulation_definition with tenant isolation
+  try {
+    let query = `SELECT * FROM simulation_definition WHERE id = ? AND is_active = 1`;
+    const params: any[] = [id];
+
+    if (orgId && orgId !== 'platform_admin') {
+      query += ` AND (organization_id = ? OR organization_id = 'public' OR organization_id = 'org_default_public')`;
+      params.push(orgId);
+    }
+
+    const row = await db.prepare(query).bind(...params).first();
+    if (!row) return null;
+
+    return recordToSimulationConfig(row);
+  } catch (err) {
+    console.warn(`Notice: query simulation definition ${id} from DB:`, err);
+    return null;
+  }
+}
+
 
 /**
  * Phase 2 Intelligence: Comprehensive Context Aggregator & Target Engine
@@ -548,7 +612,7 @@ export async function resolveCandidateJobContext(
   const targetRole = (profileRow?.target_role as string) || 'Senior Software Engineer';
   const seniority = (profileRow?.experience_level as string) || 'senior';
   const readiness = Number(profileRow?.readiness_score || 0.5);
-  const primaryDomain = (profileRow?.primary_domain as string) || 'software';
+  const primaryDomain = (profileRow?.primary_domain as string) || (profileRow?.target_domain_id as string) || 'software';
 
   let extractedSkills: string[] = [];
   try {
@@ -834,8 +898,14 @@ export async function resolveCandidateJobContext(
       requiredSkills = ['CapEx & ROI Modeling', 'Valuation & Discounted Cash Flow', 'Variance Analysis'];
     } else if (primaryDomain === 'operations') {
       requiredSkills = ['Float Pool Operations', 'Emergency Bed Allocation', 'Patient Acuity Triage'];
-    } else {
+    } else if (primaryDomain === 'research') {
+      requiredSkills = ['Statistical Power & Study Design', 'Protocol Sizing', 'Research Methodology'];
+    } else if (primaryDomain === 'legal') {
+      requiredSkills = ['Regulatory Compliance Audit', 'Legal Memo & Risk Assessment', 'Cross-Border Compliance'];
+    } else if (primaryDomain === 'software') {
       requiredSkills = ['Distributed Systems & Concurrency', 'System Architecture & Concurrency', 'API Design & Relational Modeling'];
+    } else {
+      requiredSkills = [`${targetRole} Execution`, `${targetRole} Analysis`, `${targetRole} Quality Standards`];
     }
   }
 
@@ -844,8 +914,14 @@ export async function resolveCandidateJobContext(
       keyRequirements = ['Financial modeling & cash flow forecasting', 'Capital expenditure variance analysis'];
     } else if (primaryDomain === 'operations') {
       keyRequirements = ['Clinical workflow triage & staffing optimization', 'Emergency bed management'];
-    } else {
+    } else if (primaryDomain === 'research') {
+      keyRequirements = ['Study design & biostatistical modeling', 'Protocol power analysis'];
+    } else if (primaryDomain === 'legal') {
+      keyRequirements = ['Regulatory framework alignment', 'Compliance risk assessment'];
+    } else if (primaryDomain === 'software') {
       keyRequirements = ['Production architecture & distributed system design', 'Concurrency & performance engineering'];
+    } else {
+      keyRequirements = [`Core ${targetRole} operational execution`, 'Compliance with domain standards'];
     }
   }
 
@@ -2273,8 +2349,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       const user = await getSessionUser(c);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const orgId = await resolveUserOrgId(c.env.DB, user);
       const reqId = c.req.query('requisition_id');
       const purpose = (c.req.query('purpose') as AssessmentPurpose) || 'practice';
 
@@ -2298,8 +2373,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       const user = await getSessionUser(c);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const orgId = await resolveUserOrgId(c.env.DB, user);
       const body = await c.req.json().catch(() => ({}));
       const purpose = (body.assessment_purpose as AssessmentPurpose) || 'practice';
       const reqId = body.requisition_id;
@@ -2322,8 +2396,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       const user = await getSessionUser(c);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const orgId = await resolveUserOrgId(c.env.DB, user);
       const reqId = c.req.query('requisition_id');
       const purpose = (c.req.query('purpose') as AssessmentPurpose) || 'practice';
 
@@ -2340,67 +2413,26 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
         pastDefinitionIds = (pastSessions.results || []).map((r: any) => r.definition_id as string);
       } catch (_) {}
 
-      // 3. Find matching seed simulation targeting the highest-priority non-repeated target
-      let matchedSeed: any = null;
-      let matchedTarget: CompetencyTarget | null = null;
+      // 3. Delegate to Dynamic Task Synthesizer routing policy:
+      // - Seed Match: Genuine domain + skill match against unattempted seeds
+      // - Dynamic Generation: Cross-occupational task synthesis for novel domains/roles
+      // - Controlled Fallback: Clearly labeled fallback if generation fails/unavailable
+      const routingPolicy = await DynamicTaskSynthesizer.routeAndDeliverTask(c.env, bundle, {
+        pastDefinitionIds,
+        requestedSeniority: bundle.candidateContext?.seniorityLevel || bundle.jobContext?.targetSeniority || 'mid'
+      });
 
-      for (const target of targets) {
-        const targetSkill = target.skillName.toLowerCase();
-        const targetComp = target.name.toLowerCase();
-
-        // Find candidate seed matching this target
-        const candidateSeeds = SEED_SIMULATIONS.filter(sim => {
-          const simSkill = sim.skill_name.toLowerCase();
-          const simComp = sim.competency_name.toLowerCase();
-          return simSkill === targetSkill ||
-                 simComp === targetComp ||
-                 simSkill.includes(targetSkill) ||
-                 targetSkill.includes(simSkill) ||
-                 simComp.includes(targetComp) ||
-                 targetComp.includes(simComp);
-        });
-
-        // Filter out seeds candidate has recently done
-        const unattempted = candidateSeeds.find(s => !pastDefinitionIds.includes(s.id));
-        if (unattempted) {
-          matchedSeed = unattempted;
-          matchedTarget = target;
-          break;
-        }
-      }
-
-      // If no targeted unattempted seed found, fallback to any unattempted seed in the catalogue
-      if (!matchedSeed) {
-        matchedSeed = SEED_SIMULATIONS.find(s => !pastDefinitionIds.includes(s.id));
-        if (matchedSeed) {
-          matchedTarget = targets.find(t => t.domain === matchedSeed.domain) || targets[0] || null;
-        }
-      }
-
-      // If all seeds in the catalogue have been attempted, fallback to first seed
-      if (!matchedSeed) {
-        matchedSeed = SEED_SIMULATIONS[0];
-        matchedTarget = targets[0] || null;
-      }
-
-      // 4. Transform to TaskDefinition
-      const baseTask = seedSimulationToTaskDefinition(matchedSeed, pastDefinitionIds.length + 1);
-      if (matchedTarget) {
-        baseTask.competencyTarget = matchedTarget;
-      }
-
-      // 5. Seniority scaling
+      const scaledTask = routingPolicy.task;
       const candidateSeniority = bundle.candidateContext?.seniorityLevel || bundle.jobContext?.targetSeniority || 'mid';
-      const scaledTask = scaleTaskToCandidateSeniority(baseTask, candidateSeniority);
-
-      // 6. Validation
-      const isValid = validateUniversalTaskDefinition(scaledTask);
 
       return c.json({
         success: true,
+        routing_result: routingPolicy.routingResult,
+        routing_reason: routingPolicy.routingReason,
+        routing_info: routingPolicy.routingInfo,
         task: scaledTask,
-        is_valid: isValid,
-        targeting_reason: matchedTarget?.rationale || `Directly targets ${scaledTask.competencyTarget.name}`,
+        is_valid: routingPolicy.isValid,
+        targeting_reason: routingPolicy.routingReason,
         candidate_seniority: candidateSeniority,
         diversity_context: {
           past_rounds_completed: pastDefinitionIds.length,
@@ -2410,12 +2442,109 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
           cognitive_dimensions: scaledTask.cognitiveDimensions
         }
       });
+
     } catch (err: any) {
       console.error('Error in /m3/tasks/next:', err);
       return c.json({ success: false, error: err.message }, 500);
     }
   });
 
+  // 1e. Phase 3: Universal Dynamic Task Synthesis Endpoint (Cross-Occupation Generation)
+  app.post('/m3/tasks/generate', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const orgId = await resolveUserOrgId(c.env.DB, user);
+      const body = await c.req.json().catch(() => ({}));
+
+      const targetRole = body.target_role || body.role;
+      const domain = body.domain;
+      const skillName = body.skill_name || body.skill;
+      const competencyName = body.competency_name || body.competency;
+      const requestedSeniority = body.seniority_level || body.seniority || 'mid';
+      const requestedModality = body.work_surface_type || body.work_surface;
+      const forceRegenerate = Boolean(body.force_regenerate);
+      const requisitionId = body.requisition_id;
+
+      // 1. Resolve candidate context & job context
+      const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId, requisitionId);
+
+      const effectiveRole = targetRole || bundle.candidateContext?.targetRole || bundle.jobContext?.jobTitle || 'Domain Professional';
+      const effectiveDomain = domain || bundle.roleContext?.domain || bundle.candidateContext?.targetDomainId || 'software';
+      const effectiveSkill = skillName || bundle.primaryTarget?.skillName || `${effectiveRole} Execution`;
+      const effectiveCompetency = competencyName || bundle.primaryTarget?.name || `${effectiveRole} Core Competency`;
+
+      const targetCompetency: CompetencyTarget = {
+        id: `target-${crypto.randomUUID().slice(0, 8)}`,
+        name: effectiveCompetency,
+        domain: effectiveDomain,
+        skillName: effectiveSkill,
+        targetProficiency: 0.80,
+        currentProficiency: 0.50,
+        uncertaintyEstimate: 0.40,
+        diagnosisSource: 'assessment_purpose',
+        rationale: `Dynamic on-demand simulation task generation for ${effectiveRole}`
+      };
+
+      // 2. Discover previously completed tasks for candidate
+      let pastDefinitionIds: string[] = [];
+      try {
+        const pastSessions = await c.env.DB.prepare(
+          'SELECT definition_id FROM simulation_session WHERE user_id = ? ORDER BY created_at DESC LIMIT 20'
+        ).bind(user.id).all();
+        pastDefinitionIds = (pastSessions.results || []).map((r: any) => r.definition_id as string);
+      } catch (_) {}
+
+      // 3. Synthesize dynamic simulation across multi-tier pipeline
+      const genResult = await DynamicTaskSynthesizer.synthesizeDynamicSimulation(c.env, {
+        candidateContext: {
+          ...bundle.candidateContext,
+          targetRole: effectiveRole,
+          targetDomainId: effectiveDomain,
+          seniorityLevel: requestedSeniority
+        },
+        jobContext: bundle.jobContext,
+        roleContext: {
+          ...bundle.roleContext,
+          roleTitle: effectiveRole,
+          domain: effectiveDomain
+        },
+        targetCompetency,
+        organizationId: orgId,
+        seniority: requestedSeniority,
+        previousTasks: pastDefinitionIds.map(id => ({ id, title: id })),
+        forceRegenerate
+      });
+
+      // 4. Tenant-isolated persistence into D1 database
+      if (c.env.DB && genResult.definition) {
+        await ensureDefinitionInDb(c.env.DB, genResult.definition, orgId);
+      }
+
+      await logAuditEvent(c, orgId, user.id, 'GENERATE_TASK', 'SIMULATION_DEFINITION', genResult.definition.id, {
+        targetRole: effectiveRole,
+        domain: effectiveDomain,
+        skillName: effectiveSkill,
+        seniority: requestedSeniority,
+        workSurface: genResult.definition.work_surface_type,
+        modelUsed: genResult.task.routingInfo?.generatedModelUsed
+      });
+
+      return c.json({
+        success: true,
+        routing_result: 'generated',
+        routing_reason: genResult.routingReason,
+        task: genResult.task,
+        definition: genResult.definition,
+        is_valid: genResult.isValid,
+        routing_info: genResult.task.routingInfo
+      }, 201);
+    } catch (err: any) {
+      console.error('Error in /m3/tasks/generate:', err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
   // 1d. Phase 3: Universal Task Quality & Safety Validator
   app.post('/m3/tasks/validate', async (c) => {
     try {
@@ -2465,8 +2594,7 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     const domainQuery = c.req.query('domain');
     const typeQuery = c.req.query('type');
 
-    const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-    const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+    const orgId = await resolveUserOrgId(c.env.DB, user);
 
     // Resolve context & prioritized targets
     let targets: CompetencyTarget[] = [];
@@ -2486,10 +2614,29 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       }
     } catch (_) {}
 
-    // Map seed simulations against prioritized targets
-    let results = SEED_SIMULATIONS.map(sim => {
-      const simSkill = sim.skill_name.toLowerCase();
-      const simComp = sim.competency_name.toLowerCase();
+    // Query D1 simulation definitions scoped to caller's org + public
+    let dynamicDefs: SimulationDefinitionConfig[] = [];
+    try {
+      const dbRows = await c.env.DB.prepare(
+        `SELECT * FROM simulation_definition 
+         WHERE (organization_id = ? OR organization_id = 'public' OR organization_id = 'org_default_public')
+           AND is_active = 1`
+      ).bind(orgId).all();
+      for (const row of (dbRows.results || [])) {
+        if (!SEED_SIMULATIONS.some(s => s.id === row.id)) {
+          dynamicDefs.push(recordToSimulationConfig(row));
+        }
+      }
+    } catch (e) {
+      console.warn('Notice: D1 query for dynamic simulation definitions:', e);
+    }
+
+    const allDefinitions = [...SEED_SIMULATIONS, ...dynamicDefs];
+
+    // Map simulations against prioritized targets
+    let results = allDefinitions.map(sim => {
+      const simSkill = (sim.skill_name || '').toLowerCase();
+      const simComp = (sim.competency_name || '').toLowerCase();
 
       // Find matching prioritized target
       const matchingTarget = targets.find(t =>
@@ -2535,8 +2682,10 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
+    const orgId = await resolveUserOrgId(c.env.DB, user);
+
     const id = c.req.param('id');
-    const sim = SEED_SIMULATIONS.find(s => s.id === id);
+    const sim = await resolveDefinition(c.env.DB, id, orgId);
     if (!sim) return c.json({ error: 'Simulation definition not found' }, 404);
 
     return c.json({
@@ -2545,20 +2694,93 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     });
   });
 
+  // 2b. Register / Persist Dynamic Simulation Definition (Tenant Isolated)
+  app.post('/m3/simulations/definitions', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      const orgId = await resolveUserOrgId(c.env.DB, user);
+
+      const rawBody = await c.req.json().catch(() => null);
+      if (!rawBody) {
+        return c.json({ error: 'Malformed or missing JSON request body' }, 400);
+      }
+
+      // Validate configuration using comprehensive boundary validator
+      const validation = validateSimulationDefinitionConfig(rawBody);
+      if (!validation.valid || !validation.validated) {
+        return c.json({
+          error: 'Invalid simulation definition configuration',
+          details: validation.errors
+        }, 400);
+      }
+
+      const def = validation.validated;
+      // Enforce tenant boundary: caller's orgId always takes precedence
+      def.organization_id = orgId;
+
+      await c.env.DB.prepare(
+        `INSERT INTO simulation_definition (
+          id, organization_id, title, occupation_code, target_role, domain, simulation_type,
+          competency_name, skill_name, difficulty_level, seniority_level, task_form, task_family,
+          work_surface_type, scenario_json, dynamic_injection_json, expected_output_schema_json,
+          rubric_json, metadata_json, version, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        def.id,
+        orgId,
+        def.title,
+        def.occupation_code || null,
+        def.target_role,
+        def.domain,
+        def.simulation_type,
+        def.competency_name,
+        def.skill_name,
+        def.difficulty_level || 2,
+        def.seniority_level || 'mid',
+        def.task_form || 'scenario',
+        def.task_family || 'coding',
+        def.work_surface_type || 'code_editor',
+        JSON.stringify(def.scenario || {}),
+        def.dynamic_injection ? JSON.stringify(def.dynamic_injection) : null,
+        JSON.stringify(def.expected_output_schema || {}),
+        JSON.stringify(def.rubric || {}),
+        JSON.stringify(def.metadata || {}),
+        def.version || 1,
+        def.is_active ? 1 : 0
+      ).run();
+
+      await logAuditEvent(c, orgId, user.id, 'CREATE', 'SIMULATION_DEFINITION', def.id, {
+        title: def.title,
+        domain: def.domain,
+        simulation_type: def.simulation_type,
+        work_surface_type: def.work_surface_type
+      });
+
+      return c.json({
+        success: true,
+        definition: def
+      }, 201);
+    } catch (err: any) {
+      console.error('Error creating simulation definition:', err);
+      return c.json({ error: 'Failed to create simulation definition', details: err?.message }, 500);
+    }
+  });
+
   // 3. Start or Resume Simulation Session
   app.post('/m3/simulations/sessions', async (c) => {
     try {
       const user = await getSessionUser(c);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-      const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-      const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      const orgId = await resolveUserOrgId(c.env.DB, user);
 
       const body = await c.req.json().catch(() => ({}));
       let { definition_id, force_new } = body;
 
-      // Phase 3: Support adaptive next task selection
-      let def = SEED_SIMULATIONS.find(s => s.id === definition_id);
+      // Support resolving definition from seed catalog or D1 database
+      let def = await resolveDefinition(c.env.DB, definition_id, orgId);
       if (!def && (definition_id === 'adaptive_next' || !definition_id)) {
         let pastDefinitionIds: string[] = [];
         try {
@@ -2569,24 +2791,8 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
         } catch (_) {}
 
         const bundle = await resolveCandidateJobContext(c.env.DB, user.id, orgId);
-        const targets = bundle.targets || [];
-        for (const target of targets) {
-          const targetSkill = target.skillName.toLowerCase();
-          const targetComp = target.name.toLowerCase();
-          const match = SEED_SIMULATIONS.find(sim => {
-            const simSkill = sim.skill_name.toLowerCase();
-            const simComp = sim.competency_name.toLowerCase();
-            return (simSkill === targetSkill || simComp === targetComp || simSkill.includes(targetSkill) || targetSkill.includes(simSkill)) &&
-                   !pastDefinitionIds.includes(sim.id);
-          });
-          if (match) {
-            def = match;
-            break;
-          }
-        }
-        if (!def) {
-          def = SEED_SIMULATIONS.find(s => !pastDefinitionIds.includes(s.id)) || SEED_SIMULATIONS[0];
-        }
+        const routingPolicy = await DynamicTaskSynthesizer.routeAndDeliverTask(c.env, bundle, { pastDefinitionIds });
+        def = routingPolicy.definition;
       }
 
       if (!def) return c.json({ error: 'Valid definition_id required' }, 400);
@@ -2680,7 +2886,9 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
         return c.json({ success: true, active_session: null });
       }
 
-      const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id);
+      const orgId = await resolveUserOrgId(c.env.DB, user);
+
+      const def = (await resolveDefinition(c.env.DB, session.definition_id as string, orgId)) || SEED_SIMULATIONS[0];
       const tevents = JSON.parse((session.telemetry_events_json as string) || '[]');
 
       let latestEvaluation = null;
@@ -2761,7 +2969,9 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id);
+    const orgId = await resolveUserOrgId(c.env.DB, user);
+
+    const def = (await resolveDefinition(c.env.DB, session.definition_id as string, orgId)) || SEED_SIMULATIONS[0];
 
     return c.json({
       success: true,
@@ -2826,7 +3036,8 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
       if (!session) return c.json({ error: 'Session not found' }, 404);
 
-      const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id) || SEED_SIMULATIONS[0];
+      const orgId = await resolveUserOrgId(c.env.DB, user);
+      const def = (await resolveDefinition(c.env.DB, session.definition_id as string, orgId)) || SEED_SIMULATIONS[0];
       const body = await c.req.json().catch(() => ({}));
       const { action_type, code, query, parameters, candidate_work } = body;
 
@@ -2881,9 +3092,11 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
       const user = await getSessionUser(c);
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
+      const orgId = await resolveUserOrgId(c.env.DB, user);
+
       const body = await c.req.json().catch(() => ({}));
       const { definition_id, action_type, payload } = body;
-      const def = SEED_SIMULATIONS.find(s => s.id === definition_id) || SEED_SIMULATIONS[0];
+      const def = (await resolveDefinition(c.env.DB, definition_id, orgId)) || SEED_SIMULATIONS[0];
 
       const execResult = executeCandidateWork(def, action_type || 'run_code', payload || {});
       return c.json({
@@ -2907,7 +3120,9 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
 
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id);
+    const orgId = await resolveUserOrgId(c.env.DB, user);
+
+    const def = await resolveDefinition(c.env.DB, session.definition_id as string, orgId);
     if (!def || !def.dynamic_injection) {
       return c.json({ error: 'No dynamic injection defined for this simulation' }, 400);
     }
@@ -2974,7 +3189,8 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     }
 
     const { final_output, notes } = await c.req.json().catch(() => ({}));
-    const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id);
+    const orgId = await resolveUserOrgId(c.env.DB, user);
+    const def = await resolveDefinition(c.env.DB, session.definition_id as string, orgId);
     if (!def) return c.json({ error: 'Definition not found' }, 404);
 
     const telemetryEvents = JSON.parse((session.telemetry_events_json as string) || '[]');
@@ -3773,7 +3989,8 @@ Return ONLY valid JSON matching this schema:
 
     if (!evaluation) return c.json({ error: 'Evaluation not found' }, 404);
 
-    const def = SEED_SIMULATIONS.find(s => s.id === session.definition_id) || SEED_SIMULATIONS[0];
+    const orgId = await resolveUserOrgId(c.env.DB, user);
+    const def = (await resolveDefinition(c.env.DB, session.definition_id as string, orgId)) || SEED_SIMULATIONS[0];
     const observedFacts = JSON.parse((evaluation.observed_facts_json as string) || '[]');
     const provenance = JSON.parse((evaluation.provenance_json as string) || '{}');
     const dimensionScores = JSON.parse((evaluation.dimension_scores_json as string) || '{}');

@@ -18,13 +18,29 @@ import type { AssessmentPurpose } from './evidenceStrategy';
 // -----------------------------------------------------------------------------
 
 export interface ProvenanceRecord {
-  sourceModule: 'm01_resume' | 'm02_assessment' | 'm03_simulation' | 'm04_interview' | 'm05_readiness' | 'catalog_seed' | 'system';
+  sourceModule: 'm01_resume' | 'm02_assessment' | 'm03_simulation' | 'm04_interview' | 'm05_readiness' | 'catalog_seed' | 'system' | 'dynamic_synthesizer' | 'python_service';
   sourceRecordId?: string;
-  generatorMethod: 'catalog_seed' | 'adaptive_ai' | 'rubric_deterministic' | 'hybrid' | 'human_expert';
+  generatorMethod: 'catalog_seed' | 'adaptive_ai' | 'rubric_deterministic' | 'hybrid' | 'human_expert' | 'dynamic_synthesizer' | 'python_service' | 'archetype_synthesis_v2' | 'llm_synthesis';
   modelIdentifier?: string;
   promptVersion?: string;
   recordedAt: string;
   auditSignature?: string;
+}
+
+export type TaskRoutingResult = 'seed_match' | 'generated' | 'fallback';
+
+export interface TaskRoutingInfo {
+  routingResult: TaskRoutingResult;
+  routingReason: string;
+  matchedSeedId?: string;
+  generatedModelUsed?: string;
+  provenance: {
+    source: 'seed_catalog' | 'dynamic_synthesizer' | 'python_service' | 'fallback_engine';
+    generatorMethod: string;
+    timestamp: string;
+    organizationId: string;
+    version?: number;
+  };
 }
 
 export interface UncertaintyEstimate {
@@ -387,6 +403,8 @@ export interface TaskDefinition {
   id: string;
   roundIndex: number;
   modality: WorkRoundModality;
+  workSurfaceType?: WorkSurfaceType;
+  work_surface_type?: WorkSurfaceType;
   competencyTarget: CompetencyTarget;
   difficultyLevel: number; // 1 to 5
   taskForm?: TaskForm;
@@ -413,6 +431,7 @@ export interface TaskDefinition {
   qualityScore?: number;
   timeAllottedSeconds?: number;
   provenance: ProvenanceRecord;
+  routingInfo?: TaskRoutingInfo;
 }
 
 // -----------------------------------------------------------------------------
@@ -615,8 +634,424 @@ export function validateEvaluation(evalObj: Partial<Evaluation>): evalObj is Eva
   );
 }
 
+// -----------------------------------------------------------------------------
+// 10b. Universal Simulation Domain Model & Configuration Hardening Contracts
+// -----------------------------------------------------------------------------
+
+export interface SimulationScenarioConfig {
+  background?: string;
+  objective: string;
+  initial_requirements: string[];
+  constraints?: string[];
+  operational_constraints?: string[];
+  starting_data?: Record<string, any>;
+  tools_available?: string[];
+  expected_output_type?: string;
+  work_surface_type?: WorkSurfaceType;
+  allowed_file_types?: string[];
+  max_duration_seconds?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface SimulationRubricDimension {
+  name: string;
+  weight: number;
+  description: string;
+  criteria: string;
+}
+
+export interface SimulationRubricConfig {
+  dimensions: SimulationRubricDimension[];
+  hidden_criteria?: string[];
+}
+
+export interface SimulationDefinitionRecord {
+  id: string;
+  organization_id: string;
+  title: string;
+  occupation_code?: string;
+  occupation_title?: string;
+  target_role: string;
+  domain: string;
+  simulation_type: string;
+  competency_name: string;
+  skill_name: string;
+  difficulty_level: number;
+  seniority_level: SeniorityLevel | string;
+  task_form: TaskForm | string;
+  task_family: TaskFamily | string;
+  work_surface_type: WorkSurfaceType;
+  scenario_json: string;
+  dynamic_injection_json?: string | null;
+  expected_output_schema_json?: string;
+  rubric_json: string;
+  metadata_json?: string;
+  version: number;
+  is_active: number;
+  created_at?: string;
+}
+
+export interface SimulationDefinitionConfig {
+  id: string;
+  organization_id?: string;
+  title: string;
+  occupation_code?: string;
+  occupation_title?: string;
+  target_role: string;
+  domain: string;
+  simulation_type: string;
+  competency_name: string;
+  skill_name: string;
+  difficulty_level?: number;
+  seniority_level?: SeniorityLevel | string;
+  task_form?: TaskForm | string;
+  task_family?: TaskFamily | string;
+  work_surface_type?: WorkSurfaceType;
+  scenario: SimulationScenarioConfig;
+  dynamic_injection?: DynamicInjectionSpec | null;
+  expected_output_schema?: Record<string, any>;
+  rubric: SimulationRubricConfig;
+  metadata?: Record<string, any>;
+  version?: number;
+  is_active?: boolean | number;
+  created_at?: string;
+}
+
+export interface ValidationResult<T = any> {
+  valid: boolean;
+  errors: string[];
+  validated?: T;
+}
+
 /**
- * Adapter helper to transform legacy Seed Simulation definitions into modern WorkRound TaskDefinition
+ * Validates simulation configuration at application boundaries.
+ * Enforces size limits, prototype safety, rubric normalization, and bounded metadata.
+ */
+export function validateSimulationDefinitionConfig(payload: any): ValidationResult<SimulationDefinitionConfig> {
+  const errors: string[] = [];
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { valid: false, errors: ['Payload must be a non-null JSON object'] };
+  }
+
+  // 1. Prototype pollution guard
+  function hasForbiddenKeys(obj: any, depth = 0): boolean {
+    if (!obj || typeof obj !== 'object' || depth > 8) return false;
+    if (Object.prototype.hasOwnProperty.call(obj, '__proto__')) return true;
+    for (const key of Object.getOwnPropertyNames(obj)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') return true;
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
+        if (hasForbiddenKeys(obj[key], depth + 1)) return true;
+      }
+    }
+    return false;
+  }
+
+  if (hasForbiddenKeys(payload)) {
+    return { valid: false, errors: ['Prototype pollution detected: configuration payload contains forbidden prototype keys'] };
+  }
+
+  // 2. Payload size check (<= 512 KB)
+  let serialized = '';
+  try {
+    serialized = JSON.stringify(payload);
+    if (serialized.length > 524288) {
+      return { valid: false, errors: ['Configuration payload exceeds maximum allowed size (512 KB)'] };
+    }
+  } catch {
+    return { valid: false, errors: ['Payload cannot be serialized to JSON'] };
+  }
+
+  // 3. Title validation
+  if (!payload.title || typeof payload.title !== 'string') {
+    errors.push('Missing or invalid title: must be a non-empty string');
+  } else if (payload.title.trim().length < 3 || payload.title.trim().length > 200) {
+    errors.push('Title length must be between 3 and 200 characters');
+  }
+
+  // 4. Target role validation
+  if (!payload.target_role || typeof payload.target_role !== 'string') {
+    errors.push('Missing or invalid target_role: must be a non-empty string');
+  } else if (payload.target_role.trim().length < 2 || payload.target_role.trim().length > 100) {
+    errors.push('Target role length must be between 2 and 100 characters');
+  }
+
+  // 5. Domain validation (allows any occupational domain, 2-64 chars)
+  if (!payload.domain || typeof payload.domain !== 'string') {
+    errors.push('Missing or invalid domain: must be a non-empty string');
+  } else if (payload.domain.trim().length < 2 || payload.domain.trim().length > 64) {
+    errors.push('Domain length must be between 2 and 64 characters');
+  } else if (!/^[a-zA-Z0-9_\-\s]+$/.test(payload.domain.trim())) {
+    errors.push('Domain contains invalid characters; must contain only alphanumeric, underscores, hyphens or spaces');
+  }
+
+  // 6. Simulation type validation
+  if (!payload.simulation_type || typeof payload.simulation_type !== 'string') {
+    errors.push('Missing or invalid simulation_type: must be a non-empty string');
+  } else if (payload.simulation_type.trim().length < 2 || payload.simulation_type.trim().length > 64) {
+    errors.push('Simulation type length must be between 2 and 64 characters');
+  }
+
+  // 7. Competency and skill name validation
+  let competencyName = payload.competency_name;
+  if (!competencyName || typeof competencyName !== 'string' || competencyName.trim().length < 2) {
+    competencyName = payload.target_role ? `${payload.target_role} Core Competency` : 'Professional Competency';
+  }
+  let skillName = payload.skill_name;
+  if (!skillName || typeof skillName !== 'string' || skillName.trim().length < 2) {
+    skillName = payload.simulation_type ? `${payload.simulation_type} Application` : 'Applied Skill';
+  }
+
+  // 8. Difficulty level validation (bounded 1 to 5)
+  let difficulty = payload.difficulty_level;
+  if (difficulty !== undefined && difficulty !== null) {
+    if (typeof difficulty !== 'number' || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) {
+      errors.push('Difficulty level must be an integer between 1 and 5');
+    }
+  } else {
+    difficulty = 2;
+  }
+
+  // 9. Seniority level validation & normalization
+  const validSeniorityLevels = ['entry', 'junior', 'mid', 'senior', 'lead', 'manager', 'executive'];
+  let seniority = payload.seniority_level;
+  if (seniority !== undefined && seniority !== null) {
+    if (typeof seniority !== 'string' || !validSeniorityLevels.includes(seniority.toLowerCase().trim())) {
+      errors.push(`Invalid seniority_level: must be one of ${validSeniorityLevels.join(', ')}`);
+    } else {
+      seniority = normalizeSeniorityLevel(seniority);
+    }
+  } else {
+    seniority = 'mid';
+  }
+
+  // 10. Work surface type validation
+  const validWorkSurfaces: WorkSurfaceType[] = [
+    'code_editor', 'sql_query', 'data_analysis', 'financial_table',
+    'engineering_calc', 'operations_decision', 'document_writing',
+    'legal_memo', 'research_analysis', 'structured_response'
+  ];
+  let workSurface: WorkSurfaceType = payload.work_surface_type;
+  if (workSurface) {
+    if (!validWorkSurfaces.includes(workSurface)) {
+      errors.push(`Invalid work_surface_type: must be one of ${validWorkSurfaces.join(', ')}`);
+    }
+  } else {
+    const st = (payload.simulation_type || '').toLowerCase();
+    if (st.includes('sql')) workSurface = 'sql_query';
+    else if (st.includes('data')) workSurface = 'data_analysis';
+    else if (st.includes('financial') || st.includes('capex')) workSurface = 'financial_table';
+    else if (st.includes('engineering') || st.includes('calc')) workSurface = 'engineering_calc';
+    else if (st.includes('operations') || st.includes('triage')) workSurface = 'operations_decision';
+    else if (st.includes('legal') || st.includes('policy')) workSurface = 'legal_memo';
+    else if (st.includes('written') || st.includes('doc')) workSurface = 'document_writing';
+    else if (st.includes('troubleshoot') || st.includes('investigat')) workSurface = 'research_analysis';
+    else if (st.includes('code') || st.includes('coding')) workSurface = 'code_editor';
+    else workSurface = 'structured_response';
+  }
+
+  // 11. Scenario validation
+  const scenario = payload.scenario;
+  if (!scenario || typeof scenario !== 'object' || Array.isArray(scenario)) {
+    errors.push('Missing or invalid scenario: must be an object');
+  } else {
+    if (!scenario.objective || typeof scenario.objective !== 'string' || scenario.objective.trim().length < 5) {
+      errors.push('Scenario objective must be a string with at least 5 characters');
+    }
+    if (scenario.objective && scenario.objective.length > 5000) {
+      errors.push('Scenario objective exceeds maximum length of 5000 characters');
+    }
+    if (scenario.background && typeof scenario.background === 'string' && scenario.background.length > 10000) {
+      errors.push('Scenario background exceeds maximum length of 10000 characters');
+    }
+    if (!Array.isArray(scenario.initial_requirements) || scenario.initial_requirements.length === 0) {
+      errors.push('Scenario initial_requirements must be a non-empty array of strings');
+    } else {
+      if (scenario.initial_requirements.length > 50) {
+        errors.push('Scenario initial_requirements cannot have more than 50 items');
+      }
+      for (let i = 0; i < scenario.initial_requirements.length; i++) {
+        if (typeof scenario.initial_requirements[i] !== 'string' || scenario.initial_requirements[i].trim().length === 0) {
+          errors.push(`Requirement at index ${i} must be a non-empty string`);
+        }
+      }
+    }
+    if (scenario.constraints && !Array.isArray(scenario.constraints)) {
+      errors.push('Scenario constraints must be an array of strings if provided');
+    }
+    if (scenario.tools_available && !Array.isArray(scenario.tools_available)) {
+      errors.push('Scenario tools_available must be an array of strings if provided');
+    }
+  }
+
+  // 12. Rubric validation
+  const rubric = payload.rubric;
+  if (!rubric || typeof rubric !== 'object' || Array.isArray(rubric)) {
+    errors.push('Missing or invalid rubric: must be an object');
+  } else {
+    if (!Array.isArray(rubric.dimensions) || rubric.dimensions.length === 0) {
+      errors.push('Rubric dimensions must be a non-empty array');
+    } else {
+      if (rubric.dimensions.length > 10) {
+        errors.push('Rubric dimensions cannot exceed 10 items');
+      }
+      let weightSum = 0;
+      for (let i = 0; i < rubric.dimensions.length; i++) {
+        const dim = rubric.dimensions[i];
+        if (!dim || typeof dim !== 'object') {
+          errors.push(`Rubric dimension at index ${i} must be an object`);
+          continue;
+        }
+        if (!dim.name || typeof dim.name !== 'string' || dim.name.trim().length < 2) {
+          errors.push(`Rubric dimension at index ${i} must have a valid name`);
+        }
+        if (typeof dim.weight !== 'number' || isNaN(dim.weight) || dim.weight <= 0 || dim.weight > 1.0) {
+          errors.push(`Rubric dimension '${dim.name || i}' weight must be a positive number <= 1.0`);
+        } else {
+          weightSum += dim.weight;
+        }
+        if (!dim.criteria && !dim.description) {
+          errors.push(`Rubric dimension '${dim.name || i}' must specify criteria or description`);
+        }
+      }
+      if (weightSum < 0.80 || weightSum > 1.20) {
+        errors.push(`Rubric dimension weights sum to ${weightSum.toFixed(2)}; should sum to approximately 1.0 (between 0.80 and 1.20)`);
+      }
+    }
+  }
+
+  // 13. Dynamic Injection validation (if present)
+  if (payload.dynamic_injection) {
+    const inj = payload.dynamic_injection;
+    if (typeof inj !== 'object') {
+      errors.push('Dynamic injection must be an object');
+    } else {
+      if (inj.trigger_step !== undefined && (typeof inj.trigger_step !== 'number' || inj.trigger_step < 1)) {
+        errors.push('Dynamic injection trigger_step must be an integer >= 1');
+      }
+      if (!inj.alert_title || typeof inj.alert_title !== 'string') {
+        errors.push('Dynamic injection alert_title must be a non-empty string');
+      }
+    }
+  }
+
+  // 14. Bounded custom metadata validation
+  let validatedMetadata: Record<string, any> = {};
+  if (payload.metadata !== undefined && payload.metadata !== null) {
+    if (typeof payload.metadata !== 'object' || Array.isArray(payload.metadata)) {
+      errors.push('Custom metadata must be a JSON object');
+    } else {
+      try {
+        const metaStr = JSON.stringify(payload.metadata);
+        if (metaStr.length > 65536) {
+          errors.push('Custom metadata exceeds maximum size of 64 KB');
+        } else {
+          validatedMetadata = payload.metadata;
+        }
+      } catch {
+        errors.push('Custom metadata cannot be serialized to JSON');
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  const generatedId = payload.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? `sim-dyn-${crypto.randomUUID()}` : `sim-dyn-${Date.now()}`);
+
+  const validated: SimulationDefinitionConfig = {
+    id: generatedId,
+    organization_id: payload.organization_id || 'org_default_public',
+    title: payload.title.trim(),
+    occupation_code: payload.occupation_code ? String(payload.occupation_code).trim() : undefined,
+    occupation_title: payload.occupation_title ? String(payload.occupation_title).trim() : undefined,
+    target_role: payload.target_role.trim(),
+    domain: payload.domain.trim().toLowerCase(),
+    simulation_type: payload.simulation_type.trim().toLowerCase(),
+    competency_name: competencyName.trim(),
+    skill_name: skillName.trim(),
+    difficulty_level: difficulty,
+    seniority_level: seniority,
+    task_form: payload.task_form || 'scenario',
+    task_family: payload.task_family || 'coding',
+    work_surface_type: workSurface,
+    scenario: {
+      background: scenario.background || '',
+      objective: scenario.objective.trim(),
+      initial_requirements: scenario.initial_requirements.map((r: string) => r.trim()),
+      constraints: Array.isArray(scenario.constraints) ? scenario.constraints.map((c: string) => c.trim()) : [],
+      operational_constraints: Array.isArray(scenario.operational_constraints) ? scenario.operational_constraints.map((c: string) => c.trim()) : [],
+      starting_data: scenario.starting_data || {},
+      tools_available: Array.isArray(scenario.tools_available) ? scenario.tools_available.map((t: string) => t.trim()) : ['Universal Work Surface'],
+      expected_output_type: scenario.expected_output_type || 'work_product',
+      work_surface_type: workSurface,
+      metadata: scenario.metadata || {}
+    },
+    dynamic_injection: payload.dynamic_injection || null,
+    expected_output_schema: payload.expected_output_schema || { type: scenario.expected_output_type || 'work_product' },
+    rubric: {
+      dimensions: rubric.dimensions.map((d: any) => ({
+        name: d.name.trim(),
+        weight: Number(d.weight),
+        description: (d.description || d.criteria || '').trim(),
+        criteria: (d.criteria || d.description || '').trim()
+      })),
+      hidden_criteria: Array.isArray(rubric.hidden_criteria) ? rubric.hidden_criteria : []
+    },
+    metadata: validatedMetadata,
+    version: payload.version ? Number(payload.version) : 1,
+    is_active: payload.is_active !== undefined ? (payload.is_active ? 1 : 0) : 1
+  };
+
+  return { valid: true, errors: [], validated };
+}
+
+/**
+ * Transforms a database record or raw row from simulation_definition into a SimulationDefinitionConfig.
+ */
+export function recordToSimulationConfig(record: SimulationDefinitionRecord | any): SimulationDefinitionConfig {
+  const scenario = typeof record.scenario_json === 'string' ? JSON.parse(record.scenario_json || '{}') : (record.scenario || {});
+  const rubric = typeof record.rubric_json === 'string' ? JSON.parse(record.rubric_json || '{"dimensions":[]}') : (record.rubric || { dimensions: [] });
+  const dynamicInjection = typeof record.dynamic_injection_json === 'string' && record.dynamic_injection_json
+    ? JSON.parse(record.dynamic_injection_json)
+    : (record.dynamic_injection || null);
+  const metadata = typeof record.metadata_json === 'string' && record.metadata_json
+    ? JSON.parse(record.metadata_json)
+    : (record.metadata || {});
+  const expectedOutputSchema = typeof record.expected_output_schema_json === 'string' && record.expected_output_schema_json
+    ? JSON.parse(record.expected_output_schema_json)
+    : (record.expected_output_schema || {});
+
+  return {
+    id: record.id,
+    organization_id: record.organization_id,
+    title: record.title,
+    occupation_code: record.occupation_code,
+    occupation_title: record.occupation_title,
+    target_role: record.target_role,
+    domain: record.domain,
+    simulation_type: record.simulation_type,
+    competency_name: record.competency_name,
+    skill_name: record.skill_name,
+    difficulty_level: record.difficulty_level || 2,
+    seniority_level: record.seniority_level || 'mid',
+    task_form: record.task_form || 'scenario',
+    task_family: record.task_family || 'coding',
+    work_surface_type: record.work_surface_type || 'code_editor',
+    scenario,
+    dynamic_injection: dynamicInjection,
+    expected_output_schema: expectedOutputSchema,
+    rubric,
+    metadata,
+    version: record.version || 1,
+    is_active: record.is_active !== undefined ? record.is_active : 1,
+    created_at: record.created_at
+  };
+}
+
+/**
+ * Adapter helper to transform legacy Seed Simulation definitions or dynamic SimulationDefinitionConfigs into modern WorkRound TaskDefinition
  */
 export function calculateTaskRepetitionFingerprint(title: string, objective: string, skill: string): string {
   const norm = `${title.toLowerCase().trim()}|${objective.toLowerCase().trim()}|${skill.toLowerCase().trim()}`;
@@ -629,61 +1064,82 @@ export function calculateTaskRepetitionFingerprint(title: string, objective: str
 }
 
 export function seedSimulationToTaskDefinition(
-  seed: {
+  seed: SimulationDefinitionConfig | {
     id: string;
     title: string;
     occupation_code?: string;
+    occupation_title?: string;
     target_role: string;
     domain: string;
     simulation_type: string;
     competency_name: string;
     skill_name: string;
-    difficulty_level: number;
+    difficulty_level?: number;
+    seniority_level?: string;
+    task_form?: TaskForm | string;
+    task_family?: TaskFamily | string;
+    work_surface_type?: WorkSurfaceType;
     scenario: any;
     dynamic_injection?: any;
     rubric: any;
+    metadata?: Record<string, any>;
   },
   roundIndex: number = 1
 ): TaskDefinition {
   const modality = (seed.simulation_type as WorkRoundModality) || 'custom';
 
-  let taskForm: TaskForm = 'practical_execution';
-  let taskFamily: TaskFamily = 'coding';
-  if (seed.simulation_type === 'financial_analysis') {
-    taskForm = 'quantitative_calculation';
-    taskFamily = 'financial_modeling';
-  } else if (seed.simulation_type === 'operational_triage') {
-    taskForm = 'scenario';
-    taskFamily = 'operations_management';
-  } else if (seed.simulation_type === 'written_response') {
-    taskForm = 'written_response';
-    taskFamily = 'legal_compliance';
-  } else if (seed.simulation_type === 'incident_investigation') {
-    taskForm = 'debugging';
-    taskFamily = 'troubleshooting';
+  let taskForm: TaskForm = (seed.task_form as TaskForm) || 'practical_execution';
+  let taskFamily: TaskFamily = (seed.task_family as TaskFamily) || 'coding';
+
+  if (!seed.task_form || !seed.task_family) {
+    if (seed.simulation_type === 'financial_analysis') {
+      taskForm = 'quantitative_calculation';
+      taskFamily = 'financial_modeling';
+    } else if (seed.simulation_type === 'operational_triage') {
+      taskForm = 'scenario';
+      taskFamily = 'operations_management';
+    } else if (seed.simulation_type === 'written_response' || seed.simulation_type === 'written_communication') {
+      taskForm = 'written_response';
+      taskFamily = 'legal_compliance';
+    } else if (seed.simulation_type === 'incident_investigation' || seed.simulation_type === 'troubleshooting') {
+      taskForm = 'debugging';
+      taskFamily = 'troubleshooting';
+    } else if (seed.simulation_type === 'sql' || seed.simulation_type === 'sql_query') {
+      taskForm = 'practical_execution';
+      taskFamily = 'sql_data';
+    } else if (seed.simulation_type === 'data_analysis') {
+      taskForm = 'analysis';
+      taskFamily = 'data_analysis';
+    } else if (seed.simulation_type === 'policy_review' || seed.simulation_type === 'legal_memo') {
+      taskForm = 'written_response';
+      taskFamily = 'legal_compliance';
+    }
   }
 
   const coreModel: TaskCoreModel = {
     input: seed.scenario?.background || '',
-    constraints: seed.scenario?.constraints || [],
+    constraints: seed.scenario?.constraints || seed.scenario?.operational_constraints || [],
     cognitiveOperation: seed.scenario?.objective || '',
     expectedOutput: seed.scenario?.expected_output_type || 'work_product',
     observableEvidence: seed.scenario?.initial_requirements || [],
-    evaluationCriteria: (seed.rubric?.dimensions || []).map((d: any) => `${d.name}: ${d.criteria}`)
+    evaluationCriteria: (seed.rubric?.dimensions || []).map((d: any) => `${d.name}: ${d.criteria || d.description || ''}`)
   };
 
+  const normSeniority = normalizeSeniorityLevel(seed.seniority_level || 'senior');
   const seniorityScope: TaskSeniorityScope = {
-    level: 'senior',
-    ambiguityLevel: 'moderate',
-    systemScope: 'subsystem',
-    expectedAutonomy: 'independent',
-    complexityFactor: 1.5
+    level: normSeniority,
+    ambiguityLevel: normSeniority === 'junior' || normSeniority === 'entry' ? 'low' : normSeniority === 'senior' ? 'moderate' : 'high',
+    systemScope: normSeniority === 'entry' || normSeniority === 'junior' ? 'local_component' : normSeniority === 'senior' ? 'subsystem' : 'cross_system',
+    expectedAutonomy: normSeniority === 'entry' ? 'procedural' : normSeniority === 'junior' || normSeniority === 'mid' ? 'independent' : 'architectural',
+    complexityFactor: normSeniority === 'entry' ? 1.0 : normSeniority === 'mid' ? 1.25 : normSeniority === 'senior' ? 1.5 : 2.0
   };
 
   return {
     id: seed.id,
     roundIndex,
     modality,
+    workSurfaceType: seed.work_surface_type || (seed.simulation_type as any),
+    work_surface_type: seed.work_surface_type || (seed.simulation_type as any),
     taskForm,
     taskFamily,
     cognitiveDimensions: [
@@ -711,7 +1167,7 @@ export function seedSimulationToTaskDefinition(
       background: seed.scenario?.background || '',
       objective: seed.scenario?.objective || '',
       initialRequirements: seed.scenario?.initial_requirements || [],
-      operationalConstraints: seed.scenario?.constraints || [],
+      operationalConstraints: seed.scenario?.constraints || seed.scenario?.operational_constraints || [],
       startingData: seed.scenario?.starting_data,
       toolsAvailable: seed.scenario?.tools_available || [],
       expectedOutputType: seed.scenario?.expected_output_type || 'work_product'
@@ -727,8 +1183,8 @@ export function seedSimulationToTaskDefinition(
       dimensions: (seed.rubric?.dimensions || []).map((d: any) => ({
         name: d.name,
         weight: d.weight,
-        description: d.description,
-        criteria: d.criteria
+        description: d.description || d.criteria || '',
+        criteria: d.criteria || d.description || ''
       })),
       hiddenCriteria: seed.rubric?.hidden_criteria
     },
@@ -736,8 +1192,8 @@ export function seedSimulationToTaskDefinition(
     qualityScore: 0.94,
     timeAllottedSeconds: 1800,
     provenance: {
-      sourceModule: 'catalog_seed',
-      generatorMethod: 'catalog_seed',
+      sourceModule: seed.id.startsWith('sim-dyn') ? 'm03_simulation' : 'catalog_seed',
+      generatorMethod: seed.id.startsWith('sim-dyn') ? 'adaptive_ai' : 'catalog_seed',
       recordedAt: new Date().toISOString()
     }
   };
