@@ -64,6 +64,14 @@ export default function Module4Interviews() {
   const [pendingAdvance, setPendingAdvance] = useState<boolean>(false);
   const [activeCoachingTab, setActiveCoachingTab] = useState<'feedback' | 'blueprint' | 'model'>('feedback');
 
+  // Phase 3 Adaptive Follow-Up & Dynamic Probing State
+  const [activeFollowUp, setActiveFollowUp] = useState<any>(null);
+  const [followUpResponse, setFollowUpResponse] = useState<string>('');
+  const [submittingFollowUp, setSubmittingFollowUp] = useState<boolean>(false);
+  const [skippingFollowUp, setSkippingFollowUp] = useState<boolean>(false);
+  const [followUpsHistory, setFollowUpsHistory] = useState<any[]>([]);
+  const [followUpDecision, setFollowUpDecision] = useState<any>(null);
+
   // Interviewer Evaluation Input (Separate from AI)
   const [humanRating, setHumanRating] = useState<number>(4);
   const [humanNotes, setHumanNotes] = useState<string>('');
@@ -120,7 +128,15 @@ export default function Module4Interviews() {
           setActivePlan(act.plan || null);
           setPendingAdvance(Boolean(act.pending_advance));
 
-          if (act.pending_advance && act.active_turn_coaching) {
+          setActiveFollowUp(act.active_follow_up || null);
+          setFollowUpsHistory(act.active_turn_follow_ups || []);
+          setFollowUpDecision(act.active_turn_follow_up_decision || null);
+
+          if (act.active_turn_observation?.candidate_response) {
+            setCandidateResponse(act.active_turn_observation.candidate_response);
+          }
+
+          if (act.active_turn_coaching) {
             setActiveCoaching(act.active_turn_coaching);
             setActiveEvaluation({
               score: act.active_turn_score,
@@ -129,7 +145,6 @@ export default function Module4Interviews() {
             });
             setRetryComparison(act.active_turn_retry_comparison || null);
             setTurnAttempts(act.active_turn_attempts || []);
-            setCandidateResponse(act.active_turn_observation?.candidate_response || '');
           }
 
           setTranscript((act.observations || []).map((o: any) => ({
@@ -141,6 +156,9 @@ export default function Module4Interviews() {
             coaching: o.coaching,
             retry_comparison: o.retry_comparison,
             attempts: o.attempts,
+            active_follow_up: o.active_follow_up,
+            follow_ups: o.follow_ups,
+            follow_up_decision: o.follow_up_decision,
             human_rating: o.human_rating,
             human_notes: o.human_notes
           })));
@@ -168,6 +186,10 @@ export default function Module4Interviews() {
     setTurnAttempts([]);
     setPendingAdvance(false);
     setIsRetrying(false);
+    setActiveFollowUp(null);
+    setFollowUpResponse('');
+    setFollowUpsHistory([]);
+    setFollowUpDecision(null);
     try {
       const res = await fetch('/api/m4/interviews/sessions', {
         method: 'POST',
@@ -219,11 +241,25 @@ export default function Module4Interviews() {
       const data = await res.json() as any;
       if (data.success) {
         setActiveEvaluation(data.evaluation);
-        setActiveCoaching(data.coaching);
         setTurnAttempts(data.attempts || []);
         setRetryComparison(null);
-        setPendingAdvance(true);
         setIsRetrying(false);
+
+        const incomingFollowUp = data.follow_up || data.active_follow_up;
+        if (data.follow_up_required && incomingFollowUp) {
+          setActiveFollowUp(incomingFollowUp);
+          setFollowUpsHistory(data.follow_ups || [incomingFollowUp]);
+          setFollowUpDecision(data.follow_up_decision || null);
+          setFollowUpResponse('');
+          setPendingAdvance(false);
+          setActiveCoaching(null);
+        } else {
+          setActiveFollowUp(null);
+          setFollowUpsHistory(data.follow_ups || []);
+          setFollowUpDecision(data.follow_up_decision || null);
+          setActiveCoaching(data.coaching);
+          setPendingAdvance(true);
+        }
 
         // Update transcript
         setTranscript(prev => {
@@ -237,6 +273,9 @@ export default function Module4Interviews() {
             evaluation: data.evaluation,
             coaching: data.coaching,
             attempts: data.attempts || [],
+            active_follow_up: data.follow_up || null,
+            follow_ups: data.follow_ups || [],
+            follow_up_decision: data.follow_up_decision || null,
             human_rating: humanRating,
             human_notes: humanNotes
           }];
@@ -279,6 +318,110 @@ export default function Module4Interviews() {
       setTurnError('Network error submitting turn response');
     } finally {
       setSubmittingTurn(false);
+    }
+  };
+
+  const submitFollowUpResponse = async () => {
+    if (!sessionId || !activeFollowUp || !followUpResponse.trim() || submittingFollowUp) return;
+    setSubmittingFollowUp(true);
+    setTurnError(null);
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessionId}/follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turn_number: currentTurn,
+          follow_up_response: followUpResponse
+        })
+      });
+      const data = await res.json() as any;
+      if (data.success) {
+        if (data.follow_up_required && data.follow_up) {
+          // Second subordinate follow-up probe
+          setActiveFollowUp(data.follow_up);
+          setFollowUpsHistory(data.follow_ups || []);
+          setFollowUpDecision(data.follow_up_decision || null);
+          setFollowUpResponse('');
+          setPendingAdvance(false);
+        } else {
+          // Probing completed
+          setActiveFollowUp(null);
+          setFollowUpsHistory(data.follow_ups || []);
+          setActiveCoaching(data.coaching);
+          if (data.evaluation) setActiveEvaluation(data.evaluation);
+          setPendingAdvance(true);
+        }
+
+        // Update transcript entry with follow-ups
+        setTranscript(prev => {
+          const filtered = prev.filter(t => t.turn !== currentTurn);
+          return [...filtered, {
+            turn: currentTurn,
+            role: activePanelRole,
+            question: currentQuestion.question,
+            competency: currentQuestion.competency,
+            response: candidateResponse,
+            evaluation: data.evaluation || activeEvaluation,
+            coaching: data.coaching || activeCoaching,
+            attempts: turnAttempts,
+            follow_ups: data.follow_ups || followUpsHistory,
+            human_rating: humanRating,
+            human_notes: humanNotes
+          }];
+        });
+      } else {
+        setTurnError(data.error || 'Failed to submit follow-up response');
+      }
+    } catch (e) {
+      setTurnError('Network error submitting follow-up response');
+    } finally {
+      setSubmittingFollowUp(false);
+    }
+  };
+
+  const skipFollowUp = async () => {
+    if (!sessionId || !activeFollowUp || skippingFollowUp) return;
+    setSkippingFollowUp(true);
+    setTurnError(null);
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessionId}/follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turn_number: currentTurn,
+          skipped: true
+        })
+      });
+      const data = await res.json() as any;
+      if (data.success) {
+        setActiveFollowUp(null);
+        setFollowUpsHistory(data.follow_ups || []);
+        setActiveCoaching(data.coaching);
+        setPendingAdvance(true);
+
+        setTranscript(prev => {
+          const filtered = prev.filter(t => t.turn !== currentTurn);
+          return [...filtered, {
+            turn: currentTurn,
+            role: activePanelRole,
+            question: currentQuestion.question,
+            competency: currentQuestion.competency,
+            response: candidateResponse,
+            evaluation: activeEvaluation,
+            coaching: data.coaching,
+            attempts: turnAttempts,
+            follow_ups: data.follow_ups || followUpsHistory,
+            human_rating: humanRating,
+            human_notes: humanNotes
+          }];
+        });
+      } else {
+        setTurnError(data.error || 'Failed to skip follow-up probe');
+      }
+    } catch (e) {
+      setTurnError('Network error skipping follow-up probe');
+    } finally {
+      setSkippingFollowUp(false);
     }
   };
 
@@ -359,6 +502,10 @@ export default function Module4Interviews() {
           setTurnAttempts([]);
           setPendingAdvance(false);
           setIsRetrying(false);
+          setActiveFollowUp(null);
+          setFollowUpResponse('');
+          setFollowUpsHistory([]);
+          setFollowUpDecision(null);
           setHumanNotes('');
         }
       } else {
@@ -684,8 +831,95 @@ export default function Module4Interviews() {
                       onCameraStateChange={(active) => setCameraActive(active)} 
                     />
 
-                    {/* If coaching is active and candidate is not currently in retry editor */}
-                    {pendingAdvance && activeCoaching && !isRetrying ? (
+                    {/* ADAPTIVE FOLLOW-UP PROBE CARD (Phase 3) */}
+                    {activeFollowUp && !isRetrying ? (
+                      <div className="bg-[#001f2e] border border-amber-500/40 rounded-2xl p-6 shadow-xl space-y-4 text-xs animate-in fade-in duration-200">
+                        {/* Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#002a40] gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                            <span className="text-amber-400 font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Adaptive Follow-Up Probe ({activeFollowUp.follow_up_number} of 2)</span>
+                            </span>
+                          </div>
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#001824] text-slate-300 font-mono text-[10px] border border-[#002f47]">
+                            Subordinate to Q{currentTurn} of {totalQuestions}
+                          </span>
+                        </div>
+
+                        {/* Candidate's Original Answer Context */}
+                        <div className="p-3 bg-[#001824] border border-[#002f47] rounded-xl space-y-1">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Your Initial Answer:</span>
+                          <p className="text-slate-300 text-xs italic line-clamp-3">
+                            "{candidateResponse}"
+                          </p>
+                        </div>
+
+                        {/* Follow-up Question Callout */}
+                        <div className="p-4 bg-amber-950/20 border border-amber-500/30 rounded-xl space-y-2">
+                          <div className="flex items-center gap-2 text-amber-300 font-bold text-[11px]">
+                            <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>Interviewer Targeted Follow-Up Probe:</span>
+                          </div>
+                          <p className="text-white text-sm font-semibold leading-relaxed">
+                            "{activeFollowUp.question}"
+                          </p>
+                          <div className="pt-2 border-t border-amber-500/20 flex flex-wrap items-center gap-3 text-[11px]">
+                            <span className="text-amber-200/90">
+                              <span className="font-bold text-amber-400">Practice Goal:</span> {activeFollowUp.practice_objective}
+                            </span>
+                            <span className="text-slate-400">
+                              <span className="font-bold text-slate-300">Targeted Criterion:</span> {activeFollowUp.targeted_criterion}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Follow-up Response Textarea */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                            <span>Your Follow-Up Response:</span>
+                            <span>{followUpResponse.trim().split(/\s+/).filter(Boolean).length} words</span>
+                          </div>
+                          <textarea
+                            rows={5}
+                            value={followUpResponse}
+                            onChange={e => setFollowUpResponse(e.target.value)}
+                            disabled={submittingFollowUp || skippingFollowUp}
+                            placeholder="Address this specific probe with concrete operational actions, quantifiable metrics, or architectural trade-offs..."
+                            className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-amber-400 leading-relaxed disabled:opacity-50"
+                          />
+                        </div>
+
+                        {turnError && (
+                          <div className="p-2.5 bg-red-950/30 border border-red-500/30 rounded-xl text-red-300 text-xs">
+                            {turnError}
+                          </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex flex-col sm:flex-row items-center justify-between pt-2 gap-3">
+                          <button
+                            type="button"
+                            disabled={submittingFollowUp || skippingFollowUp}
+                            onClick={skipFollowUp}
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#001824] hover:bg-[#00283d] text-slate-300 hover:text-white border border-[#002f47] text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <span>{skippingFollowUp ? 'Skipping…' : 'Skip Follow-Up & View Coaching →'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={submittingFollowUp || skippingFollowUp || !followUpResponse.trim()}
+                            onClick={submitFollowUpResponse}
+                            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{submittingFollowUp ? 'Evaluating Follow-Up…' : 'Submit Follow-Up Response'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : pendingAdvance && activeCoaching && !isRetrying ? (
                       <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
                         {/* Header Ribbon with Score & Attempt Count */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#002a40] gap-2">
@@ -818,6 +1052,32 @@ export default function Module4Interviews() {
                               </span>
                               <p className="text-slate-300 text-xs leading-relaxed">{activeCoaching.how_to_improve}</p>
                             </div>
+
+                            {/* Adaptive Follow-up Probe Evidence Consolidated */}
+                            {followUpsHistory.length > 0 && (
+                              <div className="p-3 bg-amber-950/20 border border-amber-500/25 rounded-xl space-y-2">
+                                <span className="text-amber-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                  <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Adaptive Probing Evidence Consolidated</span>
+                                </span>
+                                <div className="space-y-1.5">
+                                  {followUpsHistory.map((fu: any, i: number) => (
+                                    <div key={i} className="p-2 bg-[#001824] rounded-lg border border-[#002f47] text-[11px] space-y-0.5">
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-semibold text-amber-300">Probe #{fu.follow_up_number}: {fu.targeted_criterion}</span>
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${fu.skipped ? 'bg-slate-800 text-slate-400' : 'bg-emerald-500/15 text-emerald-400'}`}>
+                                          {fu.skipped ? 'Skipped' : 'Answered (+8% Impact)'}
+                                        </span>
+                                      </div>
+                                      <p className="text-slate-400 italic">"{fu.question}"</p>
+                                      {fu.candidate_response && (
+                                        <p className="text-slate-200">Clarification: "{fu.candidate_response}"</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 

@@ -10,12 +10,17 @@ import {
   RetryComparison,
   TurnAttemptRecord,
   CoachingStructureType,
+  FollowUpUncertainty,
+  AdaptiveFollowUpDecision,
+  FollowUpExchange,
   getRecommendedStructureForCategory,
   getStructureSteps,
   generateDeterministicCoaching,
   validateCoachingPayload,
   validateInterviewPlan,
-  generateDeterministicInterviewPlan
+  generateDeterministicInterviewPlan,
+  validateFollowUpDecision,
+  generateDeterministicFollowUpDecision
 } from '../../src/shared/m4InterviewContracts';
 
 /**
@@ -122,6 +127,117 @@ Return ONLY valid JSON matching this schema:
     rubric: params.rubric,
     score: params.score
   });
+}
+
+/**
+ * Phase 3: Adaptive Conversational Follow-Up & Dynamic Probing Decision Engine
+ * Determines whether a targeted follow-up probe is warranted to clarify ambiguity or missing evidence,
+ * strictly bounded to a max of 2 follow-ups per primary question.
+ */
+export async function generateAdaptiveFollowUpDecision(
+  env: Bindings,
+  params: {
+    category: InterviewQuestionCategory;
+    question: string;
+    competency: string;
+    candidateResponse: string;
+    rubric: AnchoredRubric;
+    score: number;
+    observableEvidence?: string[];
+    existingFollowUpsCount?: number;
+    maxFollowUps?: number;
+  }
+): Promise<AdaptiveFollowUpDecision> {
+  const maxFollowUps = params.maxFollowUps ?? 2;
+  const existingCount = params.existingFollowUpsCount ?? 0;
+
+  // Strict boundary: Never exceed max follow-ups
+  if (existingCount >= maxFollowUps) {
+    return generateDeterministicFollowUpDecision(params);
+  }
+
+  // Completeness check: If answer is already strong (>= 50 words, score >= 0.88), no follow-up needed
+  const wordCount = (params.candidateResponse || '').trim().split(/\s+/).filter(Boolean).length;
+  if (wordCount >= 50 && params.score >= 0.88) {
+    return generateDeterministicFollowUpDecision(params);
+  }
+
+  if (env.NVIDIA_API_KEY) {
+    try {
+      const prompt = `You are an expert executive interview panelist conducting a structured, adaptive interview.
+Target Competency: "${params.competency}"
+Question: "${params.question}"
+Category: "${params.category}"
+Candidate's Current Response:
+"${params.candidateResponse}"
+
+Anchored Rubric:
+Unsatisfactory: "${params.rubric?.unsatisfactory || ''}"
+Competent: "${params.rubric?.competent || ''}"
+Exceptional: "${params.rubric?.exceptional || ''}"
+
+Current Score Estimate: ${Math.round(params.score * 100)}%
+Observed Evidence: ${JSON.stringify(params.observableEvidence || [])}
+Follow-ups already asked on this question: ${existingCount} (Maximum allowed: ${maxFollowUps})
+
+DECISION TASK:
+1. Analyze if the candidate's response has specific ambiguities, missing operational trade-offs, lack of personal agency, or unquantified claims that would materially benefit from one sharp, context-specific follow-up probe.
+2. If the response is already thorough and clear, or if further probing adds little learning value, set "warranted": false.
+3. If useful, set "warranted": true and craft ONE concise, context-specific probe (under 300 characters) grounded directly in what the candidate said. Explain what it helps the candidate practice.
+
+CRITICAL INVARIANTS:
+1. DO NOT invent facts, achievements, or history the candidate did not mention.
+2. DO NOT evaluate facial expressions, tone, emotion, or personality traits.
+3. Ensure the follow-up question directly challenges or deepens their stated answer.
+
+Return ONLY valid JSON matching this schema:
+{
+  "warranted": boolean,
+  "reason": "<clear explanation of why a probe is or is not warranted>",
+  "follow_up_question": "<the concise follow-up probe, or empty string if not warranted>",
+  "targeted_criterion": "<the specific rubric criterion being probed>",
+  "practice_objective": "<what this helps the candidate practice, e.g. 'Practice defending architectural trade-offs under scale'>",
+  "is_sufficiently_complete": boolean,
+  "uncertainty_level": "low" | "medium" | "high",
+  "confidence_score": 0.90,
+  "probe_category": "${params.category}"
+}`;
+
+      const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.NVIDIA_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'meta/muse-glimmer-30b',
+          messages: [
+            { role: 'system', content: 'You are an objective, calibrated interview panelist. Return ONLY valid JSON.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 600
+        })
+      });
+
+      if (aiResp.ok) {
+        const aiData = await aiResp.json() as any;
+        const content = aiData.choices?.[0]?.message?.content || '{}';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const validation = validateFollowUpDecision(parsed);
+          if (validation.valid) {
+            return parsed;
+          }
+        }
+      }
+    } catch (_) {
+      // Fall through to deterministic fallback
+    }
+  }
+
+  return generateDeterministicFollowUpDecision(params);
 }
 
 /**
@@ -708,12 +824,16 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         coaching: interp.coaching || null,
         retry_comparison: interp.retry_comparison || null,
         attempts: interp.attempts || [],
+        active_follow_up: interp.active_follow_up || null,
+        follow_ups: interp.follow_ups || [],
+        follow_up_decision: interp.follow_up_decision || null,
         human_rating: o.human_rating,
         human_notes: o.human_notes
       };
     });
 
     const currentTurnObs = mappedObservations.find((o: any) => o.turn_number === currentTurn);
+    const hasPendingFollowUp = Boolean(currentTurnObs?.active_follow_up && !currentTurnObs.active_follow_up.candidate_response && !currentTurnObs.active_follow_up.skipped);
 
     return c.json({
       success: true,
@@ -726,11 +846,14 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         active_question: activeQuestion,
         questions,
         plan,
-        pending_advance: Boolean(currentTurnObs),
+        pending_advance: Boolean(currentTurnObs && !hasPendingFollowUp),
         active_turn_observation: currentTurnObs || null,
         active_turn_coaching: currentTurnObs?.coaching || null,
         active_turn_retry_comparison: currentTurnObs?.retry_comparison || null,
         active_turn_attempts: currentTurnObs?.attempts || [],
+        active_follow_up: currentTurnObs?.active_follow_up || null,
+        active_turn_follow_ups: currentTurnObs?.follow_ups || [],
+        active_turn_follow_up_decision: currentTurnObs?.follow_up_decision || null,
         observations: mappedObservations
       }
     });
@@ -798,6 +921,9 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
             coaching: interp.coaching || null,
             retry_comparison: interp.retry_comparison || null,
             attempts: interp.attempts || [],
+            active_follow_up: interp.active_follow_up || null,
+            follow_ups: interp.follow_ups || [],
+            follow_up_decision: interp.follow_up_decision || null,
             human_rating: o.human_rating,
             human_notes: o.human_notes
           };
@@ -1064,6 +1190,36 @@ Return ONLY valid JSON matching:
 
     // INITIAL SUBMISSION FLOW
     const obsId = crypto.randomUUID();
+
+    // Adaptive Follow-up Decision (Phase 3)
+    const followUpDecision = await generateAdaptiveFollowUpDecision(c.env, {
+      category: current_question.category || current_question.question_type || 'behavioral',
+      question: current_question.question,
+      competency: current_question.competency,
+      candidateResponse: candidate_response,
+      rubric: current_question.anchored_rubric,
+      score: rubricScore,
+      observableEvidence,
+      existingFollowUpsCount: 0,
+      maxFollowUps: 2
+    });
+
+    const isFollowUpWarranted = followUpDecision.warranted && Boolean(followUpDecision.follow_up_question) && auto_advance !== true;
+
+    let initialFollowUp: FollowUpExchange | null = null;
+    let followUpsList: FollowUpExchange[] = [];
+
+    if (isFollowUpWarranted) {
+      initialFollowUp = {
+        follow_up_number: 1,
+        question: followUpDecision.follow_up_question!,
+        practice_objective: followUpDecision.practice_objective,
+        targeted_criterion: followUpDecision.targeted_criterion,
+        skipped: false
+      };
+      followUpsList = [initialFollowUp];
+    }
+
     const initialAttempt: TurnAttemptRecord = {
       attempt_number: 1,
       candidate_response,
@@ -1091,7 +1247,10 @@ Return ONLY valid JSON matching:
       JSON.stringify({
         ...aiInterpretation,
         coaching,
-        attempts: [initialAttempt]
+        attempts: [initialAttempt],
+        active_follow_up: initialFollowUp,
+        follow_ups: followUpsList,
+        follow_up_decision: followUpDecision
       }),
       aiRecommendedProbe
     ).run();
@@ -1117,6 +1276,10 @@ Return ONLY valid JSON matching:
       turn_completed: turnNumber,
       is_retry: false,
       is_complete: isComplete,
+      follow_up_required: isFollowUpWarranted,
+      follow_up: initialFollowUp,
+      follow_up_decision: followUpDecision,
+      follow_ups: followUpsList,
       evaluation: {
         score: currentScorePct,
         observable_evidence: observableEvidence,
@@ -1134,7 +1297,235 @@ Return ONLY valid JSON matching:
     });
   });
 
-  // 5b. Retry Turn Answer Endpoint (Candidate Refines Answer Following Coaching)
+  // 5b. Adaptive Follow-Up Probe Response Endpoint (Candidate Responds to or Skips Follow-Up)
+  app.post('/m4/interviews/sessions/:id/follow-up', async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const sessionId = c.req.param('id');
+    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
+    if (!session) return c.json({ error: 'Session not found' }, 404);
+
+    const { turn_number, follow_up_response, skipped } = await c.req.json().catch(() => ({}));
+    const activeTurn = turn_number !== undefined ? Number(turn_number) : Number(session.current_turn || 1);
+
+    // Retrieve existing observation
+    const obs = await c.env.DB.prepare(
+      `SELECT * FROM interview_observation WHERE session_id = ? AND turn_number = ?`
+    ).bind(sessionId, activeTurn).first();
+
+    if (!obs) {
+      return c.json({ error: `Observation for turn ${activeTurn} not found.` }, 404);
+    }
+
+    let interp: any = {};
+    try {
+      interp = JSON.parse((obs.ai_interpretation_json as string) || '{}');
+    } catch (_) {}
+
+    const followUps: FollowUpExchange[] = Array.isArray(interp.follow_ups) ? interp.follow_ups : [];
+    const currentPendingFollowUp = followUps.find(f => !f.candidate_response && !f.skipped);
+
+    if (!currentPendingFollowUp && !interp.active_follow_up) {
+      return c.json({ error: 'No active follow-up pending for this turn.' }, 400);
+    }
+
+    const targetFollowUp: FollowUpExchange = currentPendingFollowUp || interp.active_follow_up;
+    const followUpIndex = followUps.findIndex(f => f.follow_up_number === targetFollowUp.follow_up_number);
+
+    let currentScorePct = 80;
+    try {
+      const evalData = JSON.parse((obs.rubric_evaluation_json as string) || '{}');
+      if (typeof evalData.score === 'number') currentScorePct = Math.round(evalData.score * 100);
+    } catch (_) {}
+
+    let observableEvidence: string[] = [];
+    try {
+      observableEvidence = JSON.parse((obs.observable_evidence_json as string) || '[]');
+    } catch (_) {}
+
+    // Resolve question sequence for rubric details
+    let questionSequence: any[] = [];
+    try {
+      const summary = JSON.parse((session.evidence_summary_json as string) || '{}');
+      if (summary.plan?.questions) questionSequence = summary.plan.questions;
+    } catch (_) {}
+    const protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id) || SEED_PROTOCOLS[0];
+    if (questionSequence.length === 0) questionSequence = protocol.question_sequence;
+    const currentQuestion = questionSequence[activeTurn - 1] || {
+      question: obs.question_text,
+      category: obs.question_type,
+      competency: 'Core Competency',
+      anchored_rubric: { unsatisfactory: '', competent: '', exceptional: '' }
+    };
+
+    if (skipped === true) {
+      targetFollowUp.skipped = true;
+      targetFollowUp.submitted_at = new Date().toISOString();
+      if (followUpIndex >= 0) followUps[followUpIndex] = targetFollowUp;
+      else followUps.push(targetFollowUp);
+
+      // Consolidated coaching acknowledging candidate opted to proceed with initial evidence
+      const coaching = await generateAnswerCoaching(c.env, {
+        category: currentQuestion.category || 'behavioral',
+        question: currentQuestion.question,
+        competency: currentQuestion.competency,
+        candidateResponse: String(obs.candidate_response || ''),
+        rubric: currentQuestion.anchored_rubric,
+        score: currentScorePct / 100,
+        observableEvidence,
+        aiInterpretation: interp
+      });
+
+      interp.follow_ups = followUps;
+      interp.active_follow_up = null;
+      interp.coaching = coaching;
+
+      await c.env.DB.prepare(
+        `UPDATE interview_observation
+         SET ai_interpretation_json = ?
+         WHERE id = ?`
+      ).bind(JSON.stringify(interp), obs.id).run();
+
+      return c.json({
+        success: true,
+        skipped: true,
+        turn_completed: activeTurn,
+        follow_up_required: false,
+        follow_ups: followUps,
+        coaching,
+        ready_to_advance: true
+      });
+    }
+
+    // Follow-up was answered
+    if (!follow_up_response || typeof follow_up_response !== 'string' || follow_up_response.trim().length === 0) {
+      return c.json({ error: 'follow_up_response is required or set skipped: true' }, 400);
+    }
+
+    const cleanFollowUpAnswer = follow_up_response.trim().slice(0, 4000);
+    targetFollowUp.candidate_response = cleanFollowUpAnswer;
+    targetFollowUp.submitted_at = new Date().toISOString();
+    targetFollowUp.skipped = false;
+
+    const newEvidenceItem = `Probe #${targetFollowUp.follow_up_number} Evidence: ${cleanFollowUpAnswer.slice(0, 160)}`;
+    observableEvidence = [...observableEvidence, newEvidenceItem];
+
+    const scoreBump = Math.min(100, currentScorePct + 8);
+    targetFollowUp.score_impact = 8;
+    targetFollowUp.observable_evidence = [newEvidenceItem];
+
+    if (followUpIndex >= 0) followUps[followUpIndex] = targetFollowUp;
+    else followUps.push(targetFollowUp);
+
+    // Check if second follow-up is warranted (strictly maximum 2)
+    const maxFollowUps = 2;
+    let nextDecision: AdaptiveFollowUpDecision = {
+      warranted: false,
+      reason: 'Maximum follow-up probes reached.',
+      targeted_criterion: currentQuestion.competency,
+      practice_objective: 'Proceed to coaching and synthesis.',
+      is_sufficiently_complete: true,
+      uncertainty_level: 'low',
+      confidence_score: 0.95,
+      probe_category: currentQuestion.category || 'behavioral'
+    };
+
+    if (followUps.length < maxFollowUps) {
+      const combinedResponse = `${obs.candidate_response}\n\n[Follow-up Response]: ${cleanFollowUpAnswer}`;
+      nextDecision = await generateAdaptiveFollowUpDecision(c.env, {
+        category: currentQuestion.category || 'behavioral',
+        question: currentQuestion.question,
+        competency: currentQuestion.competency,
+        candidateResponse: combinedResponse,
+        rubric: currentQuestion.anchored_rubric,
+        score: scoreBump / 100,
+        observableEvidence,
+        existingFollowUpsCount: followUps.length,
+        maxFollowUps
+      });
+    }
+
+    if (nextDecision.warranted && nextDecision.follow_up_question) {
+      const secondFollowUp: FollowUpExchange = {
+        follow_up_number: followUps.length + 1,
+        question: nextDecision.follow_up_question,
+        practice_objective: nextDecision.practice_objective,
+        targeted_criterion: nextDecision.targeted_criterion,
+        skipped: false
+      };
+      followUps.push(secondFollowUp);
+      interp.follow_ups = followUps;
+      interp.active_follow_up = secondFollowUp;
+      interp.follow_up_decision = nextDecision;
+
+      await c.env.DB.prepare(
+        `UPDATE interview_observation
+         SET observable_evidence_json = ?,
+             rubric_evaluation_json = ?,
+             ai_interpretation_json = ?
+         WHERE id = ?`
+      ).bind(
+        JSON.stringify(observableEvidence),
+        JSON.stringify({ score: scoreBump / 100, criteria: currentQuestion.anchored_rubric }),
+        JSON.stringify(interp),
+        obs.id
+      ).run();
+
+      return c.json({
+        success: true,
+        turn_completed: activeTurn,
+        follow_up_required: true,
+        follow_up: secondFollowUp,
+        follow_up_decision: nextDecision,
+        follow_ups: followUps,
+        evaluation: { score: scoreBump, observable_evidence: observableEvidence },
+        ready_to_advance: false
+      });
+    }
+
+    // All follow-up probes resolved: Generate consolidated coaching
+    const consolidatedResponse = `${obs.candidate_response}\n\n[Follow-Up Clarification]: ${cleanFollowUpAnswer}`;
+    const coaching = await generateAnswerCoaching(c.env, {
+      category: currentQuestion.category || 'behavioral',
+      question: currentQuestion.question,
+      competency: currentQuestion.competency,
+      candidateResponse: consolidatedResponse,
+      rubric: currentQuestion.anchored_rubric,
+      score: scoreBump / 100,
+      observableEvidence,
+      aiInterpretation: interp
+    });
+
+    interp.follow_ups = followUps;
+    interp.active_follow_up = null;
+    interp.coaching = coaching;
+
+    await c.env.DB.prepare(
+      `UPDATE interview_observation
+       SET observable_evidence_json = ?,
+           rubric_evaluation_json = ?,
+           ai_interpretation_json = ?
+       WHERE id = ?`
+    ).bind(
+      JSON.stringify(observableEvidence),
+      JSON.stringify({ score: scoreBump / 100, criteria: currentQuestion.anchored_rubric }),
+      JSON.stringify(interp),
+      obs.id
+    ).run();
+
+    return c.json({
+      success: true,
+      turn_completed: activeTurn,
+      follow_up_required: false,
+      follow_ups: followUps,
+      coaching,
+      evaluation: { score: scoreBump, observable_evidence: observableEvidence },
+      ready_to_advance: true
+    });
+  });
+
+  // 5c. Retry Turn Answer Endpoint (Candidate Refines Answer Following Coaching)
   app.post('/m4/interviews/sessions/:id/retry', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -1151,7 +1542,7 @@ Return ONLY valid JSON matching:
     );
   });
 
-  // 5c. Gated Turn Progression: Advance to Next Question (Only upon explicit candidate continuation)
+  // 5d. Gated Turn Progression: Advance to Next Question (Only upon explicit candidate continuation)
   app.post('/m4/interviews/sessions/:id/advance', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -1165,11 +1556,23 @@ Return ONLY valid JSON matching:
 
     // Verify observation for activeTurn has been recorded
     const obs = await c.env.DB.prepare(
-      `SELECT id FROM interview_observation WHERE session_id = ? AND turn_number = ?`
+      `SELECT id, ai_interpretation_json FROM interview_observation WHERE session_id = ? AND turn_number = ?`
     ).bind(sessionId, activeTurn).first();
 
     if (!obs) {
       return c.json({ error: `Cannot advance: turn ${activeTurn} has not been completed yet.` }, 400);
+    }
+
+    let interp: any = {};
+    try {
+      interp = JSON.parse((obs.ai_interpretation_json as string) || '{}');
+    } catch (_) {}
+
+    // Invariant: Cannot advance if an active follow-up is pending without being answered or skipped
+    if (interp.active_follow_up && !interp.active_follow_up.candidate_response && !interp.active_follow_up.skipped) {
+      return c.json({
+        error: `Cannot advance: Question #${activeTurn} has an active follow-up probe. Please submit a response or skip the probe before continuing.`
+      }, 400);
     }
 
     let questionSequence: any[] = [];

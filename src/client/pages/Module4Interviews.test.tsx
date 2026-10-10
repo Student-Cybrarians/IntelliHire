@@ -422,5 +422,284 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     expect(await screen.findByText(/Revised attempt improved competency demonstration by \+17% points/i)).toBeInTheDocument();
     expect(await screen.findByText('Included 99.99% availability metric')).toBeInTheDocument();
   });
+
+  it('presents adaptive follow-up probe card when evidence gaps detected and consolidates answered probe into coaching', async () => {
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'c1', role: 'candidate', full_name: 'Alex Mercer' } })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            session_id: 'session-candidate-fu',
+            active_panel_role: 'Principal Systems Architect',
+            current_turn: 1,
+            total_questions: 10,
+            first_question: mockProtocols.protocols[0].question_sequence[0]
+          })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/session-candidate-fu/turn' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            observation_id: 'obs-fu-1',
+            turn_completed: 1,
+            is_retry: false,
+            follow_up_required: true,
+            follow_up: {
+              follow_up_number: 1,
+              max_follow_ups: 2,
+              practice_objective: 'Practice articulating fault-tolerant failover bounds under partitioned networks.',
+              targeted_criterion: 'Architectural trade-offs & fault tolerance',
+              candidate_context_referenced: 'We configure consensus replicas.',
+              question: 'What heartbeat interval and election timeout do you configure to prevent split-brain?'
+            },
+            active_follow_up: {
+              follow_up_number: 1,
+              max_follow_ups: 2,
+              practice_objective: 'Practice articulating fault-tolerant failover bounds under partitioned networks.',
+              targeted_criterion: 'Architectural trade-offs & fault tolerance',
+              candidate_context_referenced: 'We configure consensus replicas.',
+              question: 'What heartbeat interval and election timeout do you configure to prevent split-brain?'
+            },
+            follow_up_decision: {
+              warranted: true,
+              follow_up_number: 1,
+              max_follow_ups: 2,
+              targeted_criterion: 'Architectural trade-offs & fault tolerance',
+              uncertainty: 'missing_tradeoffs',
+              practice_objective: 'Practice articulating fault-tolerant failover bounds under partitioned networks.',
+              question: 'What heartbeat interval and election timeout do you configure to prevent split-brain?'
+            },
+            follow_ups: []
+          })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/session-candidate-fu/follow-up' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            observation_id: 'obs-fu-1',
+            ready_to_advance: true,
+            follow_up_required: false,
+            active_follow_up: null,
+            evaluation: { score: 86, observable_evidence: ['Configured 250ms heartbeat interval and 1000ms election timeouts'] },
+            coaching: {
+              what_worked: ['Crisp parameter configuration', 'Prevented split-brain with clear bounds'],
+              what_to_improve: ['Discuss network jitter handling'],
+              why_it_matters: 'Operational resiliency requires bounded timeout heuristics.',
+              how_to_improve: 'Reference latency distributions.',
+              suggested_structure_type: 'STAR',
+              suggested_structure_outline: [],
+              illustrative_improved_answer: 'Detailed walkthrough...'
+            },
+            follow_ups: [
+              {
+                follow_up_number: 1,
+                question: 'What heartbeat interval and election timeout do you configure to prevent split-brain?',
+                targeted_criterion: 'Architectural trade-offs & fault tolerance',
+                candidate_response: 'We set 250ms heartbeat intervals and 1000ms randomized election timeouts.',
+                skipped: false
+              }
+            ],
+            attempts: [{ attempt_number: 1, score: 86 }]
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Launch candidate interview
+    const launchBtn = await screen.findByRole('button', { name: /Begin 10-Question Personalized Interview/i });
+    fireEvent.click(launchBtn);
+
+    // Enter answer
+    const textarea = await screen.findByPlaceholderText(/Transcribe candidate's response/i);
+    fireEvent.change(textarea, { target: { value: 'We configure consensus replicas.' } });
+
+    // Submit answer
+    const submitBtn = screen.getByRole('button', { name: /Submit Response & Receive Coaching/i });
+    fireEvent.click(submitBtn);
+
+    // Assert Adaptive Follow-Up Probe Card appears
+    expect(await screen.findByText(/Adaptive Follow-Up Probe \(1 of 2\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Subordinate to Q1 of 10/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Practice articulating fault-tolerant failover bounds/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Architectural trade-offs & fault tolerance/i)).toBeInTheDocument();
+    expect(await screen.findByText(/What heartbeat interval and election timeout do you configure to prevent split-brain\?/i)).toBeInTheDocument();
+
+    // Fill follow-up response
+    const probeInput = screen.getByPlaceholderText(/Address this specific probe with concrete operational actions/i);
+    fireEvent.change(probeInput, { target: { value: 'We set 250ms heartbeat intervals and 1000ms randomized election timeouts.' } });
+
+    // Submit follow-up response
+    const submitProbeBtn = screen.getByRole('button', { name: /Submit Follow-Up Response/i });
+    fireEvent.click(submitProbeBtn);
+
+    // Verify consolidated Answer Coaching and probe history renders
+    expect(await screen.findByText('Answer Coaching & Presentation Guidance')).toBeInTheDocument();
+    expect(await screen.findByText('Adaptive Probing Evidence Consolidated')).toBeInTheDocument();
+    expect(await screen.findByText(/Probe #1: Architectural trade-offs & fault tolerance/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Answered \(\+8% Impact\)/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Continue to Next Question/i })).toBeInTheDocument();
+  });
+
+  it('allows candidate to skip adaptive follow-up probe and proceeds immediately to diagnostic coaching', async () => {
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'c1', role: 'candidate', full_name: 'Alex Mercer' } })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/active') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            active_session: {
+              id: 'session-skip-1',
+              status: 'in_progress',
+              current_turn: 2,
+              total_questions: 10,
+              active_panel_role: 'Engineering Director',
+              active_question: {
+                turn: 2,
+                panel_role: 'Engineering Director',
+                competency: 'Conflict & Alignment',
+                question: 'Describe navigating technical disagreement.',
+                probe_intent: 'Examine constructive resolution.',
+                anchored_rubric: { unsatisfactory: '...', competent: '...', exceptional: '...' }
+              },
+              active_follow_up: {
+                follow_up_number: 1,
+                max_follow_ups: 2,
+                practice_objective: 'Deepen demonstration of personal mediation actions.',
+                targeted_criterion: 'Personal agency vs team consensus',
+                candidate_context_referenced: 'We had a debate on schema versioning.',
+                question: 'What specific steps did you personally take to reconcile differing viewpoints?'
+              },
+              candidate_response: 'We had a debate on schema versioning.'
+            }
+          })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/session-skip-1/follow-up' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            observation_id: 'obs-skip-1',
+            ready_to_advance: true,
+            follow_up_required: false,
+            active_follow_up: null,
+            evaluation: { score: 72 },
+            coaching: {
+              what_worked: ['Identified architectural disagreement'],
+              what_to_improve: ['Highlight personal leadership steps'],
+              why_it_matters: 'Directors evaluate leadership agency.',
+              how_to_improve: 'Focus on consensus framework.',
+              suggested_structure_type: 'CAR',
+              suggested_structure_outline: [],
+              illustrative_improved_answer: 'Model CAR answer...'
+            },
+            follow_ups: [
+              {
+                follow_up_number: 1,
+                question: 'What specific steps did you personally take to reconcile differing viewpoints?',
+                targeted_criterion: 'Personal agency vs team consensus',
+                candidate_response: null,
+                skipped: true
+              }
+            ],
+            attempts: [{ attempt_number: 1, score: 72 }]
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Verify follow-up probe card rendered from active session
+    expect(await screen.findByText(/Adaptive Follow-Up Probe \(1 of 2\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/What specific steps did you personally take to reconcile differing viewpoints\?/i)).toBeInTheDocument();
+
+    // Click skip button
+    const skipBtn = screen.getByRole('button', { name: /Skip Follow-Up & View Coaching →/i });
+    fireEvent.click(skipBtn);
+
+    // Verify coaching is shown with skipped probe logged
+    expect(await screen.findByText('Answer Coaching & Presentation Guidance')).toBeInTheDocument();
+    expect(await screen.findByText('Adaptive Probing Evidence Consolidated')).toBeInTheDocument();
+    expect(await screen.findByText(/Probe #1: Personal agency vs team consensus/i)).toBeInTheDocument();
+    expect(await screen.findByText('Skipped')).toBeInTheDocument();
+  });
+
+  it('restores pending follow-up state seamlessly on page refresh without dropping candidate context', async () => {
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'c1', role: 'candidate', full_name: 'Alex Mercer' } })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/active') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            active_session: {
+              id: 'session-resume-probe-2',
+              status: 'in_progress',
+              current_turn: 3,
+              total_questions: 10,
+              active_panel_role: 'Principal Systems Architect',
+              active_question: mockProtocols.protocols[0].question_sequence[0],
+              active_follow_up: {
+                follow_up_number: 2,
+                max_follow_ups: 2,
+                practice_objective: 'Practice quantifying degradation metrics under network partition.',
+                targeted_criterion: 'Quantifiable metrics & observability',
+                candidate_context_referenced: 'We configured heartbeat leases.',
+                question: 'How do you measure and alert on failover latency across regions?'
+              },
+              follow_ups: [
+                {
+                  follow_up_number: 1,
+                  question: 'What heartbeat interval do you use?',
+                  targeted_criterion: 'Architectural trade-offs',
+                  candidate_response: '250ms interval',
+                  skipped: false
+                }
+              ]
+            }
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Assert probe 2 of 2 is rendered immediately
+    expect(await screen.findByText(/Adaptive Follow-Up Probe \(2 of 2\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Subordinate to Q3 of 10/i)).toBeInTheDocument();
+    expect(await screen.findByText(/How do you measure and alert on failover latency across regions\?/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Practice quantifying degradation metrics under network partition/i)).toBeInTheDocument();
+  });
 });
 

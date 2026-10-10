@@ -51,6 +51,32 @@ export interface CandidateAnswerSubmission {
   response_mode?: 'text' | 'voice';
 }
 
+export type FollowUpUncertainty = 'low' | 'medium' | 'high';
+
+export interface AdaptiveFollowUpDecision {
+  warranted: boolean;
+  reason: string;
+  follow_up_question?: string;
+  targeted_criterion: string;
+  practice_objective: string;
+  is_sufficiently_complete: boolean;
+  uncertainty_level: FollowUpUncertainty;
+  confidence_score: number;
+  probe_category: InterviewQuestionCategory;
+}
+
+export interface FollowUpExchange {
+  follow_up_number: number; // 1 or 2 (strictly bounded to max_follow_ups)
+  question: string;
+  practice_objective: string;
+  targeted_criterion: string;
+  candidate_response?: string;
+  submitted_at?: string;
+  skipped: boolean;
+  observable_evidence?: string[];
+  score_impact?: number;
+}
+
 export interface TurnObservationResult {
   turn: number;
   interviewer_role: string;
@@ -64,12 +90,17 @@ export interface TurnObservationResult {
     coaching?: AnswerCoachingPayload;
     retry_comparison?: RetryComparison;
     attempts?: TurnAttemptRecord[];
+    follow_ups?: FollowUpExchange[];
+    follow_up_decision?: AdaptiveFollowUpDecision | null;
   };
   ai_recommended_probe?: string;
   recorded_at: string;
   coaching?: AnswerCoachingPayload;
   retry_comparison?: RetryComparison;
   attempts?: TurnAttemptRecord[];
+  active_follow_up?: FollowUpExchange | null;
+  follow_ups?: FollowUpExchange[];
+  follow_up_decision?: AdaptiveFollowUpDecision | null;
 }
 
 export interface InterviewSessionSummary {
@@ -607,4 +638,286 @@ export function generateDeterministicCoaching(params: {
     illustrative_improved_answer: illustrativeAnswer,
     anti_hallucination_guarantee: true
   };
+}
+
+/**
+ * Validates Adaptive Follow-Up Decision contract and safety constraints.
+ */
+export function validateFollowUpDecision(decision: any): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!decision || typeof decision !== 'object') {
+    return { valid: false, errors: ['Follow-up decision is missing or not an object.'] };
+  }
+
+  if (typeof decision.warranted !== 'boolean') {
+    errors.push('Follow-up decision must contain a boolean warranted flag.');
+  }
+
+  if (!decision.reason || typeof decision.reason !== 'string' || decision.reason.trim().length < 5) {
+    errors.push('Follow-up decision must contain a reason string of at least 5 characters.');
+  }
+
+  if (decision.warranted) {
+    if (!decision.follow_up_question || typeof decision.follow_up_question !== 'string' || decision.follow_up_question.trim().length < 15) {
+      errors.push('When warranted, follow_up_question must be at least 15 characters.');
+    }
+    if (decision.follow_up_question && decision.follow_up_question.length > 400) {
+      errors.push('follow_up_question must not exceed 400 characters.');
+    }
+    if (!decision.practice_objective || typeof decision.practice_objective !== 'string' || decision.practice_objective.trim().length < 10) {
+      errors.push('When warranted, practice_objective must be at least 10 characters.');
+    }
+    if (!decision.targeted_criterion || typeof decision.targeted_criterion !== 'string') {
+      errors.push('When warranted, targeted_criterion must be specified.');
+    }
+
+    // Guardrail against prompt injection patterns in follow-up question
+    const qLower = (decision.follow_up_question || '').toLowerCase();
+    if (/(ignore previous|system prompt|assistant instructions|<script|javascript:)/i.test(qLower)) {
+      errors.push('Follow-up question contains prohibited injection patterns.');
+    }
+  }
+
+  const validUncertainties: FollowUpUncertainty[] = ['low', 'medium', 'high'];
+  if (decision.uncertainty_level && !validUncertainties.includes(decision.uncertainty_level)) {
+    errors.push(`Invalid uncertainty_level '${decision.uncertainty_level}'.`);
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Deterministically generates an adaptive follow-up probe decision grounded in candidate's response.
+ * Strictly guarantees anti-hallucination and bounded follow-ups.
+ */
+export function generateDeterministicFollowUpDecision(params: {
+  category: InterviewQuestionCategory;
+  question: string;
+  competency: string;
+  candidateResponse: string;
+  rubric: AnchoredRubric;
+  score: number;
+  existingFollowUpsCount?: number;
+  maxFollowUps?: number;
+}): AdaptiveFollowUpDecision {
+  const maxFollowUps = params.maxFollowUps ?? 2;
+  const existingCount = params.existingFollowUpsCount ?? 0;
+  const response = (params.candidateResponse || '').trim();
+  const wordCount = response.split(/\s+/).filter(Boolean).length;
+  const category = params.category || 'behavioral';
+
+  // Strict boundary: Max follow-ups reached
+  if (existingCount >= maxFollowUps) {
+    return {
+      warranted: false,
+      reason: `Maximum limit of ${maxFollowUps} follow-up probes reached for this primary question.`,
+      targeted_criterion: params.competency,
+      practice_objective: 'Proceed to coaching and synthesis with existing evidence.',
+      is_sufficiently_complete: true,
+      uncertainty_level: 'low',
+      confidence_score: 0.98,
+      probe_category: category
+    };
+  }
+
+  // Completeness check: If answer is thorough (>= 50 words with high score >= 0.88 and concrete evidence)
+  const hasStrongStructure = wordCount >= 50 && params.score >= 0.88;
+  if (hasStrongStructure) {
+    return {
+      warranted: false,
+      reason: 'Candidate response is sufficiently comprehensive, providing verifiable evidence and structured reasoning across all anchored rubric criteria.',
+      targeted_criterion: params.competency,
+      practice_objective: 'Review coaching feedback and advance to the next primary question.',
+      is_sufficiently_complete: true,
+      uncertainty_level: 'low',
+      confidence_score: 0.92,
+      probe_category: category
+    };
+  }
+
+  // Generate category-specific follow-up probe based on observed gaps
+  switch (category) {
+    case 'behavioral': {
+      const mentionsAction = /(i led|i designed|i built|i decided|i implemented|i chose|my role|personally)/i.test(response);
+      const mentionsResult = /(result|metric|reduced|increased|improved|delivered|%|saved|outcome)/i.test(response);
+
+      if (!mentionsAction) {
+        return {
+          warranted: true,
+          reason: 'Response describes team activities or generalized context without clearly isolating the candidate\'s direct personal actions.',
+          follow_up_question: 'Could you walk me through the specific actions you personally executed, distinguishing your direct leadership from what the broader team delivered?',
+          targeted_criterion: 'Individual Agency & Personal Action Execution',
+          practice_objective: 'Practice articulating personal agency and ownership in high-stakes situations.',
+          is_sufficiently_complete: false,
+          uncertainty_level: 'low',
+          confidence_score: 0.90,
+          probe_category: 'behavioral'
+        };
+      }
+
+      if (!mentionsResult) {
+        return {
+          warranted: true,
+          reason: 'Response outlines execution steps but omits verifiable operational or business results.',
+          follow_up_question: 'What was the measurable outcome or operational impact of that effort, and how did you verify its long-term success?',
+          targeted_criterion: 'Measurable Outcomes & Verifiable Impact',
+          practice_objective: 'Practice quantifying business outcomes and long-term sustainability.',
+          is_sufficiently_complete: false,
+          uncertainty_level: 'low',
+          confidence_score: 0.90,
+          probe_category: 'behavioral'
+        };
+      }
+
+      if (existingCount >= 1) {
+        return {
+          warranted: false,
+          reason: 'Candidate addressed the follow-up probe, providing clear personal agency and verifiable outcomes.',
+          targeted_criterion: params.competency,
+          practice_objective: 'Proceed to coaching and synthesis with existing evidence.',
+          is_sufficiently_complete: true,
+          uncertainty_level: 'low',
+          confidence_score: 0.94,
+          probe_category: 'behavioral'
+        };
+      }
+
+      return {
+        warranted: true,
+        reason: 'Candidate provided initial actions; probing for edge cases and systemic learnings.',
+        follow_up_question: 'Looking back at that scenario, what unexpected complication arose during execution, and how did you adapt your plan?',
+        targeted_criterion: 'Adaptive Execution & Post-Implementation Learnings',
+        practice_objective: 'Practice reflecting on execution challenges and demonstrating continuous learning.',
+        is_sufficiently_complete: false,
+        uncertainty_level: 'medium',
+        confidence_score: 0.85,
+        probe_category: 'behavioral'
+      };
+    }
+
+    case 'role_competency': {
+      const mentionsTradeoffs = /(trade-off|tradeoff|versus|alternative|downside|latency|throughput|cost|scale)/i.test(response);
+
+      if (!mentionsTradeoffs) {
+        return {
+          warranted: true,
+          reason: 'Technical assertion was stated without detailing architectural trade-offs or production failure modes.',
+          follow_up_question: `What specific technical trade-offs did you balance in your approach to ${params.competency}, and how did you guard against potential failure modes?`,
+          targeted_criterion: 'Architectural Trade-offs & Failure Mode Mitigation',
+          practice_objective: 'Practice defending technical architecture choices and fault tolerance.',
+          is_sufficiently_complete: false,
+          uncertainty_level: 'low',
+          confidence_score: 0.91,
+          probe_category: 'role_competency'
+        };
+      }
+
+      if (existingCount >= 1) {
+        return {
+          warranted: false,
+          reason: 'Candidate clarified technical architecture and trade-off rationale in response to probe.',
+          targeted_criterion: params.competency,
+          practice_objective: 'Proceed to coaching and synthesis.',
+          is_sufficiently_complete: true,
+          uncertainty_level: 'low',
+          confidence_score: 0.94,
+          probe_category: 'role_competency'
+        };
+      }
+
+      return {
+        warranted: true,
+        reason: 'Technical baseline established; probing verification telemetry and degradation boundaries.',
+        follow_up_question: 'How did you instrument and monitor this system in production to ensure SLA compliance under unexpected traffic spikes?',
+        targeted_criterion: 'Production Telemetry & SLA Resilience',
+        practice_objective: 'Practice articulating observability and production operational excellence.',
+        is_sufficiently_complete: false,
+        uncertainty_level: 'low',
+        confidence_score: 0.88,
+        probe_category: 'role_competency'
+      };
+    }
+
+    case 'situational': {
+      if (existingCount >= 1) {
+        return {
+          warranted: false,
+          reason: 'Candidate addressed dynamic risk mitigation and contingency planning in response to probe.',
+          targeted_criterion: params.competency,
+          practice_objective: 'Proceed to coaching and synthesis.',
+          is_sufficiently_complete: true,
+          uncertainty_level: 'low',
+          confidence_score: 0.93,
+          probe_category: 'situational'
+        };
+      }
+
+      return {
+        warranted: true,
+        reason: 'Candidate addressed the primary incident; probing constraint shifts and blast-radius containment.',
+        follow_up_question: 'If this operational incident escalated and halved your acceptable recovery time, what immediate trade-offs would you make to contain blast radius?',
+        targeted_criterion: 'Dynamic Blast-Radius Containment & Crisis Triage',
+        practice_objective: 'Practice agile risk triage and contingency decision-making under escalating pressure.',
+        is_sufficiently_complete: false,
+        uncertainty_level: 'low',
+        confidence_score: 0.90,
+        probe_category: 'situational'
+      };
+    }
+
+    case 'professional_judgment': {
+      if (existingCount >= 1) {
+        return {
+          warranted: false,
+          reason: 'Candidate clarified alternative options and decision trade-offs in response to probe.',
+          targeted_criterion: params.competency,
+          practice_objective: 'Proceed to coaching and synthesis.',
+          is_sufficiently_complete: true,
+          uncertainty_level: 'low',
+          confidence_score: 0.93,
+          probe_category: 'professional_judgment'
+        };
+      }
+
+      return {
+        warranted: true,
+        reason: 'Candidate outlined a resolution; probing comparative alternatives and decision governance.',
+        follow_up_question: 'What other viable option did you seriously consider, and what principle or metric led you to reject it in favor of your chosen direction?',
+        targeted_criterion: 'Multi-Option Comparative Analysis & Principled Governance',
+        practice_objective: 'Practice transparent decision evaluation and justifying trade-offs to senior leadership.',
+        is_sufficiently_complete: false,
+        uncertainty_level: 'low',
+        confidence_score: 0.90,
+        probe_category: 'professional_judgment'
+      };
+    }
+
+    case 'communication':
+    default: {
+      if (existingCount >= 1) {
+        return {
+          warranted: false,
+          reason: 'Candidate provided concise executive synthesis in response to probe.',
+          targeted_criterion: params.competency,
+          practice_objective: 'Proceed to coaching and synthesis.',
+          is_sufficiently_complete: true,
+          uncertainty_level: 'low',
+          confidence_score: 0.93,
+          probe_category: 'communication'
+        };
+      }
+
+      return {
+        warranted: true,
+        reason: 'Response contains valuable ideas; probing for concise executive synthesis and structured delivery.',
+        follow_up_question: 'If you had just 30 seconds with an executive sponsor, how would you state your bottom-line proposal and core justification?',
+        targeted_criterion: 'Executive BLUF Synthesis & High-Stakes Clarity',
+        practice_objective: 'Practice concise Bottom-Line-Up-Front (BLUF) synthesis for executive audiences.',
+        is_sufficiently_complete: false,
+        uncertainty_level: 'low',
+        confidence_score: 0.89,
+        probe_category: 'communication'
+      };
+    }
+  }
 }
