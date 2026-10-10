@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { 
   Brain, FileText, CheckCircle2, AlertTriangle, Sparkles, UserCheck, 
   ShieldCheck, ChevronRight, Layers, Play, Send, Award, Users, 
-  HelpCircle, MessageSquare, Star, ArrowRight, RefreshCw, BarChart2
+  HelpCircle, MessageSquare, Star, ArrowRight, RefreshCw, BarChart2,
+  Video, Eye, Mic, Clock, Check, Target, Compass, BookOpen
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
 import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
+import InterviewCameraPreview from '../components/m4/InterviewCameraPreview';
 
 interface Protocol {
   id: string;
@@ -40,16 +42,19 @@ export default function Module4Interviews() {
   // Active interview session state
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentTurn, setCurrentTurn] = useState<number>(1);
+  const [totalQuestions, setTotalQuestions] = useState<number>(10);
   const [activePanelRole, setActivePanelRole] = useState<string>('');
   const [currentQuestion, setCurrentQuestion] = useState<any>(null);
   const [candidateResponse, setCandidateResponse] = useState<string>('');
   const [submittingTurn, setSubmittingTurn] = useState<boolean>(false);
   const [transcript, setTranscript] = useState<any[]>([]);
+  const [activePlan, setActivePlan] = useState<any>(null);
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [turnError, setTurnError] = useState<string | null>(null);
 
   // Interviewer Evaluation Input (Separate from AI)
   const [humanRating, setHumanRating] = useState<number>(4);
   const [humanNotes, setHumanNotes] = useState<string>('');
-  const [savingRating, setSavingRating] = useState<boolean>(false);
 
   // Post-Interview Synthesis
   const [synthesis, setSynthesis] = useState<any>(null);
@@ -59,13 +64,12 @@ export default function Module4Interviews() {
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [protoRes, candRes, authRes] = await Promise.all([
-        fetch('/api/m4/interviews/protocols'),
-        fetch('/api/m4/interviews/candidates'),
-        fetch('/api/auth/me').catch(() => null)
+      const [protoRes, candRes, authRes, activeRes] = await Promise.all([
+        fetch('/api/m4/interviews/protocols').catch(() => null),
+        fetch('/api/m4/interviews/candidates').catch(() => null),
+        fetch('/api/auth/me').catch(() => null),
+        fetch('/api/m4/interviews/sessions/active').catch(() => null)
       ]);
-      const protoData = await protoRes.json() as any;
-      const candData = await candRes.json() as any;
 
       if (authRes && authRes.ok) {
         const authData = await authRes.json() as any;
@@ -74,14 +78,44 @@ export default function Module4Interviews() {
         }
       }
 
-      if (protoData.success) {
-        setProtocols(protoData.protocols || []);
-        if (protoData.protocols?.length > 0) {
-          setSelectedProtocol(protoData.protocols[0]);
+      if (protoRes && protoRes.ok) {
+        const protoData = await protoRes.json() as any;
+        if (protoData.success) {
+          setProtocols(protoData.protocols || []);
+          if (protoData.protocols?.length > 0) {
+            setSelectedProtocol(protoData.protocols[0]);
+          }
         }
       }
-      if (candData.success) {
-        setCandidateDossier(candData.candidate);
+
+      if (candRes && candRes.ok) {
+        const candData = await candRes.json() as any;
+        if (candData.success) {
+          setCandidateDossier(candData.candidate);
+        }
+      }
+
+      // Check active in-progress session for refresh persistence
+      if (activeRes && activeRes.ok) {
+        const activeData = await activeRes.json() as any;
+        if (activeData.success && activeData.active_session) {
+          const act = activeData.active_session;
+          setSessionId(act.id);
+          setCurrentTurn(act.current_turn || 1);
+          setTotalQuestions(act.total_questions || 10);
+          setActivePanelRole(act.active_panel_role);
+          setCurrentQuestion(act.active_question);
+          setActivePlan(act.plan || null);
+          setTranscript((act.observations || []).map((o: any) => ({
+            turn: o.turn_number,
+            role: o.interviewer_role,
+            question: o.question,
+            response: o.candidate_response,
+            evaluation: o.rubric_evaluation,
+            human_rating: o.human_rating,
+            human_notes: o.human_notes
+          })));
+        }
       }
     } catch (e) {
       console.error('Failed to load M04 data', e);
@@ -94,29 +128,35 @@ export default function Module4Interviews() {
     loadInitialData();
   }, []);
 
-  const startInterview = async (protocolToStart = selectedProtocol) => {
-    if (!protocolToStart) return;
+  const startInterview = async (protocolToStart = selectedProtocol, personalized = false) => {
     setLoading(true);
     setSynthesis(null);
     setTranscript([]);
+    setTurnError(null);
     try {
       const res = await fetch('/api/m4/interviews/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          protocol_id: protocolToStart.id,
-          candidate_user_id: candidateDossier?.id
+          personalized: personalized || (isCandidateRole && !protocolToStart),
+          protocol_id: protocolToStart?.id,
+          candidate_user_id: candidateDossier?.id,
+          camera_enabled: cameraActive
         })
       });
       const data = await res.json() as any;
       if (data.success) {
         setSessionId(data.session_id);
         setCurrentTurn(data.current_turn || 1);
+        setTotalQuestions(data.total_questions || data.protocol?.question_sequence?.length || 10);
         setActivePanelRole(data.active_panel_role);
         setCurrentQuestion(data.first_question);
+        setActivePlan(data.plan || null);
         setCandidateResponse('');
         setHumanRating(4);
         setHumanNotes('');
+      } else {
+        alert('Failed to initialize interview session');
       }
     } catch (e) {
       alert('Failed to start interview session');
@@ -126,13 +166,15 @@ export default function Module4Interviews() {
   };
 
   const submitTurn = async () => {
-    if (!sessionId || !currentQuestion || !candidateResponse.trim()) return;
+    if (!sessionId || !currentQuestion || !candidateResponse.trim() || submittingTurn) return;
     setSubmittingTurn(true);
+    setTurnError(null);
     try {
       const res = await fetch(`/api/m4/interviews/sessions/${sessionId}/turn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          turn_number: currentTurn,
           candidate_response: candidateResponse,
           current_question: currentQuestion,
           interviewer_role: activePanelRole
@@ -151,30 +193,42 @@ export default function Module4Interviews() {
           human_notes: humanNotes
         }]);
 
-        // Automatically save initial human rating
-        await fetch(`/api/m4/interviews/sessions/${sessionId}/rate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            turn_number: currentTurn,
-            human_rating: humanRating,
-            human_notes: humanNotes
-          })
-        });
+        // Automatically save initial human rating if in recruiter cockpit
+        if (!isCandidateRole) {
+          await fetch(`/api/m4/interviews/sessions/${sessionId}/rate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              turn_number: currentTurn,
+              human_rating: humanRating,
+              human_notes: humanNotes
+            })
+          }).catch(() => {});
+        }
 
-        if (data.next_turn?.next_question) {
+        if (data.is_complete || !data.next_turn?.next_question) {
+          // Reached end of 10-turn sequence, trigger complete
+          if (data.synthesis) {
+            setSynthesis(data.synthesis);
+            setActiveTab('synthesis');
+            setCurrentQuestion(null);
+          } else {
+            await completeInterview();
+          }
+        } else {
           setCurrentTurn(data.next_turn.turn_number);
           setActivePanelRole(data.next_turn.active_panel_role);
           setCurrentQuestion(data.next_turn.next_question);
           setCandidateResponse('');
           setHumanNotes('');
-        } else {
-          // Reached end of protocol sequence, trigger complete
-          await completeInterview();
         }
+      } else if (data.duplicate) {
+        setTurnError('This question turn has already been recorded.');
+      } else {
+        setTurnError(data.error || 'Failed to submit response');
       }
     } catch (e) {
-      alert('Error evaluating turn response');
+      setTurnError('Network error submitting turn response');
     } finally {
       setSubmittingTurn(false);
     }
@@ -218,7 +272,7 @@ export default function Module4Interviews() {
             </h1>
             <p className="text-slate-300 text-sm mt-1.5 max-w-3xl leading-relaxed">
               {isCandidateRole 
-                ? 'Interactive calibrated behavioral interview simulation evaluated against anchored competency rubrics.'
+                ? 'Personalized 10-question sequential interview simulation grounded in your profile and evaluated against anchored competency rubrics.'
                 : 'Consumes candidate evidence packages across M01 (Resume & Claims), M02 (Adaptive Gaps & Misconceptions), and M03 (Work Simulations) to drive panel-coordinated questioning with anchored rubrics and bias-free human evaluation.'}
             </p>
           </div>
@@ -226,7 +280,7 @@ export default function Module4Interviews() {
           <div className="flex items-center gap-2.5">
             {!sessionId ? (
               <button
-                onClick={() => startInterview(selectedProtocol)}
+                onClick={() => startInterview(selectedProtocol, isCandidateRole)}
                 className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/20 transition-all"
               >
                 <Play className="w-4 h-4" />
@@ -247,7 +301,7 @@ export default function Module4Interviews() {
         {/* Tab Navigation */}
         <div className="flex items-center gap-2 border-b border-[#063750] pb-2">
           {[
-            { id: 'cockpit', label: 'Interviewer Panel Cockpit', icon: Layers },
+            { id: 'cockpit', label: isCandidateRole ? '10-Question Interview Session' : 'Interviewer Panel Cockpit', icon: Layers },
             { id: 'dossier', label: 'Candidate M01–M03 Evidence Dossier', icon: UserCheck },
             { id: 'synthesis', label: 'M05 Evidence Package Synthesis', icon: Award }
           ].map(tab => {
@@ -270,13 +324,14 @@ export default function Module4Interviews() {
           })}
         </div>
 
-        {/* TAB 1: INTERVIEWER PANEL COCKPIT */}
+        {/* TAB 1: INTERVIEWER PANEL COCKPIT / CANDIDATE INTERVIEW EXPERIENCE */}
         {activeTab === 'cockpit' && (
           <div className="space-y-6">
-            {/* Protocol & Candidate Ribbon */}
+            
+            {/* Active Protocol Ribbon & Context */}
             <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <span className="text-xs uppercase font-bold text-slate-400">Active Protocol Target</span>
+                <span className="text-xs uppercase font-bold text-slate-400">Target Role & Interview Protocol</span>
                 <div className="flex items-center gap-3 mt-1">
                   <select
                     value={selectedProtocol?.id || ''}
@@ -305,115 +360,271 @@ export default function Module4Interviews() {
                   </div>
                   <div className="p-2 bg-[#001824] rounded-lg border border-[#002f47]">
                     <span className="text-slate-500">Turn: </span>
-                    <span className="text-[#FF4103] font-bold">#{currentTurn}</span>
+                    <span className="text-[#FF4103] font-bold">#{currentTurn} of {totalQuestions || 10}</span>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Active Turn Execution Screen */}
-            {sessionId && currentQuestion && (
+            {/* PRE-SESSION BRIEFING: When no interview is actively running */}
+            {!sessionId && (
               <div className="grid lg:grid-cols-12 gap-6">
-                {/* Left: Coordinated Question & Anchored Rubric */}
-                <div className="lg:col-span-6 space-y-4">
-                  <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
+                {/* Left: 10-Question Sequential Interview Blueprint */}
+                <div className="lg:col-span-7 space-y-4">
+                  <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4">
                     <div className="flex items-center justify-between pb-3 border-b border-[#002a40]">
-                      <span className="px-2 py-0.5 rounded bg-[#FF4103]/15 text-[#FF4103] font-bold uppercase tracking-wider">
-                        Turn {currentTurn} · {activePanelRole}
+                      <div className="flex items-center gap-2">
+                        <Compass className="w-4 h-4 text-[#FF4103]" />
+                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                          10-Question Sequential Interview Structure
+                        </h3>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] font-bold">
+                        ONE QUESTION AT A TIME
                       </span>
-                      <span className="text-slate-400 font-mono">Target: {currentQuestion.competency}</span>
                     </div>
 
-                    <div>
-                      <span className="text-slate-500 uppercase font-semibold block mb-1">Coordinated Interview Probe</span>
-                      <h3 className="text-base font-bold text-white leading-relaxed">
-                        "{currentQuestion.question}"
-                      </h3>
-                      <p className="text-slate-400 mt-1 italic">
-                        Probe Intent: {currentQuestion.probe_intent}
-                      </p>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Your personalized interview covers 10 sequential rounds designed to assess holistic professional maturity without hallucinating candidate history. Each question is asked one at a time, recorded, and evaluated against calibrated anchored rubrics.
+                    </p>
+
+                    <div className="grid sm:grid-cols-2 gap-2.5 pt-2 text-xs">
+                      {[
+                        { num: '01', title: 'Professional Narrative', cat: 'Communication' },
+                        { num: '02', title: 'Deep Technical Execution', cat: 'Role Competency' },
+                        { num: '03', title: 'Conflict & Stakeholder Alignment', cat: 'Behavioral STAR' },
+                        { num: '04', title: 'Judgment Under Ambiguity', cat: 'Professional Judgment' },
+                        { num: '05', title: 'Failure Recovery & Resilience', cat: 'Situational' },
+                        { num: '06', title: 'Cross-Functional Translation', cat: 'Communication' },
+                        { num: '07', title: 'Quality Standards & Hygiene', cat: 'Role Competency' },
+                        { num: '08', title: 'Ethical Governance & Integrity', cat: 'Professional Judgment' },
+                        { num: '09', title: 'Prioritization Under Crunch', cat: 'Situational' },
+                        { num: '10', title: 'Continuous Growth & Learning', cat: 'Behavioral' }
+                      ].map(step => (
+                        <div key={step.num} className="p-2.5 bg-[#001824] border border-[#002f47] rounded-xl flex items-center gap-2.5">
+                          <span className="w-6 h-6 rounded-md bg-[#FF4103]/15 text-[#FF4103] font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                            {step.num}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="text-white font-semibold block text-[11px] truncate">{step.title}</span>
+                            <span className="text-[10px] text-slate-400 block">{step.cat}</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
 
-                    {/* Anchored Rubric Levels */}
-                    <div className="pt-3 border-t border-[#002a40] space-y-2">
-                      <span className="text-slate-400 uppercase font-bold block">Calibrated Anchored Rubric</span>
-                      
-                      <div className="p-2.5 bg-red-950/20 border border-red-500/20 rounded-xl">
-                        <span className="text-red-400 font-bold block text-[10px] uppercase">L1 · Unsatisfactory</span>
-                        <p className="text-slate-300 mt-0.5">{currentQuestion.anchored_rubric?.unsatisfactory}</p>
+                    <div className="pt-4 border-t border-[#002a40] flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <Clock className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Estimated duration: 25–35 minutes</span>
                       </div>
-
-                      <div className="p-2.5 bg-blue-950/20 border border-blue-500/20 rounded-xl">
-                        <span className="text-blue-400 font-bold block text-[10px] uppercase">L3 · Competent Standard</span>
-                        <p className="text-slate-300 mt-0.5">{currentQuestion.anchored_rubric?.competent}</p>
-                      </div>
-
-                      <div className="p-2.5 bg-emerald-950/20 border border-emerald-500/20 rounded-xl">
-                        <span className="text-emerald-400 font-bold block text-[10px] uppercase">L5 · Exceptional Mastery</span>
-                        <p className="text-slate-300 mt-0.5">{currentQuestion.anchored_rubric?.exceptional}</p>
-                      </div>
+                      <button
+                        onClick={() => startInterview(selectedProtocol, isCandidateRole)}
+                        className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/20 transition-all"
+                      >
+                        <Play className="w-4 h-4" />
+                        <span>Begin 10-Question Personalized Interview</span>
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Right: Candidate Response & Separate Human Evaluation */}
-                <div className="lg:col-span-6 space-y-4">
-                  <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
-                    <span className="text-slate-400 font-bold uppercase tracking-wider block">
-                      Candidate Oral / Stated Response
-                    </span>
-                    <textarea
-                      rows={6}
-                      value={candidateResponse}
-                      onChange={e => setCandidateResponse(e.target.value)}
-                      placeholder="Transcribe candidate's response detailing their methodology, trade-offs, and concrete examples..."
-                      className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed"
+                {/* Right: Camera & Hardware Readiness Check */}
+                <div className="lg:col-span-5 space-y-4">
+                  <InterviewCameraPreview 
+                    compact={false}
+                    onCameraStateChange={(active) => setCameraActive(active)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ACTIVE TURN EXECUTION: When session is in progress */}
+            {sessionId && currentQuestion && (
+              <div className="space-y-6">
+                
+                {/* 10-Question Progress Ribbon */}
+                <div className="bg-[#001824] border border-[#063750] rounded-2xl p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#FF4103]/20 border border-[#FF4103]/40 flex items-center justify-center text-[#FF4103] font-black text-sm">
+                        {currentTurn}
+                      </div>
+                      <div>
+                        <h4 className="text-white text-xs font-bold tracking-tight">
+                          Question {currentTurn} of {totalQuestions || 10}
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          Target Competency: <span className="text-slate-200 font-semibold">{currentQuestion.competency}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#002f47] text-slate-300 border border-[#004163]">
+                        {activePanelRole}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#FF4103]/15 text-[#FF4103] border border-[#FF4103]/30 uppercase">
+                        {currentQuestion.category || currentQuestion.question_type || 'Behavioral'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 10-Step Progress Bar */}
+                  <div className="grid grid-cols-10 gap-1.5 pt-1">
+                    {Array.from({ length: totalQuestions || 10 }).map((_, idx) => {
+                      const stepNum = idx + 1;
+                      const isDone = stepNum < currentTurn;
+                      const isCurrent = stepNum === currentTurn;
+                      return (
+                        <div key={idx} className="flex flex-col items-center gap-1">
+                          <div
+                            className={`h-2 w-full rounded-full transition-all ${
+                              isDone
+                                ? 'bg-emerald-500 shadow-sm shadow-emerald-500/30'
+                                : isCurrent
+                                ? 'bg-[#FF4103] ring-2 ring-[#FF4103]/40'
+                                : 'bg-[#00283c]'
+                            }`}
+                          />
+                          <span className={`text-[9px] font-mono ${isCurrent ? 'text-[#FF4103] font-bold' : isDone ? 'text-emerald-400' : 'text-slate-500'}`}>
+                            Q{stepNum}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Two-Column Work Surface */}
+                <div className="grid lg:grid-cols-12 gap-6">
+                  {/* Left: Coordinated Question & Anchored Rubric */}
+                  <div className="lg:col-span-6 space-y-4">
+                    <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#002a40]">
+                        <span className="px-2 py-0.5 rounded bg-[#FF4103]/15 text-[#FF4103] font-bold uppercase tracking-wider">
+                          Turn {currentTurn} · {activePanelRole}
+                        </span>
+                        <span className="text-slate-400 font-mono">Target: {currentQuestion.competency}</span>
+                      </div>
+
+                      <div>
+                        <span className="text-slate-500 uppercase font-semibold block mb-1">Coordinated Interview Probe</span>
+                        <h3 className="text-base font-bold text-white leading-relaxed">
+                          "{currentQuestion.question}"
+                        </h3>
+                        <p className="text-slate-400 mt-1 italic">
+                          Probe Intent: {currentQuestion.probe_intent}
+                        </p>
+                      </div>
+
+                      {/* Anchored Rubric Levels */}
+                      <div className="pt-3 border-t border-[#002a40] space-y-2">
+                        <span className="text-slate-400 uppercase font-bold block">Calibrated Anchored Rubric</span>
+                        
+                        <div className="p-2.5 bg-red-950/20 border border-red-500/20 rounded-xl">
+                          <span className="text-red-400 font-bold block text-[10px] uppercase">L1 · Unsatisfactory</span>
+                          <p className="text-slate-300 mt-0.5">{currentQuestion.anchored_rubric?.unsatisfactory}</p>
+                        </div>
+
+                        <div className="p-2.5 bg-blue-950/20 border border-blue-500/20 rounded-xl">
+                          <span className="text-blue-400 font-bold block text-[10px] uppercase">L3 · Competent Standard</span>
+                          <p className="text-slate-300 mt-0.5">{currentQuestion.anchored_rubric?.competent}</p>
+                        </div>
+
+                        <div className="p-2.5 bg-emerald-950/20 border border-emerald-500/20 rounded-xl">
+                          <span className="text-emerald-400 font-bold block text-[10px] uppercase">L5 · Exceptional Mastery</span>
+                          <p className="text-slate-300 mt-0.5">{currentQuestion.anchored_rubric?.exceptional}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Camera Preview & Candidate Stated Response */}
+                  <div className="lg:col-span-6 space-y-4">
+                    {/* Embedded Optional Camera Preview */}
+                    <InterviewCameraPreview 
+                      compact={true} 
+                      onCameraStateChange={(active) => setCameraActive(active)} 
                     />
 
-                    {/* Human Assessor Calibrated Rating Interface */}
-                    <div className="p-4 bg-[#001621] rounded-xl border border-[#002f47] space-y-3">
+                    <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                          <UserCheck className="w-3.5 h-3.5 text-[#FF4103]" />
-                          <span>Human Assessor Rating (Independent from AI)</span>
+                        <span className="text-slate-400 font-bold uppercase tracking-wider block">
+                          Candidate Oral / Stated Response
                         </span>
-                        <span className="font-bold text-[#FF4103] text-sm">{humanRating} / 5.0</span>
+                        <span className="text-[11px] text-slate-500">
+                          {candidateResponse.trim().split(/\s+/).filter(Boolean).length} words
+                        </span>
                       </div>
 
-                      <div className="flex gap-2">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <button
-                            key={star}
-                            onClick={() => setHumanRating(star)}
-                            className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${
-                              humanRating >= star 
-                                ? 'bg-[#FF4103] text-white shadow-md' 
-                                : 'bg-[#001f2e] text-slate-500 hover:text-white'
-                            }`}
-                          >
-                            ★ {star}
-                          </button>
-                        ))}
-                      </div>
-
-                      <input
-                        type="text"
-                        value={humanNotes}
-                        onChange={e => setHumanNotes(e.target.value)}
-                        placeholder="Interviewer qualitative notes on candidate rationale..."
-                        className="w-full bg-[#00111a] border border-[#00283d] rounded-lg p-2 text-white text-xs focus:outline-none focus:border-[#FF4103]"
+                      <textarea
+                        rows={6}
+                        value={candidateResponse}
+                        onChange={e => setCandidateResponse(e.target.value)}
+                        disabled={submittingTurn}
+                        placeholder="Transcribe candidate's response detailing their methodology, trade-offs, and concrete examples..."
+                        className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed disabled:opacity-50"
                       />
-                    </div>
 
-                    <div className="flex justify-end pt-2">
-                      <button
-                        disabled={submittingTurn || !candidateResponse.trim()}
-                        onClick={submitTurn}
-                        className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#FF4103]/20 transition-all"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>{submittingTurn ? 'Extracting Evidence & Coordinating Next Turn…' : 'Submit Turn & Advance Panel'}</span>
-                      </button>
+                      {turnError && (
+                        <div className="p-2.5 bg-red-950/30 border border-red-500/30 rounded-xl text-red-300 text-xs">
+                          {turnError}
+                        </div>
+                      )}
+
+                      {/* Human Assessor Calibrated Rating Interface (if in recruiter cockpit or review) */}
+                      {!isCandidateRole && (
+                        <div className="p-4 bg-[#001621] rounded-xl border border-[#002f47] space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                              <UserCheck className="w-3.5 h-3.5 text-[#FF4103]" />
+                              <span>Human Assessor Rating (Independent from AI)</span>
+                            </span>
+                            <span className="font-bold text-[#FF4103] text-sm">{humanRating} / 5.0</span>
+                          </div>
+
+                          <div className="flex gap-2">
+                            {[1, 2, 3, 4, 5].map(star => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setHumanRating(star)}
+                                className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${
+                                  humanRating >= star 
+                                    ? 'bg-[#FF4103] text-white shadow-md' 
+                                    : 'bg-[#001f2e] text-slate-500 hover:text-white'
+                                }`}
+                              >
+                                ★ {star}
+                              </button>
+                            ))}
+                          </div>
+
+                          <input
+                            type="text"
+                            value={humanNotes}
+                            onChange={e => setHumanNotes(e.target.value)}
+                            placeholder="Interviewer qualitative notes on candidate rationale..."
+                            className="w-full bg-[#00111a] border border-[#00283d] rounded-lg p-2 text-white text-xs focus:outline-none focus:border-[#FF4103]"
+                          />
+                        </div>
+                      )}
+
+                      {/* Submission Action Bar */}
+                      <div className="flex items-center justify-between pt-2">
+                        <span className="text-[11px] text-slate-500">
+                          Turn {currentTurn} of {totalQuestions || 10}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={submittingTurn || !candidateResponse.trim()}
+                          onClick={submitTurn}
+                          className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#FF4103]/20 transition-all"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>{submittingTurn ? 'Extracting Evidence & Coordinating Next Turn…' : 'Submit Turn & Advance Panel'}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -430,7 +641,9 @@ export default function Module4Interviews() {
                   <div key={idx} className="bg-[#001f2e] border border-[#063750] rounded-2xl p-5 space-y-3 text-xs">
                     <div className="flex items-center justify-between text-slate-400">
                       <span className="font-bold text-[#FF4103]">Turn #{t.turn} · {t.role}</span>
-                      <span className="font-mono">Human Rating: {t.human_rating}/5</span>
+                      {t.human_rating !== undefined && (
+                        <span className="font-mono">Human Rating: {t.human_rating}/5</span>
+                      )}
                     </div>
 
                     <div className="text-white font-semibold">"{t.question}"</div>
@@ -452,9 +665,9 @@ export default function Module4Interviews() {
                           </ul>
                         </div>
 
-                        <div className="p-3 bg-indigo-950/20 border border-indigo-500/20 rounded-xl space-y-1">
-                          <span className="font-bold text-indigo-400 text-[10px] uppercase block">AI Recommended Probing Challenge</span>
-                          <p className="text-indigo-200 italic">"{t.evaluation.ai_recommended_probe}"</p>
+                        <div className="p-3 bg-purple-950/20 border border-purple-500/20 rounded-xl space-y-1">
+                          <span className="font-bold text-purple-400 text-[10px] uppercase block">Panel Analysis & Recommended Probe</span>
+                          <p className="text-slate-300">{t.evaluation.ai_recommended_probe}</p>
                         </div>
                       </div>
                     )}
@@ -465,37 +678,69 @@ export default function Module4Interviews() {
           </div>
         )}
 
-        {/* TAB 2: CANDIDATE M01–M03 EVIDENCE DOSSIER */}
+        {/* TAB 2: CANDIDATE DOSSIER (M01-M03 Evidence Integration) */}
         {activeTab === 'dossier' && (
           <div className="space-y-6">
-            <div className="grid lg:grid-cols-3 gap-6">
-              {/* Profile Card */}
-              <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-3 text-xs">
-                <span className="text-slate-400 uppercase font-semibold">Candidate Identity</span>
-                <h3 className="text-xl font-bold text-white">{candidateDossier?.name}</h3>
-                <div className="text-slate-300 space-y-1 pt-1">
-                  <div><span className="text-slate-500">Target Role:</span> {candidateDossier?.target_role}</div>
-                  <div><span className="text-slate-500">Domain:</span> {candidateDossier?.domain}</div>
-                  <div><span className="text-slate-500">Experience:</span> {candidateDossier?.experience_level?.toUpperCase()}</div>
-                  <div><span className="text-slate-500">Verified Readiness:</span> <span className="text-[#FF4103] font-bold">{candidateDossier?.readiness_score}%</span></div>
+            <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#002a40]">
+                <div>
+                  <span className="text-xs font-bold text-[#FF4103] uppercase tracking-wider">Candidate Dossier</span>
+                  <h2 className="text-2xl font-black text-white mt-1">{candidateDossier?.name || 'Alex Mercer'}</h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {candidateDossier?.target_role} · {candidateDossier?.experience_level?.toUpperCase()}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-black text-white">{candidateDossier?.readiness_score}%</div>
+                  <span className="text-[10px] text-emerald-400 uppercase font-bold">M01–M03 Readiness</span>
                 </div>
               </div>
 
-              {/* M02 Diagnosed Misconceptions */}
-              <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-3 text-xs lg:col-span-2">
+              {/* M01 Resume Claims */}
+              <div className="pt-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                  M01 Verified Resume Claims ({candidateDossier?.m01_verified_claims_count} Verified)
+                </span>
+                <div className="p-4 bg-[#001824] rounded-xl border border-[#002f47] text-xs text-slate-300">
+                  Candidate resume claims have passed multi-pass extraction and hash verification.
+                </div>
+              </div>
+            </div>
+
+            {/* M02 Proficiencies & Misconceptions */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-3">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-[#FF4103]" />
+                  <span>M02 Adaptive Proficiency Estimates</span>
+                </h3>
+                <div className="space-y-2 text-xs">
+                  {candidateDossier?.m02_proficiencies?.map((p: any, i: number) => (
+                    <div key={i} className="p-3 bg-[#001824] rounded-xl border border-[#002f47] flex items-center justify-between">
+                      <div>
+                        <div className="text-white font-semibold">{p.skill}</div>
+                        <div className="text-[10px] text-slate-500">{p.competency}</div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-emerald-400 font-bold">{p.estimate}%</span>
+                        <div className="text-[10px] text-slate-500">±{p.uncertainty}% unc.</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-3">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-400" />
-                  <span>M02 Diagnosed Cognitive Misconceptions (Pre-Interview Evidence)</span>
+                  <span>M02 Diagnosed Misconceptions (Probe Targets)</span>
                 </h3>
-                <p className="text-slate-400">
-                  These misconceptions were identified during prior adaptive assessments and should be explicitly probed during technical rounds.
-                </p>
-                <div className="space-y-2 pt-1">
+                <div className="space-y-2 text-xs">
                   {candidateDossier?.m02_diagnosed_misconceptions?.length === 0 ? (
-                    <div className="p-3 bg-[#001824] rounded-xl text-slate-400">No unresolved misconceptions recorded.</div>
+                    <div className="p-3 bg-[#001824] rounded-xl text-slate-400">No active misconceptions recorded.</div>
                   ) : (
                     candidateDossier?.m02_diagnosed_misconceptions?.map((m: string, i: number) => (
-                      <div key={i} className="p-3 bg-[#001824] border border-amber-500/20 rounded-xl text-amber-200">
+                      <div key={i} className="p-3 bg-amber-950/20 border border-amber-500/20 rounded-xl text-amber-200">
                         {m}
                       </div>
                     ))
@@ -547,10 +792,10 @@ export default function Module4Interviews() {
                 <Brain className="w-12 h-12 text-[#FF4103] mx-auto opacity-70" />
                 <h3 className="text-lg font-bold text-white">No Completed Interview Synthesis Available</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Launch a panel interview and complete all turns to generate an auditable M05 Evidence Package.
+                  Launch a panel interview and complete all 10 turns to generate an auditable M05 Evidence Package.
                 </p>
                 <button
-                  onClick={() => { setActiveTab('cockpit'); startInterview(selectedProtocol); }}
+                  onClick={() => { setActiveTab('cockpit'); startInterview(selectedProtocol, isCandidateRole); }}
                   className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold"
                 >
                   Start Structured Interview

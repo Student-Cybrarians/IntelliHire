@@ -175,4 +175,64 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     expect(await screen.findByText('85%')).toBeInTheDocument();
     expect(await screen.findByText(/Automated hiring decisions are strictly prohibited/i)).toBeInTheDocument();
   });
+
+  it('displays candidate 10-question sequential roadmap, camera readiness check, and ethical invariant', async () => {
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    expect(await screen.findByText(/10-Question Sequential Interview Structure/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Deep Technical Execution/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Conflict & Stakeholder Alignment/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Judgment Under Ambiguity/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Privacy & Fairness Invariant/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Begin 10-Question Personalized Interview/i })).toBeInTheDocument();
+  });
+
+  it('resumes active in-progress session with exact turn progress and questions on refresh', async () => {
+    // Override fetch to return an active session on question 4 of 10
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/m4/interviews/sessions/active') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            active_session: {
+              id: 'session-m4-resumed-4',
+              status: 'in_progress',
+              current_turn: 4,
+              total_questions: 10,
+              active_panel_role: 'Principal Systems Architect',
+              active_question: {
+                turn: 4,
+                panel_role: 'Principal Systems Architect',
+                competency: 'Decision Making Under Incomplete Information',
+                question: 'Tell us about a time when you made a critical decision with ambiguous requirements.',
+                probe_intent: 'Examine risk assessment heuristics and staging gates.',
+                anchored_rubric: {
+                  unsatisfactory: 'Paralyzed by ambiguity.',
+                  competent: 'Documented core assumptions and staging gates.',
+                  exceptional: 'Probabilistic bounds and continuous telemetry.'
+                }
+              },
+              observations: [
+                { turn_number: 1, interviewer_role: 'Hiring Manager', question: 'Q1', candidate_response: 'Ans 1' },
+                { turn_number: 2, interviewer_role: 'Architect', question: 'Q2', candidate_response: 'Ans 2' },
+                { turn_number: 3, interviewer_role: 'Partner', question: 'Q3', candidate_response: 'Ans 3' }
+              ]
+            }
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Verify session resumption
+    expect(await screen.findByText(/Question 4 of 10/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Decision Making Under Incomplete Information/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Tell us about a time when you made a critical decision with ambiguous requirements/i)).toBeInTheDocument();
+    expect(await screen.findByText(/3 turns completed/i)).toBeInTheDocument();
+  });
 });
+

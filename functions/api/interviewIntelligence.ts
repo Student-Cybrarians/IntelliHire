@@ -1,6 +1,135 @@
 import { Hono } from 'hono';
 import type { Bindings, UserSession } from './[[route]]';
 import { getSessionUser, logAuditEvent } from './[[route]]';
+import {
+  InterviewPlan,
+  InterviewQuestion,
+  validateInterviewPlan,
+  generateDeterministicInterviewPlan
+} from '../../src/shared/m4InterviewContracts';
+
+/**
+ * Personalized 10-Question Interview Generator
+ * Leverages candidate profile & verified claims with meta/muse-glimmer-30b,
+ * strictly falling back to deterministic cross-occupation archetypes.
+ */
+export async function generatePersonalized10QuestionPlan(
+  env: Bindings,
+  candidateContext: {
+    targetRole?: string;
+    domain?: string;
+    seniority?: string;
+    skills?: string[];
+    bio?: string;
+    claims?: string[];
+    diagnosedMisconceptions?: string[];
+  }
+): Promise<{ plan: InterviewPlan; isFallback: boolean }> {
+  const role = candidateContext.targetRole?.trim() || 'Senior Professional';
+  const domain = (candidateContext.domain || 'general').toLowerCase();
+  const seniority = (candidateContext.seniority || 'mid').toLowerCase();
+  const skills = candidateContext.skills && candidateContext.skills.length > 0
+    ? candidateContext.skills
+    : [`Core ${role} Methodology`];
+
+  // If NVIDIA key available, attempt AI question generation
+  if (env.NVIDIA_API_KEY) {
+    try {
+      const prompt = `You are an expert executive interview panel synthesizer.
+Synthesize a structured sequential 10-question interview plan for a candidate applying for:
+Target Role: "${role}"
+Domain: "${domain}"
+Seniority Level: "${seniority}"
+Verified Skills from Candidate Profile/Resume: ${skills.join(', ')}
+Candidate Bio/Summary: "${candidateContext.bio || 'General professional'}"
+Diagnosed Areas for Focused Evaluation: ${candidateContext.diagnosedMisconceptions?.join(', ') || 'Core domain execution'}
+
+STRICT INVARIANTS:
+1. Output EXACTLY 10 questions numbered sequential turns 1 through 10.
+2. Ground strictly in the candidate's target role and provided skills. DO NOT hallucinate specific past employers, confidential projects, or degrees not mentioned.
+3. Ethical AI & Bias Invariant: Evaluate ONLY job-relevant competencies. Absolutely NO evaluation of protected traits, personality, or biometrics.
+4. Categorical Sequence across 10 Turns:
+   - Turn 1: category "communication" (Professional narrative and role alignment)
+   - Turn 2: category "role_competency" (Technical/functional execution of ${skills[0] || 'primary skill'})
+   - Turn 3: category "behavioral" (STAR format: conflict resolution or stakeholder disagreement)
+   - Turn 4: category "professional_judgment" (Decision making under ambiguity/incomplete information)
+   - Turn 5: category "situational" (Failure recovery, resilience, blameless post-mortem)
+   - Turn 6: category "communication" (Cross-functional translation and executive influence)
+   - Turn 7: category "role_competency" (Quality standards, operational hygiene, craftsmanship)
+   - Turn 8: category "professional_judgment" (Ethical governance, compliance, professional integrity)
+   - Turn 9: category "situational" (Prioritization under resource/capacity constraints)
+   - Turn 10: category "behavioral" (Continuous learning, growth mindset, skill evolution)
+5. Each question must include:
+   - turn: integer (1 to 10)
+   - panel_role: string (e.g. "Hiring Manager", "Systems Architect", "Operations Lead", "People Partner", etc.)
+   - category: one of ["behavioral", "situational", "professional_judgment", "communication", "role_competency"]
+   - competency: string
+   - question: string (engaging, realistic, professional)
+   - probe_intent: string
+   - anchored_rubric: { "unsatisfactory": string, "competent": string, "exceptional": string }
+
+Return ONLY valid JSON matching this structure:
+{
+  "planId": "proto-pers-${crypto.randomUUID()}",
+  "targetRole": "${role}",
+  "domain": "${domain}",
+  "seniority": "${seniority}",
+  "totalQuestions": 10,
+  "questions": [ ...exactly 10 question objects... ]
+}`;
+
+      const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.NVIDIA_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'meta/muse-glimmer-30b',
+          messages: [
+            { role: 'system', content: 'You are an objective executive interview panel synthesizer. Return ONLY valid JSON.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 4096
+        })
+      });
+
+      if (aiResp.ok) {
+        const aiData = await aiResp.json() as any;
+        const content = aiData.choices?.[0]?.message?.content || '{}';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const validation = validateInterviewPlan(parsed);
+          if (validation.valid) {
+            parsed.provenance = {
+              generatedAt: new Date().toISOString(),
+              modelUsed: 'meta/muse-glimmer-30b',
+              personalizationInputs: skills,
+              isFallback: false
+            };
+            return { plan: parsed, isFallback: false };
+          }
+        }
+      }
+    } catch (_) {
+      // AI generation failed or timed out, proceed to deterministic fallback
+    }
+  }
+
+  // Guaranteed deterministic fallback generator
+  const deterministicPlan = generateDeterministicInterviewPlan({
+    targetRole: role,
+    domain,
+    seniority,
+    skills,
+    bio: candidateContext.bio
+  });
+
+  return { plan: deterministicPlan, isFallback: true };
+}
+
 
 export interface InterviewProtocol {
   id: string;
@@ -265,7 +394,7 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     });
   });
 
-  // 3. Start or Schedule Structured Interview Session
+  // 3. Start or Schedule Structured Interview Session (Supports Seed Protocols & Personalized 10-Question Generator)
   app.post('/m4/interviews/sessions', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -273,29 +402,206 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
     const orgId = (dbUser?.organization_id as string) || 'org_default_public';
 
-    const { protocol_id, candidate_user_id, requisition_id } = await c.req.json().catch(() => ({}));
-    const protocol = SEED_PROTOCOLS.find(p => p.id === protocol_id) || SEED_PROTOCOLS[0];
-
+    const { protocol_id, candidate_user_id, requisition_id, personalized, camera_enabled } = await c.req.json().catch(() => ({}));
     const targetCandidateId = candidate_user_id || user.id;
+
+    // Check if an existing seed protocol was explicitly requested without personalization
+    const seedProtocol = protocol_id && protocol_id !== 'personalized' && protocol_id !== 'auto'
+      ? SEED_PROTOCOLS.find(p => p.id === protocol_id)
+      : null;
+
+    let plan: InterviewPlan;
+    let activeRole: string;
+    let firstQuestion: any;
+    let protoId: string;
+
+    if (seedProtocol && personalized !== true) {
+      protoId = seedProtocol.id;
+      activeRole = seedProtocol.panel_roles[0] || 'Hiring Manager';
+      firstQuestion = seedProtocol.question_sequence[0] || null;
+      plan = {
+        planId: seedProtocol.id,
+        targetRole: seedProtocol.target_role,
+        domain: seedProtocol.domain,
+        seniority: seedProtocol.seniority_level,
+        totalQuestions: 10,
+        questions: seedProtocol.question_sequence.length === 10
+          ? seedProtocol.question_sequence as any
+          : generateDeterministicInterviewPlan({
+              targetRole: seedProtocol.target_role,
+              domain: seedProtocol.domain,
+              seniority: seedProtocol.seniority_level
+            }).questions,
+        provenance: {
+          generatedAt: new Date().toISOString(),
+          modelUsed: 'seed-protocol-grounded',
+          personalizationInputs: [seedProtocol.id],
+          isFallback: true
+        }
+      };
+    } else {
+      // Load candidate profile context from DB
+      const profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(targetCandidateId).first();
+      const claims = await c.env.DB.prepare(
+        `SELECT cl.claim_value FROM candidate_claim cl
+         JOIN candidate_context ctx ON cl.context_id = ctx.id
+         WHERE ctx.user_id = ? LIMIT 10`
+      ).bind(targetCandidateId).all();
+      const proficiencies = await c.env.DB.prepare(
+        `SELECT s.name as skill_name FROM candidate_skill_proficiency_v2 p
+         LEFT JOIN skill s ON p.skill_id = s.id
+         WHERE p.user_id = ?`
+      ).bind(targetCandidateId).all();
+
+      const candidateSkills = [
+        ...((claims.results || []).map((r: any) => r.claim_value).filter(Boolean)),
+        ...((proficiencies.results || []).map((r: any) => r.skill_name).filter(Boolean))
+      ];
+
+      const generated = await generatePersonalized10QuestionPlan(c.env, {
+        targetRole: (profile?.target_role as string) || 'Senior Professional',
+        domain: (profile?.primary_domain as string) || 'software',
+        seniority: (profile?.experience_level as string) || 'senior',
+        skills: Array.from(new Set(candidateSkills)).slice(0, 5),
+        bio: profile?.bio as string
+      });
+
+      plan = generated.plan;
+      protoId = plan.planId;
+      activeRole = plan.questions[0].panel_role;
+      firstQuestion = plan.questions[0];
+    }
+
     const sessionId = crypto.randomUUID();
+
+    // Persist custom protocol if not already in seed protocols
+    if (!seedProtocol) {
+      await c.env.DB.prepare(
+        `INSERT INTO interview_protocol 
+         (id, organization_id, title, target_role, domain, interview_type, seniority_level, panel_roles_json, competency_targets_json, question_sequence_json, is_active)
+         VALUES (?, ?, ?, ?, ?, 'structured_10_question', ?, ?, ?, ?, 1)`
+      ).bind(
+        protoId,
+        orgId,
+        `${plan.targetRole} Structured 10-Question Interview`,
+        plan.targetRole,
+        plan.domain,
+        plan.seniority,
+        JSON.stringify(Array.from(new Set(plan.questions.map(q => q.panel_role)))),
+        JSON.stringify(plan.questions.map(q => ({ name: q.competency, description: q.probe_intent, weight: 0.1 }))),
+        JSON.stringify(plan.questions)
+      ).run().catch(() => {});
+    }
 
     await c.env.DB.prepare(
       `INSERT INTO interview_session 
-       (id, organization_id, protocol_id, candidate_user_id, interviewer_user_id, requisition_id, status, active_panel_role, current_turn)
-       VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?, 1)`
+       (id, organization_id, protocol_id, candidate_user_id, interviewer_user_id, requisition_id, status, active_panel_role, current_turn, evidence_summary_json)
+       VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?, 1, ?)`
     ).bind(
-      sessionId, orgId, protocol.id, targetCandidateId, user.id, requisition_id || null, protocol.panel_roles[0] || 'Hiring Manager'
+      sessionId,
+      orgId,
+      protoId,
+      targetCandidateId,
+      user.id,
+      requisition_id || null,
+      activeRole,
+      JSON.stringify({ plan, camera_enabled: Boolean(camera_enabled) })
     ).run();
 
-    await logAuditEvent(c, orgId, user.id, 'START', 'INTERVIEW_SESSION', sessionId, { protocol_id: protocol.id });
+    await logAuditEvent(c, orgId, user.id, 'START', 'INTERVIEW_SESSION', sessionId, { protocol_id: protoId, total_questions: plan.questions.length });
 
     return c.json({
       success: true,
       session_id: sessionId,
-      protocol,
-      active_panel_role: protocol.panel_roles[0] || 'Hiring Manager',
+      protocol: seedProtocol || {
+        id: protoId,
+        title: `${plan.targetRole} Structured 10-Question Interview`,
+        target_role: plan.targetRole,
+        domain: plan.domain,
+        interview_type: 'structured_10_question',
+        seniority_level: plan.seniority,
+        panel_roles: Array.from(new Set(plan.questions.map(q => q.panel_role))),
+        competency_targets: plan.questions.map(q => ({ name: q.competency, description: q.probe_intent, weight: 0.1 })),
+        question_sequence: plan.questions
+      },
+      active_panel_role: activeRole,
       current_turn: 1,
-      first_question: protocol.question_sequence[0] || null
+      total_questions: plan.questions.length,
+      first_question: firstQuestion,
+      plan
+    });
+  });
+
+  // 3b. Active Interview Session Recovery (Page Refresh & Resume)
+  app.get('/m4/interviews/sessions/active', async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const activeSession = await c.env.DB.prepare(
+      `SELECT * FROM interview_session 
+       WHERE candidate_user_id = ? AND status = 'in_progress' 
+       ORDER BY created_at DESC LIMIT 1`
+    ).bind(user.id).first();
+
+    if (!activeSession) {
+      return c.json({ success: true, active_session: null });
+    }
+
+    // Recover questions from session evidence or protocol
+    let plan: any = null;
+    try {
+      const summary = JSON.parse((activeSession.evidence_summary_json as string) || '{}');
+      if (summary.plan && Array.isArray(summary.plan.questions)) {
+        plan = summary.plan;
+      }
+    } catch (_) {}
+
+    if (!plan) {
+      const seed = SEED_PROTOCOLS.find(p => p.id === activeSession.protocol_id);
+      if (seed) {
+        plan = {
+          planId: seed.id,
+          targetRole: seed.target_role,
+          domain: seed.domain,
+          seniority: seed.seniority_level,
+          totalQuestions: seed.question_sequence.length,
+          questions: seed.question_sequence
+        };
+      }
+    }
+
+    const observations = await c.env.DB.prepare(
+      `SELECT * FROM interview_observation WHERE session_id = ? ORDER BY turn_number ASC`
+    ).bind(activeSession.id).all();
+
+    const currentTurn = Number(activeSession.current_turn || 1);
+    const questions = plan?.questions || [];
+    const activeQuestion = questions.length >= currentTurn ? questions[currentTurn - 1] : null;
+
+    return c.json({
+      success: true,
+      active_session: {
+        id: activeSession.id,
+        status: activeSession.status,
+        current_turn: currentTurn,
+        total_questions: questions.length || 10,
+        active_panel_role: activeSession.active_panel_role || activeQuestion?.panel_role || 'Hiring Manager',
+        active_question: activeQuestion,
+        questions,
+        plan,
+        observations: (observations.results || []).map((o: any) => ({
+          turn_number: o.turn_number,
+          interviewer_role: o.interviewer_role,
+          question: o.question_text,
+          candidate_response: o.candidate_response,
+          observable_evidence: JSON.parse((o.observable_evidence_json as string) || '[]'),
+          rubric_evaluation: JSON.parse((o.rubric_evaluation_json as string) || '{}'),
+          ai_interpretation: JSON.parse((o.ai_interpretation_json as string) || '{}'),
+          ai_recommended_probe: o.ai_recommended_probe,
+          human_rating: o.human_rating,
+          human_notes: o.human_notes
+        }))
+      }
     });
   });
 
@@ -311,7 +617,28 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
 
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    const protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id) || SEED_PROTOCOLS[0];
+    let protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id);
+    let plan: any = null;
+    try {
+      const summary = JSON.parse((session.evidence_summary_json as string) || '{}');
+      if (summary.plan) plan = summary.plan;
+    } catch (_) {}
+
+    if (!protocol && plan) {
+      protocol = {
+        id: plan.planId,
+        title: `${plan.targetRole} Structured 10-Question Interview`,
+        target_role: plan.targetRole,
+        domain: plan.domain,
+        interview_type: 'structured_10_question',
+        seniority_level: plan.seniority,
+        panel_roles: Array.from(new Set(plan.questions.map((q: any) => q.panel_role))),
+        competency_targets: plan.questions.map((q: any) => ({ name: q.competency, description: q.probe_intent, weight: 0.1 })),
+        question_sequence: plan.questions
+      };
+    } else if (!protocol) {
+      protocol = SEED_PROTOCOLS[0];
+    }
 
     const observations = await c.env.DB.prepare(
       `SELECT * FROM interview_observation WHERE session_id = ? ORDER BY turn_number ASC`
@@ -325,6 +652,7 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         current_turn: session.current_turn,
         active_panel_role: session.active_panel_role,
         protocol,
+        plan,
         turns: (observations.results || []).map((o: any) => ({
           turn_number: o.turn_number,
           interviewer_role: o.interviewer_role,
@@ -341,7 +669,7 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     });
   });
 
-  // 5. Submit Turn Response & Adaptive Evaluation Loop
+  // 5. Submit Turn Response & Adaptive Evaluation Loop (With Duplicate Turn Protection)
   app.post('/m4/interviews/sessions/:id/turn', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -350,30 +678,58 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    const { candidate_response, current_question, interviewer_role } = await c.req.json().catch(() => ({}));
+    const { candidate_response, current_question, interviewer_role, turn_number } = await c.req.json().catch(() => ({}));
     if (!candidate_response || !current_question) {
       return c.json({ error: 'candidate_response and current_question are required' }, 400);
     }
 
+    const turnNumber = turn_number !== undefined ? Number(turn_number) : Number(session.current_turn || 1);
+
+    // Duplicate Submission Protection: Check if observation already exists for this turn
+    const existingObs = await c.env.DB.prepare(
+      `SELECT id FROM interview_observation WHERE session_id = ? AND turn_number = ?`
+    ).bind(sessionId, turnNumber).first();
+
+    if (existingObs) {
+      return c.json({
+        error: `Duplicate turn submission: turn ${turnNumber} has already been submitted and recorded.`,
+        duplicate: true,
+        observation_id: existingObs.id
+      }, 409);
+    }
+
+    // Resolve plan or protocol questions sequence
+    let questionSequence: any[] = [];
+    let panelRoles: string[] = [];
+    try {
+      const summary = JSON.parse((session.evidence_summary_json as string) || '{}');
+      if (summary.plan?.questions) {
+        questionSequence = summary.plan.questions;
+        panelRoles = Array.from(new Set(questionSequence.map(q => q.panel_role)));
+      }
+    } catch (_) {}
+
     const protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id) || SEED_PROTOCOLS[0];
-    const turnNumber = Number(session.current_turn || 1);
+    if (questionSequence.length === 0) {
+      questionSequence = protocol.question_sequence;
+      panelRoles = protocol.panel_roles;
+    }
 
     // AI-Assisted Evidence Extraction & Anchored Rubric Scoring if NVIDIA Key present
     let rubricScore = 0.82;
     let observableEvidence = [
       'Candidate structured answer using conclusion-first methodology',
-      'Directly addressed consensus protocol failover under network partition'
+      'Directly addressed competency expectations under concrete operational constraints'
     ];
     let aiInterpretation = {
-      strengths: 'Demonstrated clear trade-off understanding between latency and consistency.',
-      gaps: 'Did not explicitly calculate the cross-region network round-trip time budget.'
+      strengths: 'Demonstrated clear trade-off understanding and pragmatic execution ownership.',
+      gaps: 'Could provide more explicit operational telemetry or quantitative indicators.'
     };
-    let aiRecommendedProbe = 'What is your maximum acceptable failover latency before secondary partition recovery triggers?';
+    let aiRecommendedProbe = 'What metrics or verification steps would you use to validate this in production?';
 
     if (c.env.NVIDIA_API_KEY) {
       try {
         const prompt = `You are an expert executive interview panel evaluator.
-Protocol: ${protocol.title}
 Target Role: ${protocol.target_role}
 Interviewer Panel Role: ${interviewer_role || session.active_panel_role}
 Competency: ${current_question.competency}
@@ -441,7 +797,7 @@ Return ONLY valid JSON matching:
       turnNumber,
       interviewer_role || session.active_panel_role,
       current_question.question,
-      current_question.question_type || 'structured',
+      current_question.category || current_question.question_type || 'structured',
       candidate_response,
       JSON.stringify(observableEvidence),
       JSON.stringify({ score: rubricScore, criteria: current_question.anchored_rubric }),
@@ -450,28 +806,47 @@ Return ONLY valid JSON matching:
     ).run();
 
     // Advance turn and coordinate panel members
+    const totalTurns = questionSequence.length > 0 ? questionSequence.length : 10;
     const nextTurn = turnNumber + 1;
-    const nextPanelIndex = (nextTurn - 1) % protocol.panel_roles.length;
-    const nextRole = protocol.panel_roles[nextPanelIndex];
-    const nextSeqQuestion = protocol.question_sequence[turnNumber] || null;
+    const isComplete = nextTurn > totalTurns;
 
-    await c.env.DB.prepare(
-      `UPDATE interview_session 
-       SET current_turn = ?, active_panel_role = ?, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ?`
-    ).bind(nextTurn, nextRole, sessionId).run();
+    let nextRole = session.active_panel_role;
+    let nextSeqQuestion = null;
+
+    if (!isComplete) {
+      nextSeqQuestion = questionSequence[turnNumber] || null;
+      if (nextSeqQuestion) {
+        nextRole = nextSeqQuestion.panel_role;
+      } else if (panelRoles.length > 0) {
+        const nextPanelIndex = (nextTurn - 1) % panelRoles.length;
+        nextRole = panelRoles[nextPanelIndex];
+      }
+
+      await c.env.DB.prepare(
+        `UPDATE interview_session 
+         SET current_turn = ?, active_panel_role = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`
+      ).bind(nextTurn, nextRole, sessionId).run();
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE interview_session 
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`
+      ).bind(sessionId).run();
+    }
 
     return c.json({
       success: true,
       observation_id: obsId,
       turn_completed: turnNumber,
+      is_complete: isComplete,
       evaluation: {
         score: Math.round(rubricScore * 100),
         observable_evidence: observableEvidence,
         ai_interpretation: aiInterpretation,
         ai_recommended_probe: aiRecommendedProbe
       },
-      next_turn: {
+      next_turn: isComplete ? null : {
         turn_number: nextTurn,
         active_panel_role: nextRole,
         next_question: nextSeqQuestion
@@ -514,7 +889,17 @@ Return ONLY valid JSON matching:
     const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    const protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id) || SEED_PROTOCOLS[0];
+    let protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id);
+    let protocolTitle = protocol?.title || 'Structured 10-Question Interview';
+    let targetRole = protocol?.target_role || 'Professional Candidate';
+
+    try {
+      const summary = JSON.parse((session.evidence_summary_json as string) || '{}');
+      if (summary.plan?.targetRole) {
+        targetRole = summary.plan.targetRole;
+        protocolTitle = `${targetRole} Structured 10-Question Interview`;
+      }
+    } catch (_) {}
 
     const observations = await c.env.DB.prepare(
       `SELECT * FROM interview_observation WHERE session_id = ? ORDER BY turn_number ASC`
@@ -549,8 +934,8 @@ Return ONLY valid JSON matching:
     const m05Package = {
       session_id: sessionId,
       candidate_user_id: session.candidate_user_id,
-      protocol_title: protocol.title,
-      target_role: protocol.target_role,
+      protocol_title: protocolTitle,
+      target_role: targetRole,
       total_panel_turns: obsList.length,
       overall_interview_rating: Math.round(overallScore * 100),
       evidence_confidence: 0.89,
@@ -560,21 +945,41 @@ Return ONLY valid JSON matching:
 
     const synthId = crypto.randomUUID();
 
-    await c.env.DB.prepare(
-      `INSERT INTO interview_synthesis 
-       (id, session_id, candidate_user_id, organization_id, overall_rating, competency_coverage_json, strengths_json, gaps_json, unanswered_areas_json, m05_evidence_package_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)`
-    ).bind(
-      synthId,
-      sessionId,
-      session.candidate_user_id,
-      session.organization_id,
-      overallScore,
-      JSON.stringify(competencyCoverage),
-      JSON.stringify(strengths),
-      JSON.stringify(gaps),
-      JSON.stringify(m05Package)
-    ).run();
+    // Check if synthesis already exists
+    const existingSynth = await c.env.DB.prepare(
+      `SELECT id FROM interview_synthesis WHERE session_id = ?`
+    ).bind(sessionId).first();
+
+    if (existingSynth) {
+      await c.env.DB.prepare(
+        `UPDATE interview_synthesis 
+         SET overall_rating = ?, competency_coverage_json = ?, strengths_json = ?, gaps_json = ?, m05_evidence_package_json = ? 
+         WHERE session_id = ?`
+      ).bind(
+        overallScore,
+        JSON.stringify(competencyCoverage),
+        JSON.stringify(strengths),
+        JSON.stringify(gaps),
+        JSON.stringify(m05Package),
+        sessionId
+      ).run();
+    } else {
+      await c.env.DB.prepare(
+        `INSERT INTO interview_synthesis 
+         (id, session_id, candidate_user_id, organization_id, overall_rating, competency_coverage_json, strengths_json, gaps_json, unanswered_areas_json, m05_evidence_package_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)`
+      ).bind(
+        synthId,
+        sessionId,
+        session.candidate_user_id,
+        session.organization_id,
+        overallScore,
+        JSON.stringify(competencyCoverage),
+        JSON.stringify(strengths),
+        JSON.stringify(gaps),
+        JSON.stringify(m05Package)
+      ).run();
+    }
 
     await c.env.DB.prepare(
       `UPDATE interview_session SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`

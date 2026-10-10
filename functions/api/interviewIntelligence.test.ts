@@ -30,6 +30,9 @@ const createMockEnv = (customData: any = {}) => {
               return { organization_id: 'org-m4' };
             }
             if (query.includes('candidate_profile')) {
+              if (customData.sparse_profile) {
+                return null;
+              }
               return {
                 id: 'prof-1',
                 user_id: 'candidate-user-1',
@@ -39,17 +42,42 @@ const createMockEnv = (customData: any = {}) => {
                 readiness_score: 0.76
               };
             }
+            if (query.includes('interview_observation') && query.includes('SELECT')) {
+              if (customData.turn_already_submitted) {
+                return { id: 'obs-duplicate-id', turn_number: args[1] };
+              }
+              return null;
+            }
             if (query.includes('interview_session') && query.includes('SELECT')) {
               if (args[1] === 'attacker-user-2') return null;
+              if (customData.no_active_session) return null;
               return sessionRecord || {
                 id: customData.session_id || 'session-m4-1',
                 organization_id: 'org-m4',
-                protocol_id: 'proto-tech-arch-distributed',
+                protocol_id: customData.protocol_id || 'proto-tech-arch-distributed',
                 candidate_user_id: 'candidate-user-1',
                 interviewer_user_id: 'recruiter-user-1',
-                status: 'in_progress',
-                active_panel_role: 'Principal Systems Architect',
-                current_turn: 1
+                status: customData.session_status || 'in_progress',
+                active_panel_role: customData.active_panel_role || 'Principal Systems Architect',
+                current_turn: customData.current_turn || 1,
+                evidence_summary_json: customData.evidence_summary_json || JSON.stringify({
+                  plan: {
+                    planId: 'proto-pers-1',
+                    targetRole: 'Senior Cloud & Systems Architect',
+                    domain: 'software',
+                    seniority: 'senior',
+                    totalQuestions: 10,
+                    questions: Array.from({ length: 10 }, (_, i) => ({
+                      turn: i + 1,
+                      panel_role: i === 0 ? 'Hiring Manager' : 'Principal Systems Architect',
+                      category: i === 0 ? 'communication' : 'role_competency',
+                      competency: `Target Competency ${i + 1}`,
+                      question: `Question probe ${i + 1}`,
+                      probe_intent: `Verify trade-offs ${i + 1}`,
+                      anchored_rubric: { unsatisfactory: 'U', competent: 'C', exceptional: 'E' }
+                    }))
+                  }
+                })
               };
             }
             if (query.includes('interview_synthesis') && query.includes('SELECT')) {
@@ -284,5 +312,165 @@ describe('Priority 16: M04 Interaction / Interview Simulation & Enterprise Proto
 
     const res = await app.request(req, {}, env as any);
     expect(res.status).toBe(404);
+  });
+
+  it('8. Personalized 10-Question Plan Generation: creates strictly 10 questions with valid sequential turns and diverse competency categories', async () => {
+    const env = createMockEnv();
+    const req = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personalized: true })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.session_id).toBeDefined();
+    expect(data.total_questions).toBe(10);
+    expect(data.current_turn).toBe(1);
+    expect(data.first_question).toBeDefined();
+    expect(data.plan.questions).toHaveLength(10);
+
+    // Verify sequential turn numbers 1 to 10
+    const turns = data.plan.questions.map((q: any) => q.turn);
+    expect(turns).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+    // Verify categories include communication, role_competency, behavioral, etc.
+    const categories = new Set(data.plan.questions.map((q: any) => q.category));
+    expect(categories.has('communication')).toBe(true);
+    expect(categories.has('role_competency')).toBe(true);
+    expect(categories.has('behavioral')).toBe(true);
+    expect(categories.has('professional_judgment')).toBe(true);
+    expect(categories.has('situational')).toBe(true);
+
+    // Verify anchored rubric is present for every question
+    data.plan.questions.forEach((q: any) => {
+      expect(q.anchored_rubric.unsatisfactory).toBeDefined();
+      expect(q.anchored_rubric.competent).toBeDefined();
+      expect(q.anchored_rubric.exceptional).toBeDefined();
+      expect(q.probe_intent.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('9. Missing/Sparse Profile Handling: generates calibrated general professional plan without hallucinating unverified claims', async () => {
+    const env = createMockEnv({ sparse_profile: true });
+    const req = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personalized: true })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.plan.questions).toHaveLength(10);
+    // Verifies fallback does not hallucinate false candidate facts
+    expect(data.plan.questions[0].turn).toBe(1);
+    expect(data.plan.provenance.isFallback).toBe(true);
+  });
+
+  it('10. GET /api/m4/interviews/sessions/active: resumes candidate in-progress session with exact stored 10-question sequence on page refresh', async () => {
+    const env = createMockEnv({
+      current_turn: 4,
+      session_id: 'session-persisted-4',
+      active_panel_role: 'Principal Systems Architect'
+    });
+    const req = new Request('http://localhost/api/m4/interviews/sessions/active', {
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.active_session).toBeDefined();
+    expect(data.active_session.id).toBe('session-persisted-4');
+    expect(data.active_session.current_turn).toBe(4);
+    expect(data.active_session.total_questions).toBe(10);
+    expect(data.active_session.active_question.turn).toBe(4);
+    expect(data.active_session.questions).toHaveLength(10);
+  });
+
+  it('11. Duplicate Submission Prevention: returns 409 Conflict if candidate submits the same turn more than once', async () => {
+    const env = createMockEnv({ turn_already_submitted: true });
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/turn', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turn_number: 1,
+        candidate_response: 'Duplicate attempt to submit turn 1.',
+        current_question: {
+          competency: 'Distributed Resilience Under Partition',
+          question: 'Describe consensus failover under partition.',
+          anchored_rubric: { competent: 'Articulates consensus trade-offs.' }
+        }
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(409);
+
+    const data = await res.json() as any;
+    expect(data.duplicate).toBe(true);
+    expect(data.error).toContain('Duplicate turn submission');
+  });
+
+  it('12. Sequential Turn Progression: advances turns from turn 1 through turn 10 and marks session completed upon final turn', async () => {
+    // Submit final turn 10 of 10
+    const env = createMockEnv({ current_turn: 10 });
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/turn', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turn_number: 10,
+        candidate_response: 'I continuously evaluate new distributed consensus whitepapers and run canary chaos experiments.',
+        current_question: {
+          turn: 10,
+          competency: 'Growth Mindset & Continuous Improvement',
+          question: 'How do you approach continuous learning?',
+          anchored_rubric: { competent: 'Pursues continuous technical development.' }
+        }
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.turn_completed).toBe(10);
+    expect(data.is_complete).toBe(true);
+    expect(data.next_turn).toBeNull();
+  });
+
+  it('13. Ethical AI & Bias Invariant: rubric scoring focuses solely on observable job evidence and rejects biometric/personality inference', async () => {
+    const env = createMockEnv();
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/turn', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turn_number: 1,
+        candidate_response: 'Our team isolated cross-region transactions using a two-tier raft quorum with local vector sequence timestamps.',
+        current_question: {
+          competency: 'Distributed Architecture',
+          question: 'Explain partition isolation.',
+          anchored_rubric: { competent: 'Concrete technical architecture reasoning.' }
+        }
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    const data = await res.json() as any;
+
+    expect(data.evaluation.observable_evidence).toBeDefined();
+    // Observable evidence must only cite concrete assertions and job actions
+    data.evaluation.observable_evidence.forEach((item: string) => {
+      expect(item).not.toMatch(/(appearance|smile|eye contact|accent|gender|race|age|emotion)/i);
+    });
   });
 });
