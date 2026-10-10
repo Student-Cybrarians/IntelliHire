@@ -3,7 +3,7 @@ import {
   Brain, FileText, CheckCircle2, AlertTriangle, Sparkles, UserCheck, 
   ShieldCheck, ChevronRight, Layers, Play, Send, Award, Users, 
   HelpCircle, MessageSquare, Star, ArrowRight, RefreshCw, BarChart2,
-  Video, Eye, Mic, Clock, Check, Target, Compass, BookOpen
+  Video, Eye, Mic, Clock, Check, Target, Compass, BookOpen, Info
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
 import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
@@ -976,6 +976,12 @@ export default function Module4Interviews() {
                                 </ul>
                               </div>
                             )}
+                            {retryComparison.calibration_notice && (
+                              <div className="pt-2 border-t border-emerald-500/20 text-[10px] text-slate-400 flex items-start gap-1.5 leading-relaxed">
+                                <Info className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                <span>{retryComparison.calibration_notice}</span>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -1505,6 +1511,79 @@ export default function Module4Interviews() {
                     </ul>
                   </div>
                 </div>
+
+                {/* Turn-by-Turn Evidence & Interpretation Audit */}
+                {synthesis.m05_evidence_package?.evidence_audit_trail && synthesis.m05_evidence_package.evidence_audit_trail.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-[#FF4103]" />
+                        <span>Turn-by-Turn Evidence & Interpretation Audit</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {synthesis.m05_evidence_package.evidence_audit_trail.length} Turns Evaluated
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {synthesis.m05_evidence_package.evidence_audit_trail.map((audit: any, idx: number) => (
+                        <div key={idx} className="p-4 bg-[#001420] border border-[#002f47] rounded-xl text-xs space-y-2.5">
+                          <div className="flex items-center justify-between pb-2 border-b border-[#002436]">
+                            <span className="font-bold text-white">
+                              Turn {audit.turn_number} · <span className="text-[#FF4103]">{audit.interviewer_role}</span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {audit.model_interpretation?.rubric_score !== null && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono text-[10px] border border-emerald-500/30">
+                                  Score: {audit.model_interpretation.rubric_score}%
+                                </span>
+                              )}
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${audit.human_judgment?.status === 'verified' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                                {audit.human_judgment?.status === 'verified' ? `Human: ${audit.human_judgment.rating}★` : 'Pending Review'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Question Asked:</span>
+                            <p className="text-slate-300 italic">"{audit.question_text}"</p>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Observed Answer:</span>
+                            <p className="text-slate-200">"{audit.observed_answer}"</p>
+                          </div>
+
+                          {audit.extracted_evidence?.length > 0 && (
+                            <div className="space-y-1">
+                              <span className="text-[10px] uppercase font-bold text-emerald-400 block">Extracted Evidence Assertions:</span>
+                              <ul className="list-disc list-inside text-slate-300 text-[11px] space-y-0.5">
+                                {audit.extracted_evidence.map((ev: string, i: number) => (
+                                  <li key={i}>{ev}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          <div className="grid sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                            {audit.model_interpretation?.strengths && (
+                              <div className="p-2 bg-emerald-950/20 rounded border border-emerald-500/20 text-slate-300">
+                                <span className="font-bold text-emerald-400 block mb-0.5">Model Strengths:</span>
+                                {audit.model_interpretation.strengths}
+                              </div>
+                            )}
+                            {audit.model_interpretation?.gaps && (
+                              <div className="p-2 bg-amber-950/20 rounded border border-amber-500/20 text-slate-300">
+                                <span className="font-bold text-amber-400 block mb-0.5">Model Gaps:</span>
+                                {audit.model_interpretation.gaps}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Governance Disclaimers */}
                 <div className="p-4 bg-[#001420] border border-[#002f47] rounded-xl flex items-start gap-3 text-xs text-slate-300">

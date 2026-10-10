@@ -525,6 +525,24 @@ export const SEED_PROTOCOLS: InterviewProtocol[] = [
 
 export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindings }>) {
 
+  // Helper: Enforce participant and tenant authorization for interview sessions
+  async function getAuthorizedSession(c: any, sessionId: string, user: any): Promise<{ session: any; errorResponse: any }> {
+    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
+    if (!session) {
+      return { session: null, errorResponse: c.json({ error: 'Session not found' }, 404) };
+    }
+
+    const isParticipant = session.candidate_user_id === user.id || session.interviewer_user_id === user.id;
+    const isOrgAuthorized = (user.role === 'recruiter' || user.role === 'admin') && 
+                            Boolean(user.organization_id && session.organization_id && user.organization_id === session.organization_id);
+
+    if (!isParticipant && !isOrgAuthorized) {
+      return { session: null, errorResponse: c.json({ error: 'Forbidden: You do not have permission to access this interview session.' }, 403) };
+    }
+
+    return { session, errorResponse: null };
+  }
+
   // 1. List Interview Protocols
   app.get('/m4/interviews/protocols', async (c) => {
     const user = await getSessionUser(c);
@@ -635,7 +653,13 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     const orgId = (dbUser?.organization_id as string) || 'org_default_public';
 
     const { protocol_id, candidate_user_id, requisition_id, personalized, camera_enabled } = await c.req.json().catch(() => ({}));
-    const targetCandidateId = candidate_user_id || user.id;
+    let targetCandidateId = user.id;
+    if (candidate_user_id && candidate_user_id !== user.id) {
+      if (user.role !== 'recruiter' && user.role !== 'admin') {
+        return c.json({ error: 'Forbidden: Candidates cannot schedule interviews for other candidates' }, 403);
+      }
+      targetCandidateId = candidate_user_id;
+    }
 
     // Check if an existing seed protocol was explicitly requested without personalization
     const seedProtocol = protocol_id && protocol_id !== 'personalized' && protocol_id !== 'auto'
@@ -865,9 +889,7 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
-    const session = await c.env.DB.prepare(
-      `SELECT * FROM interview_session WHERE id = ? AND (interviewer_user_id = ? OR candidate_user_id = ?)`
-    ).bind(sessionId, user.id, user.id).first();
+    const { session } = await getAuthorizedSession(c, sessionId, user);
 
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
@@ -938,8 +960,8 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
-    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
-    if (!session) return c.json({ error: 'Session not found' }, 404);
+    const { session, errorResponse } = await getAuthorizedSession(c, sessionId, user);
+    if (!session) return errorResponse;
 
     const { candidate_response, current_question, interviewer_role, turn_number, is_retry, auto_advance } = await c.req.json().catch(() => ({}));
     if (!candidate_response || !current_question) {
@@ -1127,7 +1149,8 @@ Return ONLY valid JSON matching:
           ? `Revised attempt improved competency demonstration by +${scoreDelta}% points with enhanced structural clarity.`
           : `Revised attempt refined phrasing while sustaining solid demonstration of ${current_question.competency}.`,
         improvements_noted: improvementsNoted,
-        remaining_gaps: remainingGaps
+        remaining_gaps: remainingGaps,
+        calibration_notice: 'Formative practice metric reflects rubric-aligned presentation guidance and heuristic scoring, not a psychometrically standardized clinical measurement.'
       };
 
       const revisedAttempt: TurnAttemptRecord = {
@@ -1303,8 +1326,8 @@ Return ONLY valid JSON matching:
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
-    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
-    if (!session) return c.json({ error: 'Session not found' }, 404);
+    const { session, errorResponse } = await getAuthorizedSession(c, sessionId, user);
+    if (!session) return errorResponse;
 
     const { turn_number, follow_up_response, skipped } = await c.req.json().catch(() => ({}));
     const activeTurn = turn_number !== undefined ? Number(turn_number) : Number(session.current_turn || 1);
@@ -1548,8 +1571,8 @@ Return ONLY valid JSON matching:
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
-    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
-    if (!session) return c.json({ error: 'Session not found' }, 404);
+    const { session, errorResponse } = await getAuthorizedSession(c, sessionId, user);
+    if (!session) return errorResponse;
 
     const { current_turn } = await c.req.json().catch(() => ({}));
     const activeTurn = current_turn !== undefined ? Number(current_turn) : Number(session.current_turn || 1);
@@ -1642,6 +1665,13 @@ Return ONLY valid JSON matching:
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
+    const { session, errorResponse } = await getAuthorizedSession(c, sessionId, user);
+    if (!session) return errorResponse;
+
+    if (session.candidate_user_id === user.id && user.role === 'candidate') {
+      return c.json({ error: 'Forbidden: Candidates cannot submit interviewer ratings' }, 403);
+    }
+
     const { turn_number, human_rating, human_notes } = await c.req.json().catch(() => ({}));
 
     if (turn_number === undefined || human_rating === undefined) {
@@ -1668,8 +1698,8 @@ Return ONLY valid JSON matching:
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
-    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
-    if (!session) return c.json({ error: 'Session not found' }, 404);
+    const { session, errorResponse } = await getAuthorizedSession(c, sessionId, user);
+    if (!session) return errorResponse;
 
     let protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id);
     let protocolTitle = protocol?.title || 'Structured 10-Question Interview';
@@ -1722,7 +1752,37 @@ Return ONLY valid JSON matching:
       overall_interview_rating: Math.round(overallScore * 100),
       evidence_confidence: 0.89,
       human_review_required: obsList.some((o: any) => o.human_rating === null),
-      governance_notice: 'M04 outputs structured evidence and calibrated ratings for human decision support. Automated hiring decisions are strictly prohibited.'
+      governance_notice: 'M04 outputs structured evidence and calibrated ratings for human decision support. Automated hiring decisions are strictly prohibited.',
+      evidence_audit_trail: obsList.map((o: any) => {
+        let rubricData: any = {};
+        let interpData: any = {};
+        let obsEv: string[] = [];
+        try { rubricData = JSON.parse(o.rubric_evaluation_json || '{}'); } catch (_) {}
+        try { interpData = JSON.parse(o.ai_interpretation_json || '{}'); } catch (_) {}
+        try { obsEv = JSON.parse(o.observable_evidence_json || '[]'); } catch (_) {}
+
+        return {
+          turn_number: o.turn_number,
+          interviewer_role: o.interviewer_role,
+          question_text: o.question_text,
+          observed_answer: o.candidate_response,
+          extracted_evidence: obsEv,
+          model_interpretation: {
+            strengths: interpData.strengths || null,
+            gaps: interpData.gaps || null,
+            rubric_score: typeof rubricData.score === 'number' ? Math.round(rubricData.score * 100) : null
+          },
+          uncertainty: {
+            follow_ups_count: Array.isArray(interpData.follow_ups) ? interpData.follow_ups.length : 0,
+            has_unresolved_gaps: Boolean(interpData.gaps)
+          },
+          human_judgment: {
+            rating: o.human_rating,
+            notes: o.human_notes,
+            status: o.human_rating !== null ? 'verified' : 'pending_human_review'
+          }
+        };
+      })
     };
 
     const synthId = crypto.randomUUID();
@@ -1794,6 +1854,9 @@ Return ONLY valid JSON matching:
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     const sessionId = c.req.param('id');
+    const { session, errorResponse } = await getAuthorizedSession(c, sessionId, user);
+    if (!session) return errorResponse;
+
     const synthesis = await c.env.DB.prepare(
       `SELECT * FROM interview_synthesis WHERE session_id = ?`
     ).bind(sessionId).first();

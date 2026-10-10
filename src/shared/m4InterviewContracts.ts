@@ -413,6 +413,7 @@ export interface RetryComparison {
   score_delta: number;
   previous_score: number;
   current_score: number;
+  calibration_notice?: string;
 }
 
 export interface TurnAttemptRecord {

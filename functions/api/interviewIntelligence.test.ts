@@ -1011,5 +1011,166 @@ describe('Priority 16: M04 Interaction / Interview Simulation & Enterprise Proto
     expect(data.active_session.active_follow_up.question).toContain('network partition timeouts');
     expect(data.active_session.active_turn_follow_ups).toHaveLength(1);
   });
+
+  it('28. Tenant Isolation & Authorization: cross-tenant access to turn endpoint is rejected with 403 Forbidden', async () => {
+    const env = createMockEnv();
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/turn', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=attacker-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        candidate_response: 'Unauthorized cross-tenant attempt',
+        current_question: {
+          turn: 1,
+          competency: 'Security',
+          question: 'Probe'
+        }
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(403);
+    const data = await res.json() as any;
+    expect(data.error).toContain('Forbidden');
+  });
+
+  it('29. Authorization: candidate role cannot submit interviewer ratings on /rate', async () => {
+    const env = createMockEnv();
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/rate', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=candidate-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        turn_number: 1,
+        human_rating: 5,
+        human_notes: 'Self-rating attempt'
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(403);
+    const data = await res.json() as any;
+    expect(data.error).toContain('Candidates cannot submit interviewer ratings');
+  });
+
+  it('30. Authorization: candidate role cannot schedule sessions for another candidate on POST /sessions', async () => {
+    const env = createMockEnv();
+    const req = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=candidate-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        candidate_user_id: 'victim-candidate-99',
+        protocol_id: 'proto-tech-arch-distributed'
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(403);
+    const data = await res.json() as any;
+    expect(data.error).toContain('Candidates cannot schedule interviews for other candidates');
+  });
+
+  it('31. Evidence Audit Trail: M05 evidence package distinguishes observed answers, extracted evidence, model interpretation, uncertainty, and human judgment', async () => {
+    const env = createMockEnv({
+      observations: [
+        {
+          id: 'obs-audit-1',
+          turn_number: 1,
+          interviewer_role: 'Principal Systems Architect',
+          question_text: 'Describe partition mitigation.',
+          candidate_response: 'We use quorum leases with bounded heartbeats.',
+          observable_evidence_json: '["Cited quorum leases", "Specified bounded heartbeats"]',
+          rubric_evaluation_json: JSON.stringify({ score: 0.88 }),
+          ai_interpretation_json: JSON.stringify({
+            strengths: 'Clear fault boundary definition',
+            gaps: 'Provide failover latency bounds',
+            follow_ups: [{ follow_up_number: 1, question: 'What timeouts?' }]
+          }),
+          human_rating: 4.5,
+          human_notes: 'Well articulated operational boundary'
+        }
+      ]
+    });
+
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/complete', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=recruiter-token' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.m05_evidence_package).toBeDefined();
+
+    const auditTrail = data.m05_evidence_package.evidence_audit_trail;
+    expect(auditTrail).toBeDefined();
+    expect(auditTrail.length).toBeGreaterThan(0);
+
+    const firstAudit = auditTrail[0];
+    expect(firstAudit.turn_number).toBe(1);
+    expect(firstAudit.observed_answer).toBe('We use quorum leases with bounded heartbeats.');
+    expect(firstAudit.extracted_evidence).toEqual(['Cited quorum leases', 'Specified bounded heartbeats']);
+    expect(firstAudit.model_interpretation.strengths).toBe('Clear fault boundary definition');
+    expect(firstAudit.model_interpretation.rubric_score).toBe(88);
+    expect(firstAudit.uncertainty.follow_ups_count).toBe(1);
+    expect(firstAudit.human_judgment.rating).toBe(4.5);
+    expect(firstAudit.human_judgment.status).toBe('verified');
+  });
+
+  it('32. Formative Practice Calibration: retry comparison includes calibration disclaimer to prevent psychometric misrepresentation', async () => {
+    const env = createMockEnv({
+      existing_observation: {
+        id: 'obs-retry-calib',
+        turn_number: 1,
+        interviewer_role: 'Principal Systems Architect',
+        question_text: 'Explain Raft log compaction.',
+        candidate_response: 'First attempt draft',
+        observable_evidence_json: '["Draft mentioned compaction"]',
+        rubric_evaluation_json: JSON.stringify({ score: 0.70 }),
+        ai_interpretation_json: JSON.stringify({
+          strengths: 'Understood compaction',
+          gaps: 'Need snapshotting frequency details'
+        })
+      }
+    });
+
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/turn', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=candidate-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        turn_number: 1,
+        is_retry: true,
+        candidate_response: 'Second refined attempt with explicit periodic snapshotting every 10k log entries.',
+        current_question: {
+          turn: 1,
+          panel_role: 'Principal Systems Architect',
+          competency: 'Distributed State Compaction',
+          question: 'Explain Raft log compaction.',
+          probe_intent: 'Verify state machine safety'
+        }
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.is_retry).toBe(true);
+    expect(data.retry_comparison).toBeDefined();
+    expect(data.retry_comparison.calibration_notice).toBeDefined();
+    expect(data.retry_comparison.calibration_notice).toContain('Formative practice metric reflects rubric-aligned presentation guidance');
+  });
 });
 

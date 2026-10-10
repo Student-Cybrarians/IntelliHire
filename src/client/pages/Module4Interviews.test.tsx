@@ -114,7 +114,23 @@ beforeEach(() => {
           gaps: ['Calculations under edge conditions'],
           m05_evidence_package: {
             protocol_title: 'Distributed Architecture',
-            governance_notice: 'M04 outputs structured evidence and calibrated ratings for human decision support. Automated hiring decisions are strictly prohibited.'
+            governance_notice: 'M04 outputs structured evidence and calibrated ratings for human decision support. Automated hiring decisions are strictly prohibited.',
+            evidence_audit_trail: [
+              {
+                turn_number: 1,
+                interviewer_role: 'Principal Systems Architect',
+                question_text: 'Describe consensus failover between US-East and EU-Central under fiber severance.',
+                observed_answer: 'We isolate network partitions using Raft consensus and local sequence tokens.',
+                extracted_evidence: ['Cited Raft consensus with local sequence tokens'],
+                model_interpretation: {
+                  strengths: 'Demonstrated solid partition tolerance',
+                  gaps: null,
+                  rubric_score: 85
+                },
+                uncertainty: { follow_ups_count: 0, has_unresolved_gaps: false },
+                human_judgment: { rating: 5, notes: null, status: 'verified' }
+              }
+            ]
           }
         })
       });
@@ -170,10 +186,13 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     const submitBtn = screen.getByRole('button', { name: /Submit Turn & Advance Panel/i });
     fireEvent.click(submitBtn);
 
-    // Verify completed synthesis renders with ethical governance notice
+    // Verify completed synthesis renders with ethical governance notice and evidence audit trail
     expect(await screen.findByText('M05 Calibrated Evidence Package')).toBeInTheDocument();
     expect(await screen.findByText('85%')).toBeInTheDocument();
     expect(await screen.findByText(/Automated hiring decisions are strictly prohibited/i)).toBeInTheDocument();
+    expect(await screen.findByText('Turn-by-Turn Evidence & Interpretation Audit')).toBeInTheDocument();
+    expect(await screen.findByText(/1 Turns Evaluated/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Cited Raft consensus with local sequence tokens/i)).toBeInTheDocument();
   });
 
   it('displays candidate 10-question sequential roadmap, camera readiness check, and ethical invariant', async () => {
@@ -392,7 +411,8 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
               score_delta: 17,
               delta_summary: 'Revised attempt improved competency demonstration by +17% points.',
               improvements_noted: ['Included 99.99% availability metric', 'Clear mitigation sequence'],
-              remaining_gaps: ['Elaborate on disaster recovery sync']
+              remaining_gaps: ['Elaborate on disaster recovery sync'],
+              calibration_notice: 'Formative practice metric reflects rubric-aligned presentation guidance and heuristic scoring, not a psychometrically standardized clinical measurement.'
             },
             attempts: [{ attempt_number: 1, score: 75 }, { attempt_number: 2, score: 92 }]
           })
@@ -421,6 +441,7 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     expect(await screen.findByText(/75% → 92% \(\+17%\)/i)).toBeInTheDocument();
     expect(await screen.findByText(/Revised attempt improved competency demonstration by \+17% points/i)).toBeInTheDocument();
     expect(await screen.findByText('Included 99.99% availability metric')).toBeInTheDocument();
+    expect(await screen.findByText(/Formative practice metric reflects rubric-aligned presentation guidance/i)).toBeInTheDocument();
   });
 
   it('presents adaptive follow-up probe card when evidence gaps detected and consolidates answered probe into coaching', async () => {
