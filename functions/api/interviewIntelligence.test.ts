@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { app } from './[[route]]';
+import {
+  getRecommendedStructureForCategory,
+  getStructureSteps,
+  generateDeterministicCoaching,
+  validateCoachingPayload
+} from '../../src/shared/m4InterviewContracts';
 
 vi.mock('hono/jwt', () => ({
   sign: vi.fn(),
@@ -43,8 +49,11 @@ const createMockEnv = (customData: any = {}) => {
               };
             }
             if (query.includes('interview_observation') && query.includes('SELECT')) {
+              if (customData.existing_observation) {
+                return customData.existing_observation;
+              }
               if (customData.turn_already_submitted) {
-                return { id: 'obs-duplicate-id', turn_number: args[1] };
+                return { id: 'obs-duplicate-id', turn_number: args[1], candidate_response: 'Initial answer' };
               }
               return null;
             }
@@ -145,6 +154,9 @@ const createMockEnv = (customData: any = {}) => {
               };
             }
             if (query.includes('interview_observation')) {
+              if (customData.observations) {
+                return { results: customData.observations };
+              }
               return {
                 results: [
                   {
@@ -473,4 +485,229 @@ describe('Priority 16: M04 Interaction / Interview Simulation & Enterprise Proto
       expect(item).not.toMatch(/(appearance|smile|eye contact|accent|gender|race|age|emotion)/i);
     });
   });
+
+  it('14. Answer Coaching Taxonomy Mapping: assigns pedagogically calibrated frameworks across categories', () => {
+    expect(getRecommendedStructureForCategory('behavioral')).toBe('STAR');
+    expect(getRecommendedStructureForCategory('role_competency')).toBe('CLAIM_EXECUTION_IMPACT');
+    expect(getRecommendedStructureForCategory('situational')).toBe('CONTEXT_ASSESSMENT_MITIGATION_OUTCOME');
+    expect(getRecommendedStructureForCategory('professional_judgment')).toBe('PREMISE_OPTIONS_TRADEOFFS_RESOLUTION');
+    expect(getRecommendedStructureForCategory('communication')).toBe('BLUF');
+
+    // Outline steps verification
+    const starOutline = getStructureSteps('STAR');
+    expect(starOutline).toHaveLength(4);
+    expect(starOutline.map(s => s.step)).toEqual(['Situation', 'Task', 'Action', 'Result']);
+
+    const claimOutline = getStructureSteps('CLAIM_EXECUTION_IMPACT');
+    expect(claimOutline).toHaveLength(3);
+    expect(claimOutline.map(s => s.step)).toEqual(['Claim', 'Execution', 'Impact']);
+  });
+
+  it('15. Safe Harbor Anti-Hallucination Invariant: coaching anchors in candidate facts without inventing details', () => {
+    const coaching = generateDeterministicCoaching({
+      category: 'behavioral',
+      question: 'Describe a conflict resolution scenario.',
+      competency: 'Conflict Resolution',
+      candidateResponse: 'I met with the tech lead to discuss our caching strategy and agreed on a staged migration.',
+      rubric: { unsatisfactory: 'U', competent: 'C', exceptional: 'E' },
+      score: 0.8
+    });
+
+    const validation = validateCoachingPayload(coaching);
+    expect(validation.valid).toBe(true);
+    expect(coaching.anti_hallucination_guarantee).toBe(true);
+    expect(coaching.what_worked.length).toBeGreaterThan(0);
+    expect(coaching.what_to_improve.length).toBeGreaterThan(0);
+    expect(coaching.why_it_matters).toBeDefined();
+    expect(coaching.how_to_improve).toBeDefined();
+
+    // Verify illustrative answer contains safe-harbor bracketed placeholders rather than hallucinated facts
+    expect(coaching.illustrative_improved_answer).toContain('[Situation]');
+    expect(coaching.illustrative_improved_answer).toContain('[');
+    expect(coaching.illustrative_improved_answer).not.toMatch(/(Google|Apple|Microsoft|Amazon|Netflix|Stanford|MIT)/);
+  });
+
+  it('16. POST /turn returns structured Answer Coaching and records initial attempt without premature advance', async () => {
+    const env = createMockEnv();
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/turn', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turn_number: 1,
+        candidate_response: 'I analyzed system throughput under peak load, isolated the database bottleneck, and implemented Redis caching to cut latency by 60%.',
+        current_question: {
+          turn: 1,
+          category: 'role_competency',
+          competency: 'System Performance Optimization',
+          question: 'How do you optimize latency bottlenecks?',
+          anchored_rubric: { competent: 'Demonstrates systematic diagnostics and measurable outcome.' }
+        },
+        interviewer_role: 'Principal Systems Architect'
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.is_retry).toBe(false);
+    expect(data.coaching).toBeDefined();
+    expect(data.coaching.what_worked).toBeDefined();
+    expect(data.coaching.suggested_structure_type).toBe('CLAIM_EXECUTION_IMPACT');
+    expect(data.coaching.illustrative_improved_answer).toBeDefined();
+    expect(data.attempts).toHaveLength(1);
+    expect(data.attempts[0].attempt_number).toBe(1);
+    expect(data.ready_to_advance).toBe(true);
+  });
+
+  it('17. Candidate Retry Flow & Comparison Delta: calculates score delta and preserves multi-attempt history', async () => {
+    const env = createMockEnv({
+      existing_observation: {
+        id: 'obs-turn-1',
+        session_id: 'session-m4-1',
+        turn_number: 1,
+        candidate_response: 'I used Redis for caching.',
+        observable_evidence_json: '["Used Redis"]',
+        rubric_evaluation_json: JSON.stringify({ score: 0.70 }),
+        ai_interpretation_json: JSON.stringify({
+          strengths: 'Identified Redis',
+          attempts: [
+            {
+              attempt_number: 1,
+              candidate_response: 'I used Redis for caching.',
+              score: 70,
+              submitted_at: '2026-10-10T00:00:00Z',
+              observable_evidence: ['Used Redis'],
+              coaching: { what_worked: ['Identified Redis'], what_to_improve: ['Add metrics'] }
+            }
+          ]
+        })
+      }
+    });
+
+    const req = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/retry', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        turn_number: 1,
+        candidate_response: 'Claim: In-memory distributed caching with write-through invalidation is optimal. Execution: We deployed Redis clusters with cluster-mode enabled, implemented circuit breakers, and load tested with 10k concurrent clients. Impact: Latency dropped from 240ms to 18ms with 99.99% availability.',
+        current_question: {
+          turn: 1,
+          category: 'role_competency',
+          competency: 'System Performance Optimization',
+          question: 'How do you optimize latency bottlenecks?',
+          anchored_rubric: { competent: 'Demonstrates systematic diagnostics and measurable outcome.' }
+        },
+        interviewer_role: 'Principal Systems Architect'
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.is_retry).toBe(true);
+    expect(data.retry_comparison).toBeDefined();
+    expect(data.retry_comparison.attempt_number).toBe(2);
+    expect(data.retry_comparison.previous_score).toBe(70);
+    expect(data.retry_comparison.current_score).toBeGreaterThanOrEqual(70);
+    expect(data.retry_comparison.improvements_noted.length).toBeGreaterThan(0);
+    expect(data.attempts).toHaveLength(2);
+    expect(data.attempts[1].attempt_number).toBe(2);
+  });
+
+  it('18. Gated Progression: POST /advance requires turn completion, advances turn, and marks completion on turn 10', async () => {
+    // 18a. Rejects advance if turn has not been answered
+    const envNoObs = createMockEnv(); // No observation in mock DB
+    const reqFail = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/advance', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_turn: 2 })
+    });
+    const resFail = await app.request(reqFail, {}, envNoObs as any);
+    expect(resFail.status).toBe(400);
+
+    // 18b. Successfully advances answered turn to next turn
+    const envWithObs = createMockEnv({
+      existing_observation: { id: 'obs-1', turn_number: 1 }
+    });
+    const reqAdv = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/advance', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_turn: 1 })
+    });
+    const resAdv = await app.request(reqAdv, {}, envWithObs as any);
+    expect(resAdv.status).toBe(200);
+    const dataAdv = await resAdv.json() as any;
+    expect(dataAdv.success).toBe(true);
+    expect(dataAdv.is_complete).toBe(false);
+    expect(dataAdv.next_turn.turn_number).toBe(2);
+
+    // 18c. Advances final turn 10 and marks session complete
+    const envTurn10 = createMockEnv({
+      current_turn: 10,
+      existing_observation: { id: 'obs-10', turn_number: 10 }
+    });
+    const req10 = new Request('http://localhost/api/m4/interviews/sessions/session-m4-1/advance', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_turn: 10 })
+    });
+    const res10 = await app.request(req10, {}, envTurn10 as any);
+    expect(res10.status).toBe(200);
+    const data10 = await res10.json() as any;
+    expect(data10.success).toBe(true);
+    expect(data10.is_complete).toBe(true);
+    expect(data10.next_turn).toBeNull();
+  });
+
+  it('19. Session Refresh Persistence: restores pending advance state and active turn coaching', async () => {
+    const coachingMock = {
+      what_worked: ['Clear technical thesis'],
+      what_to_improve: ['Quantify SLA impact'],
+      why_it_matters: 'Engineering leaders need quantifiable benchmarks.',
+      how_to_improve: 'Use Claim-Execution-Impact model.',
+      suggested_structure_type: 'CLAIM_EXECUTION_IMPACT',
+      suggested_structure_outline: [{ step: 'Claim', label: 'Thesis', prompt: 'State thesis' }],
+      illustrative_improved_answer: '[Claim]: Direct thesis...',
+      anti_hallucination_guarantee: true
+    };
+
+    const env = createMockEnv({
+      current_turn: 1,
+      observations: [
+        {
+          turn_number: 1,
+          interviewer_role: 'Principal Systems Architect',
+          question_text: 'Describe failover consensus under partition.',
+          candidate_response: 'We use Raft with local quorum.',
+          observable_evidence_json: '["Cited Raft"]',
+          rubric_evaluation_json: JSON.stringify({ score: 0.85 }),
+          ai_interpretation_json: JSON.stringify({
+            strengths: 'Solid',
+            coaching: coachingMock,
+            attempts: [{ attempt_number: 1, score: 85, coaching: coachingMock }]
+          }),
+          human_rating: 4.5
+        }
+      ]
+    });
+
+    const req = new Request('http://localhost/api/m4/interviews/sessions/active', {
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.active_session.pending_advance).toBe(true);
+    expect(data.active_session.active_turn_coaching).toBeDefined();
+    expect(data.active_session.active_turn_coaching.suggested_structure_type).toBe('CLAIM_EXECUTION_IMPACT');
+    expect(data.active_session.active_turn_attempts).toHaveLength(1);
+  });
 });
+

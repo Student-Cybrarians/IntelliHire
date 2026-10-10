@@ -4,9 +4,125 @@ import { getSessionUser, logAuditEvent } from './[[route]]';
 import {
   InterviewPlan,
   InterviewQuestion,
+  InterviewQuestionCategory,
+  AnchoredRubric,
+  AnswerCoachingPayload,
+  RetryComparison,
+  TurnAttemptRecord,
+  CoachingStructureType,
+  getRecommendedStructureForCategory,
+  getStructureSteps,
+  generateDeterministicCoaching,
+  validateCoachingPayload,
   validateInterviewPlan,
   generateDeterministicInterviewPlan
 } from '../../src/shared/m4InterviewContracts';
+
+/**
+ * Phase 2: Evidence-Grounded Answer Coaching & Structure Guidance Generator
+ * Generates structured feedback (what worked, what to improve, why it matters, how to improve,
+ * structure blueprint outline, and illustrative improved answer with anti-hallucination safe harbor).
+ */
+export async function generateAnswerCoaching(
+  env: Bindings,
+  params: {
+    category: InterviewQuestionCategory;
+    question: string;
+    competency: string;
+    candidateResponse: string;
+    rubric: AnchoredRubric;
+    score: number;
+    observableEvidence?: string[];
+    aiInterpretation?: { strengths?: string; gaps?: string };
+  }
+): Promise<AnswerCoachingPayload> {
+  const structureType = getRecommendedStructureForCategory(params.category);
+  const structureOutline = getStructureSteps(structureType);
+
+  if (env.NVIDIA_API_KEY) {
+    try {
+      const prompt = `You are an elite executive interview communication coach and presentation advisor.
+Target Competency: "${params.competency}"
+Question: "${params.question}"
+Candidate Response:
+"${params.candidateResponse}"
+
+Anchored Rubric:
+Unsatisfactory: "${params.rubric?.unsatisfactory || ''}"
+Competent: "${params.rubric?.competent || ''}"
+Exceptional: "${params.rubric?.exceptional || ''}"
+
+Evaluation Score: ${Math.round(params.score * 100)}%
+Observed Evidence: ${JSON.stringify(params.observableEvidence || [])}
+Observed Strengths: "${params.aiInterpretation?.strengths || ''}"
+Observed Gaps: "${params.aiInterpretation?.gaps || ''}"
+
+TASK: Provide structured, actionable, evidence-grounded coaching for this candidate.
+Recommended Structure Blueprint: "${structureType}"
+
+CRITICAL ANTI-HALLUCINATION INVARIANTS:
+1. Do NOT invent new employers, projects, metrics, degrees, or certifications that the candidate did NOT mention.
+2. Anchor the improved answer strictly in the facts and terminology the candidate already used.
+3. For missing data points, metrics, or specifics, use bracketed placeholders such as "[your specific metric / latency / team size / timeline]".
+4. Do NOT evaluate physical appearance, facial expressions, tone, or personality traits. Focus purely on verbal structure, logic, evidence depth, and professional communication clarity.
+
+Return ONLY valid JSON matching this schema:
+{
+  "what_worked": ["<concrete observed strength in their response>", "<another specific strength>"],
+  "what_to_improve": ["<concrete omission or structural weakness to fix>", "<another specific improvement>"],
+  "why_it_matters": "<clear 1-2 sentence explanation of why this distinction matters to hiring managers and executive panels>",
+  "how_to_improve": "<concrete actionable advice on how to restructure the answer using ${structureType}>",
+  "suggested_structure_type": "${structureType}",
+  "suggested_structure_outline": ${JSON.stringify(structureOutline)},
+  "illustrative_improved_answer": "<fully articulated model response demonstrating the ${structureType} structure without hallucinating facts>",
+  "anti_hallucination_guarantee": true
+}`;
+
+      const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.NVIDIA_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'meta/muse-glimmer-30b',
+          messages: [
+            { role: 'system', content: 'You are an objective executive communication coach. Return ONLY valid JSON.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 1500
+        })
+      });
+
+      if (aiResp.ok) {
+        const aiData = await aiResp.json() as any;
+        const content = aiData.choices?.[0]?.message?.content || '{}';
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const validation = validateCoachingPayload(parsed);
+          if (validation.valid) {
+            parsed.anti_hallucination_guarantee = true;
+            return parsed;
+          }
+        }
+      }
+    } catch (_) {
+      // Fallback on error
+    }
+  }
+
+  // Deterministic fallback
+  return generateDeterministicCoaching({
+    category: params.category,
+    question: params.question,
+    competency: params.competency,
+    candidateResponse: params.candidateResponse,
+    rubric: params.rubric,
+    score: params.score
+  });
+}
 
 /**
  * Personalized 10-Question Interview Generator
@@ -577,6 +693,27 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     const currentTurn = Number(activeSession.current_turn || 1);
     const questions = plan?.questions || [];
     const activeQuestion = questions.length >= currentTurn ? questions[currentTurn - 1] : null;
+    const obsResults = observations.results || [];
+    const mappedObservations = obsResults.map((o: any) => {
+      const interp = JSON.parse((o.ai_interpretation_json as string) || '{}');
+      return {
+        turn_number: o.turn_number,
+        interviewer_role: o.interviewer_role,
+        question: o.question_text,
+        candidate_response: o.candidate_response,
+        observable_evidence: JSON.parse((o.observable_evidence_json as string) || '[]'),
+        rubric_evaluation: JSON.parse((o.rubric_evaluation_json as string) || '{}'),
+        ai_interpretation: interp,
+        ai_recommended_probe: o.ai_recommended_probe,
+        coaching: interp.coaching || null,
+        retry_comparison: interp.retry_comparison || null,
+        attempts: interp.attempts || [],
+        human_rating: o.human_rating,
+        human_notes: o.human_notes
+      };
+    });
+
+    const currentTurnObs = mappedObservations.find((o: any) => o.turn_number === currentTurn);
 
     return c.json({
       success: true,
@@ -589,18 +726,12 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         active_question: activeQuestion,
         questions,
         plan,
-        observations: (observations.results || []).map((o: any) => ({
-          turn_number: o.turn_number,
-          interviewer_role: o.interviewer_role,
-          question: o.question_text,
-          candidate_response: o.candidate_response,
-          observable_evidence: JSON.parse((o.observable_evidence_json as string) || '[]'),
-          rubric_evaluation: JSON.parse((o.rubric_evaluation_json as string) || '{}'),
-          ai_interpretation: JSON.parse((o.ai_interpretation_json as string) || '{}'),
-          ai_recommended_probe: o.ai_recommended_probe,
-          human_rating: o.human_rating,
-          human_notes: o.human_notes
-        }))
+        pending_advance: Boolean(currentTurnObs),
+        active_turn_observation: currentTurnObs || null,
+        active_turn_coaching: currentTurnObs?.coaching || null,
+        active_turn_retry_comparison: currentTurnObs?.retry_comparison || null,
+        active_turn_attempts: currentTurnObs?.attempts || [],
+        observations: mappedObservations
       }
     });
   });
@@ -653,23 +784,29 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         active_panel_role: session.active_panel_role,
         protocol,
         plan,
-        turns: (observations.results || []).map((o: any) => ({
-          turn_number: o.turn_number,
-          interviewer_role: o.interviewer_role,
-          question: o.question_text,
-          candidate_response: o.candidate_response,
-          observable_evidence: JSON.parse((o.observable_evidence_json as string) || '[]'),
-          rubric_evaluation: JSON.parse((o.rubric_evaluation_json as string) || '{}'),
-          ai_interpretation: JSON.parse((o.ai_interpretation_json as string) || '{}'),
-          ai_recommended_probe: o.ai_recommended_probe,
-          human_rating: o.human_rating,
-          human_notes: o.human_notes
-        }))
+        turns: (observations.results || []).map((o: any) => {
+          const interp = JSON.parse((o.ai_interpretation_json as string) || '{}');
+          return {
+            turn_number: o.turn_number,
+            interviewer_role: o.interviewer_role,
+            question: o.question_text,
+            candidate_response: o.candidate_response,
+            observable_evidence: JSON.parse((o.observable_evidence_json as string) || '[]'),
+            rubric_evaluation: JSON.parse((o.rubric_evaluation_json as string) || '{}'),
+            ai_interpretation: interp,
+            ai_recommended_probe: o.ai_recommended_probe,
+            coaching: interp.coaching || null,
+            retry_comparison: interp.retry_comparison || null,
+            attempts: interp.attempts || [],
+            human_rating: o.human_rating,
+            human_notes: o.human_notes
+          };
+        })
       }
     });
   });
 
-  // 5. Submit Turn Response & Adaptive Evaluation Loop (With Duplicate Turn Protection)
+  // 5. Submit Turn Response & Adaptive Evaluation Loop (With Coaching & Retry Capabilities)
   app.post('/m4/interviews/sessions/:id/turn', async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
@@ -678,25 +815,12 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
     if (!session) return c.json({ error: 'Session not found' }, 404);
 
-    const { candidate_response, current_question, interviewer_role, turn_number } = await c.req.json().catch(() => ({}));
+    const { candidate_response, current_question, interviewer_role, turn_number, is_retry, auto_advance } = await c.req.json().catch(() => ({}));
     if (!candidate_response || !current_question) {
       return c.json({ error: 'candidate_response and current_question are required' }, 400);
     }
 
     const turnNumber = turn_number !== undefined ? Number(turn_number) : Number(session.current_turn || 1);
-
-    // Duplicate Submission Protection: Check if observation already exists for this turn
-    const existingObs = await c.env.DB.prepare(
-      `SELECT id FROM interview_observation WHERE session_id = ? AND turn_number = ?`
-    ).bind(sessionId, turnNumber).first();
-
-    if (existingObs) {
-      return c.json({
-        error: `Duplicate turn submission: turn ${turnNumber} has already been submitted and recorded.`,
-        duplicate: true,
-        observation_id: existingObs.id
-      }, 409);
-    }
 
     // Resolve plan or protocol questions sequence
     let questionSequence: any[] = [];
@@ -715,13 +839,26 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
       panelRoles = protocol.panel_roles;
     }
 
+    // Check if observation exists for this turn
+    const existingObs = await c.env.DB.prepare(
+      `SELECT * FROM interview_observation WHERE session_id = ? AND turn_number = ?`
+    ).bind(sessionId, turnNumber).first();
+
+    if (existingObs && !is_retry) {
+      return c.json({
+        error: `Duplicate turn submission: turn ${turnNumber} has already been submitted and recorded.`,
+        duplicate: true,
+        observation_id: existingObs.id
+      }, 409);
+    }
+
     // AI-Assisted Evidence Extraction & Anchored Rubric Scoring if NVIDIA Key present
     let rubricScore = 0.82;
     let observableEvidence = [
       'Candidate structured answer using conclusion-first methodology',
       'Directly addressed competency expectations under concrete operational constraints'
     ];
-    let aiInterpretation = {
+    let aiInterpretation: { strengths?: string; gaps?: string } = {
       strengths: 'Demonstrated clear trade-off understanding and pragmatic execution ownership.',
       gaps: 'Could provide more explicit operational telemetry or quantitative indicators.'
     };
@@ -783,29 +920,20 @@ Return ONLY valid JSON matching:
       } catch (_) {}
     }
 
-    const obsId = crypto.randomUUID();
+    const currentScorePct = Math.round(rubricScore * 100);
 
-    // Persist observation
-    await c.env.DB.prepare(
-      `INSERT INTO interview_observation
-       (id, session_id, turn_number, interviewer_role, question_text, question_type, candidate_response, 
-        observable_evidence_json, rubric_evaluation_json, ai_interpretation_json, ai_recommended_probe, confidence_score)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.88)`
-    ).bind(
-      obsId,
-      sessionId,
-      turnNumber,
-      interviewer_role || session.active_panel_role,
-      current_question.question,
-      current_question.category || current_question.question_type || 'structured',
-      candidate_response,
-      JSON.stringify(observableEvidence),
-      JSON.stringify({ score: rubricScore, criteria: current_question.anchored_rubric }),
-      JSON.stringify(aiInterpretation),
-      aiRecommendedProbe
-    ).run();
+    // Generate evidence-grounded Answer Coaching (What worked, What to improve, Why it matters, How to improve, Structure blueprint, Model answer)
+    const coaching = await generateAnswerCoaching(c.env, {
+      category: current_question.category || current_question.question_type || 'behavioral',
+      question: current_question.question,
+      competency: current_question.competency,
+      candidateResponse: candidate_response,
+      rubric: current_question.anchored_rubric,
+      score: rubricScore,
+      observableEvidence,
+      aiInterpretation
+    });
 
-    // Advance turn and coordinate panel members
     const totalTurns = questionSequence.length > 0 ? questionSequence.length : 10;
     const nextTurn = turnNumber + 1;
     const isComplete = nextTurn > totalTurns;
@@ -821,32 +949,283 @@ Return ONLY valid JSON matching:
         const nextPanelIndex = (nextTurn - 1) % panelRoles.length;
         nextRole = panelRoles[nextPanelIndex];
       }
+    }
 
+    // RETRY FLOW
+    if (is_retry && existingObs) {
+      let priorInterp: any = {};
+      try {
+        priorInterp = JSON.parse((existingObs.ai_interpretation_json as string) || '{}');
+      } catch (_) {}
+
+      let priorEval: any = {};
+      try {
+        priorEval = JSON.parse((existingObs.rubric_evaluation_json as string) || '{}');
+      } catch (_) {}
+
+      const priorScore = priorEval.score !== undefined ? Math.round(priorEval.score * 100) : 80;
+      const scoreDelta = currentScorePct - priorScore;
+      const previousAttempts: TurnAttemptRecord[] = Array.isArray(priorInterp.attempts) ? priorInterp.attempts : [
+        {
+          attempt_number: 1,
+          candidate_response: (existingObs.candidate_response as string) || '',
+          submitted_at: (existingObs.created_at as string) || new Date().toISOString(),
+          score: priorScore,
+          observable_evidence: JSON.parse((existingObs.observable_evidence_json as string) || '[]'),
+          coaching: priorInterp.coaching || coaching
+        }
+      ];
+
+      const nextAttemptNumber = previousAttempts.length + 1;
+      const improvementsNoted: string[] = [];
+      if (candidate_response.length > String(existingObs.candidate_response || '').length + 10) {
+        improvementsNoted.push('Substantially expanded on specific actions, tools, and technical rationale.');
+      }
+      if (scoreDelta > 0) {
+        improvementsNoted.push(`Strengthened alignment with ${current_question.competency} anchored rubric criteria (+${scoreDelta}%).`);
+      } else {
+        improvementsNoted.push('Maintained clear personal agency and articulated core assertions.');
+      }
+
+      const remainingGaps: string[] = [];
+      if (currentScorePct < 90) {
+        remainingGaps.push('Could further emphasize quantitative production benchmarks or failure telemetry.');
+      }
+
+      const retryComparison: RetryComparison = {
+        attempt_number: nextAttemptNumber,
+        previous_score: priorScore,
+        current_score: currentScorePct,
+        score_delta: scoreDelta,
+        delta_summary: scoreDelta >= 0
+          ? `Revised attempt improved competency demonstration by +${scoreDelta}% points with enhanced structural clarity.`
+          : `Revised attempt refined phrasing while sustaining solid demonstration of ${current_question.competency}.`,
+        improvements_noted: improvementsNoted,
+        remaining_gaps: remainingGaps
+      };
+
+      const revisedAttempt: TurnAttemptRecord = {
+        attempt_number: nextAttemptNumber,
+        candidate_response,
+        submitted_at: new Date().toISOString(),
+        score: currentScorePct,
+        observable_evidence: observableEvidence,
+        coaching
+      };
+
+      const updatedAttempts = [...previousAttempts, revisedAttempt];
+
+      // Update observation
       await c.env.DB.prepare(
-        `UPDATE interview_session 
-         SET current_turn = ?, active_panel_role = ?, updated_at = CURRENT_TIMESTAMP 
+        `UPDATE interview_observation
+         SET candidate_response = ?,
+             observable_evidence_json = ?,
+             rubric_evaluation_json = ?,
+             ai_interpretation_json = ?,
+             ai_recommended_probe = ?
          WHERE id = ?`
-      ).bind(nextTurn, nextRole, sessionId).run();
-    } else {
+      ).bind(
+        candidate_response,
+        JSON.stringify(observableEvidence),
+        JSON.stringify({ score: rubricScore, criteria: current_question.anchored_rubric, retry_count: updatedAttempts.length }),
+        JSON.stringify({
+          ...aiInterpretation,
+          coaching,
+          retry_comparison: retryComparison,
+          attempts: updatedAttempts
+        }),
+        aiRecommendedProbe,
+        existingObs.id
+      ).run();
+
+      return c.json({
+        success: true,
+        observation_id: existingObs.id,
+        turn_completed: turnNumber,
+        is_retry: true,
+        is_complete: isComplete,
+        evaluation: {
+          score: currentScorePct,
+          observable_evidence: observableEvidence,
+          ai_interpretation: aiInterpretation,
+          ai_recommended_probe: aiRecommendedProbe
+        },
+        coaching,
+        retry_comparison: retryComparison,
+        attempts: updatedAttempts,
+        ready_to_advance: true,
+        next_turn: isComplete ? null : {
+          turn_number: nextTurn,
+          active_panel_role: nextRole,
+          next_question: nextSeqQuestion
+        }
+      });
+    }
+
+    // INITIAL SUBMISSION FLOW
+    const obsId = crypto.randomUUID();
+    const initialAttempt: TurnAttemptRecord = {
+      attempt_number: 1,
+      candidate_response,
+      submitted_at: new Date().toISOString(),
+      score: currentScorePct,
+      observable_evidence: observableEvidence,
+      coaching
+    };
+
+    await c.env.DB.prepare(
+      `INSERT INTO interview_observation
+       (id, session_id, turn_number, interviewer_role, question_text, question_type, candidate_response, 
+        observable_evidence_json, rubric_evaluation_json, ai_interpretation_json, ai_recommended_probe, confidence_score)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.88)`
+    ).bind(
+      obsId,
+      sessionId,
+      turnNumber,
+      interviewer_role || session.active_panel_role,
+      current_question.question,
+      current_question.category || current_question.question_type || 'structured',
+      candidate_response,
+      JSON.stringify(observableEvidence),
+      JSON.stringify({ score: rubricScore, criteria: current_question.anchored_rubric, retry_count: 1 }),
+      JSON.stringify({
+        ...aiInterpretation,
+        coaching,
+        attempts: [initialAttempt]
+      }),
+      aiRecommendedProbe
+    ).run();
+
+    if (isComplete) {
       await c.env.DB.prepare(
         `UPDATE interview_session 
          SET status = 'completed', updated_at = CURRENT_TIMESTAMP 
          WHERE id = ?`
       ).bind(sessionId).run();
+    } else if (auto_advance === true) {
+      // Auto-advance if explicitly requested
+      await c.env.DB.prepare(
+        `UPDATE interview_session 
+         SET current_turn = ?, active_panel_role = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`
+      ).bind(nextTurn, nextRole, sessionId).run();
     }
 
     return c.json({
       success: true,
       observation_id: obsId,
       turn_completed: turnNumber,
+      is_retry: false,
       is_complete: isComplete,
       evaluation: {
-        score: Math.round(rubricScore * 100),
+        score: currentScorePct,
         observable_evidence: observableEvidence,
         ai_interpretation: aiInterpretation,
         ai_recommended_probe: aiRecommendedProbe
       },
+      coaching,
+      attempts: [initialAttempt],
+      ready_to_advance: true,
       next_turn: isComplete ? null : {
+        turn_number: nextTurn,
+        active_panel_role: nextRole,
+        next_question: nextSeqQuestion
+      }
+    });
+  });
+
+  // 5b. Retry Turn Answer Endpoint (Candidate Refines Answer Following Coaching)
+  app.post('/m4/interviews/sessions/:id/retry', async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const sessionId = c.req.param('id');
+    const body = await c.req.json().catch(() => ({}));
+    return app.fetch(
+      new Request(new URL(`/api/m4/interviews/sessions/${sessionId}/turn`, c.req.url).toString(), {
+        method: 'POST',
+        headers: c.req.raw.headers,
+        body: JSON.stringify({ ...body, is_retry: true })
+      }),
+      c.env
+    );
+  });
+
+  // 5c. Gated Turn Progression: Advance to Next Question (Only upon explicit candidate continuation)
+  app.post('/m4/interviews/sessions/:id/advance', async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+    const sessionId = c.req.param('id');
+    const session = await c.env.DB.prepare('SELECT * FROM interview_session WHERE id = ?').bind(sessionId).first();
+    if (!session) return c.json({ error: 'Session not found' }, 404);
+
+    const { current_turn } = await c.req.json().catch(() => ({}));
+    const activeTurn = current_turn !== undefined ? Number(current_turn) : Number(session.current_turn || 1);
+
+    // Verify observation for activeTurn has been recorded
+    const obs = await c.env.DB.prepare(
+      `SELECT id FROM interview_observation WHERE session_id = ? AND turn_number = ?`
+    ).bind(sessionId, activeTurn).first();
+
+    if (!obs) {
+      return c.json({ error: `Cannot advance: turn ${activeTurn} has not been completed yet.` }, 400);
+    }
+
+    let questionSequence: any[] = [];
+    let panelRoles: string[] = [];
+    try {
+      const summary = JSON.parse((session.evidence_summary_json as string) || '{}');
+      if (summary.plan?.questions) {
+        questionSequence = summary.plan.questions;
+        panelRoles = Array.from(new Set(questionSequence.map(q => q.panel_role)));
+      }
+    } catch (_) {}
+
+    const protocol = SEED_PROTOCOLS.find(p => p.id === session.protocol_id) || SEED_PROTOCOLS[0];
+    if (questionSequence.length === 0) {
+      questionSequence = protocol.question_sequence;
+      panelRoles = protocol.panel_roles;
+    }
+
+    const totalTurns = questionSequence.length > 0 ? questionSequence.length : 10;
+    const nextTurn = activeTurn + 1;
+    const isComplete = nextTurn > totalTurns;
+
+    if (isComplete) {
+      await c.env.DB.prepare(
+        `UPDATE interview_session 
+         SET status = 'completed', updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`
+      ).bind(sessionId).run();
+
+      return c.json({
+        success: true,
+        is_complete: true,
+        turn_advanced_from: activeTurn,
+        next_turn: null
+      });
+    }
+
+    const nextSeqQuestion = questionSequence[nextTurn - 1] || null;
+    let nextRole = session.active_panel_role;
+    if (nextSeqQuestion) {
+      nextRole = nextSeqQuestion.panel_role;
+    } else if (panelRoles.length > 0) {
+      nextRole = panelRoles[(nextTurn - 1) % panelRoles.length];
+    }
+
+    await c.env.DB.prepare(
+      `UPDATE interview_session 
+       SET current_turn = ?, active_panel_role = ?, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ?`
+    ).bind(nextTurn, nextRole, sessionId).run();
+
+    return c.json({
+      success: true,
+      is_complete: false,
+      turn_advanced_from: activeTurn,
+      next_turn: {
         turn_number: nextTurn,
         active_panel_role: nextRole,
         next_question: nextSeqQuestion

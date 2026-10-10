@@ -253,30 +253,36 @@ describe('M03 Phase 3: Dynamic Cross-Occupation Task Generation & Synthesis Engi
     };
 
     // Simulate synthesis call with mock that throws
-    const genResult = await DynamicTaskSynthesizer.synthesizeDynamicSimulation(mockEnv, {
-      candidateContext: {
-        targetRole: 'Emergency Preparedness Specialist',
-        targetDomainId: 'operations'
-      },
-      targetCompetency: {
-        id: 'comp-ops-1',
-        name: 'Disaster Triage',
-        domain: 'operations',
-        skillName: 'Mass Casualty Triage',
-        targetProficiency: 0.85,
-        currentProficiency: 0.50,
-        uncertaintyEstimate: 0.35,
-        diagnosisSource: 'assessment_purpose',
-        rationale: 'Crisis management'
-      },
-      organizationId: 'org-health-corp',
-      seniority: 'senior'
-    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error reaching NVIDIA provider'));
 
-    expect(genResult.definition).toBeDefined();
-    expect(genResult.task).toBeDefined();
-    expect(genResult.isValid).toBe(true);
-    expect(genResult.task.workSurfaceType).toBe('operations_decision');
+    try {
+      const genResult = await DynamicTaskSynthesizer.synthesizeDynamicSimulation(mockEnv, {
+        candidateContext: {
+          targetRole: 'Emergency Preparedness Specialist',
+          targetDomainId: 'operations'
+        },
+        targetCompetency: {
+          id: 'comp-ops-1',
+          name: 'Disaster Triage',
+          domain: 'operations',
+          skillName: 'Mass Casualty Triage',
+          targetProficiency: 0.85,
+          currentProficiency: 0.50,
+          uncertaintyEstimate: 0.35,
+          diagnosisSource: 'assessment_purpose',
+          rationale: 'Crisis management'
+        },
+        organizationId: 'org-health-corp',
+        seniority: 'senior'
+      });
+
+      expect(genResult.definition).toBeDefined();
+      expect(genResult.task).toBeDefined();
+      expect(genResult.isValid).toBe(true);
+      expect(genResult.task.workSurfaceType).toBe('operations_decision');
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   // 7. Scenario: Prompt Injection Guardrail Rejection

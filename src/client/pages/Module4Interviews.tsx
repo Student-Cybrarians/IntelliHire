@@ -52,6 +52,18 @@ export default function Module4Interviews() {
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [turnError, setTurnError] = useState<string | null>(null);
 
+  // Phase 2 Coaching & Retry State
+  const [activeCoaching, setActiveCoaching] = useState<any>(null);
+  const [activeEvaluation, setActiveEvaluation] = useState<any>(null);
+  const [retryComparison, setRetryComparison] = useState<any>(null);
+  const [turnAttempts, setTurnAttempts] = useState<any[]>([]);
+  const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  const [retryResponse, setRetryResponse] = useState<string>('');
+  const [submittingRetry, setSubmittingRetry] = useState<boolean>(false);
+  const [advancingTurn, setAdvancingTurn] = useState<boolean>(false);
+  const [pendingAdvance, setPendingAdvance] = useState<boolean>(false);
+  const [activeCoachingTab, setActiveCoachingTab] = useState<'feedback' | 'blueprint' | 'model'>('feedback');
+
   // Interviewer Evaluation Input (Separate from AI)
   const [humanRating, setHumanRating] = useState<number>(4);
   const [humanNotes, setHumanNotes] = useState<string>('');
@@ -106,12 +118,29 @@ export default function Module4Interviews() {
           setActivePanelRole(act.active_panel_role);
           setCurrentQuestion(act.active_question);
           setActivePlan(act.plan || null);
+          setPendingAdvance(Boolean(act.pending_advance));
+
+          if (act.pending_advance && act.active_turn_coaching) {
+            setActiveCoaching(act.active_turn_coaching);
+            setActiveEvaluation({
+              score: act.active_turn_score,
+              observable_evidence: act.active_turn_observation?.observable_evidence || [],
+              ai_recommended_probe: act.active_turn_observation?.ai_recommended_probe || ''
+            });
+            setRetryComparison(act.active_turn_retry_comparison || null);
+            setTurnAttempts(act.active_turn_attempts || []);
+            setCandidateResponse(act.active_turn_observation?.candidate_response || '');
+          }
+
           setTranscript((act.observations || []).map((o: any) => ({
             turn: o.turn_number,
             role: o.interviewer_role,
             question: o.question,
             response: o.candidate_response,
             evaluation: o.rubric_evaluation,
+            coaching: o.coaching,
+            retry_comparison: o.retry_comparison,
+            attempts: o.attempts,
             human_rating: o.human_rating,
             human_notes: o.human_notes
           })));
@@ -133,6 +162,12 @@ export default function Module4Interviews() {
     setSynthesis(null);
     setTranscript([]);
     setTurnError(null);
+    setActiveCoaching(null);
+    setActiveEvaluation(null);
+    setRetryComparison(null);
+    setTurnAttempts([]);
+    setPendingAdvance(false);
+    setIsRetrying(false);
     try {
       const res = await fetch('/api/m4/interviews/sessions', {
         method: 'POST',
@@ -177,21 +212,35 @@ export default function Module4Interviews() {
           turn_number: currentTurn,
           candidate_response: candidateResponse,
           current_question: currentQuestion,
-          interviewer_role: activePanelRole
+          interviewer_role: activePanelRole,
+          auto_advance: false
         })
       });
       const data = await res.json() as any;
       if (data.success) {
-        setTranscript(prev => [...prev, {
-          turn: currentTurn,
-          role: activePanelRole,
-          question: currentQuestion.question,
-          competency: currentQuestion.competency,
-          response: candidateResponse,
-          evaluation: data.evaluation,
-          human_rating: humanRating,
-          human_notes: humanNotes
-        }]);
+        setActiveEvaluation(data.evaluation);
+        setActiveCoaching(data.coaching);
+        setTurnAttempts(data.attempts || []);
+        setRetryComparison(null);
+        setPendingAdvance(true);
+        setIsRetrying(false);
+
+        // Update transcript
+        setTranscript(prev => {
+          const filtered = prev.filter(t => t.turn !== currentTurn);
+          return [...filtered, {
+            turn: currentTurn,
+            role: activePanelRole,
+            question: currentQuestion.question,
+            competency: currentQuestion.competency,
+            response: candidateResponse,
+            evaluation: data.evaluation,
+            coaching: data.coaching,
+            attempts: data.attempts || [],
+            human_rating: humanRating,
+            human_notes: humanNotes
+          }];
+        });
 
         // Automatically save initial human rating if in recruiter cockpit
         if (!isCandidateRole) {
@@ -204,23 +253,22 @@ export default function Module4Interviews() {
               human_notes: humanNotes
             })
           }).catch(() => {});
-        }
 
-        if (data.is_complete || !data.next_turn?.next_question) {
-          // Reached end of 10-turn sequence, trigger complete
-          if (data.synthesis) {
-            setSynthesis(data.synthesis);
-            setActiveTab('synthesis');
-            setCurrentQuestion(null);
+          if (data.is_complete || !data.next_turn?.next_question) {
+            if (data.synthesis) {
+              setSynthesis(data.synthesis);
+              setActiveTab('synthesis');
+              setCurrentQuestion(null);
+            } else {
+              await completeInterview();
+            }
           } else {
-            await completeInterview();
+            setCurrentTurn(data.next_turn.turn_number);
+            setActivePanelRole(data.next_turn.active_panel_role);
+            setCurrentQuestion(data.next_turn.next_question);
+            setCandidateResponse('');
+            setHumanNotes('');
           }
-        } else {
-          setCurrentTurn(data.next_turn.turn_number);
-          setActivePanelRole(data.next_turn.active_panel_role);
-          setCurrentQuestion(data.next_turn.next_question);
-          setCandidateResponse('');
-          setHumanNotes('');
         }
       } else if (data.duplicate) {
         setTurnError('This question turn has already been recorded.');
@@ -231,6 +279,95 @@ export default function Module4Interviews() {
       setTurnError('Network error submitting turn response');
     } finally {
       setSubmittingTurn(false);
+    }
+  };
+
+  const submitRetry = async () => {
+    if (!sessionId || !currentQuestion || !retryResponse.trim() || submittingRetry) return;
+    setSubmittingRetry(true);
+    setTurnError(null);
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessionId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turn_number: currentTurn,
+          candidate_response: retryResponse,
+          current_question: currentQuestion,
+          interviewer_role: activePanelRole
+        })
+      });
+      const data = await res.json() as any;
+      if (data.success) {
+        setActiveEvaluation(data.evaluation);
+        setActiveCoaching(data.coaching);
+        setRetryComparison(data.retry_comparison);
+        setTurnAttempts(data.attempts || []);
+        setCandidateResponse(retryResponse);
+        setIsRetrying(false);
+
+        // Update transcript entry
+        setTranscript(prev => {
+          const filtered = prev.filter(t => t.turn !== currentTurn);
+          return [...filtered, {
+            turn: currentTurn,
+            role: activePanelRole,
+            question: currentQuestion.question,
+            competency: currentQuestion.competency,
+            response: retryResponse,
+            evaluation: data.evaluation,
+            coaching: data.coaching,
+            retry_comparison: data.retry_comparison,
+            attempts: data.attempts || [],
+            human_rating: humanRating,
+            human_notes: humanNotes
+          }];
+        });
+      } else {
+        setTurnError(data.error || 'Failed to submit revised answer');
+      }
+    } catch (e) {
+      setTurnError('Network error submitting retry');
+    } finally {
+      setSubmittingRetry(false);
+    }
+  };
+
+  const advanceToNextTurn = async () => {
+    if (!sessionId || advancingTurn) return;
+    setAdvancingTurn(true);
+    setTurnError(null);
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessionId}/advance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_turn: currentTurn })
+      });
+      const data = await res.json() as any;
+      if (data.success) {
+        if (data.is_complete || !data.next_turn?.next_question) {
+          await completeInterview();
+        } else {
+          setCurrentTurn(data.next_turn.turn_number);
+          setActivePanelRole(data.next_turn.active_panel_role);
+          setCurrentQuestion(data.next_turn.next_question);
+          setCandidateResponse('');
+          setRetryResponse('');
+          setActiveCoaching(null);
+          setActiveEvaluation(null);
+          setRetryComparison(null);
+          setTurnAttempts([]);
+          setPendingAdvance(false);
+          setIsRetrying(false);
+          setHumanNotes('');
+        }
+      } else {
+        setTurnError(data.error || 'Failed to advance to next question');
+      }
+    } catch (e) {
+      setTurnError('Network error advancing question turn');
+    } finally {
+      setAdvancingTurn(false);
     }
   };
 
@@ -547,85 +684,358 @@ export default function Module4Interviews() {
                       onCameraStateChange={(active) => setCameraActive(active)} 
                     />
 
-                    <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400 font-bold uppercase tracking-wider block">
-                          Candidate Oral / Stated Response
-                        </span>
-                        <span className="text-[11px] text-slate-500">
-                          {candidateResponse.trim().split(/\s+/).filter(Boolean).length} words
-                        </span>
-                      </div>
-
-                      <textarea
-                        rows={6}
-                        value={candidateResponse}
-                        onChange={e => setCandidateResponse(e.target.value)}
-                        disabled={submittingTurn}
-                        placeholder="Transcribe candidate's response detailing their methodology, trade-offs, and concrete examples..."
-                        className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed disabled:opacity-50"
-                      />
-
-                      {turnError && (
-                        <div className="p-2.5 bg-red-950/30 border border-red-500/30 rounded-xl text-red-300 text-xs">
-                          {turnError}
-                        </div>
-                      )}
-
-                      {/* Human Assessor Calibrated Rating Interface (if in recruiter cockpit or review) */}
-                      {!isCandidateRole && (
-                        <div className="p-4 bg-[#001621] rounded-xl border border-[#002f47] space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                              <UserCheck className="w-3.5 h-3.5 text-[#FF4103]" />
-                              <span>Human Assessor Rating (Independent from AI)</span>
+                    {/* If coaching is active and candidate is not currently in retry editor */}
+                    {pendingAdvance && activeCoaching && !isRetrying ? (
+                      <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
+                        {/* Header Ribbon with Score & Attempt Count */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#002a40] gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="text-white font-bold uppercase tracking-wider text-[11px]">
+                              Answer Coaching & Presentation Guidance
                             </span>
-                            <span className="font-bold text-[#FF4103] text-sm">{humanRating} / 5.0</span>
                           </div>
+                          <div className="flex items-center gap-2">
+                            {activeEvaluation?.score !== undefined && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/30 text-[11px]">
+                                Score: {activeEvaluation.score}%
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono text-[10px] border border-slate-700">
+                              Attempt {turnAttempts.length || 1}
+                            </span>
+                          </div>
+                        </div>
 
-                          <div className="flex gap-2">
-                            {[1, 2, 3, 4, 5].map(star => (
+                        {/* Retry Comparison Delta Banner if present */}
+                        {retryComparison && (
+                          <div className="p-3 bg-emerald-950/25 border border-emerald-500/30 rounded-xl space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-emerald-400 uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Revised Attempt Delta</span>
+                              </span>
+                              <span className={`font-black text-xs ${retryComparison.score_delta >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                {retryComparison.previous_score}% → {retryComparison.current_score}% ({retryComparison.score_delta >= 0 ? '+' : ''}{retryComparison.score_delta}%)
+                              </span>
+                            </div>
+                            <p className="text-slate-200 text-xs italic">
+                              "{retryComparison.delta_summary}"
+                            </p>
+                            {retryComparison.improvements_noted?.length > 0 && (
+                              <div className="space-y-1 pt-1">
+                                <span className="text-[10px] uppercase font-bold text-emerald-400 block">Observed Improvements:</span>
+                                <ul className="list-disc list-inside text-slate-300 text-[11px] space-y-0.5">
+                                  {retryComparison.improvements_noted.map((imp: string, i: number) => (
+                                    <li key={i}>{imp}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {retryComparison.remaining_gaps?.length > 0 && (
+                              <div className="space-y-1 pt-1">
+                                <span className="text-[10px] uppercase font-bold text-amber-400 block">Remaining Gaps:</span>
+                                <ul className="list-disc list-inside text-slate-300 text-[11px] space-y-0.5">
+                                  {retryComparison.remaining_gaps.map((gap: string, i: number) => (
+                                    <li key={i}>{gap}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Coaching Section Navigation Tabs */}
+                        <div className="flex gap-2 border-b border-[#002a40] pb-2">
+                          {[
+                            { id: 'feedback', label: 'Diagnostic Coaching', icon: Sparkles },
+                            { id: 'blueprint', label: `Structure Blueprint (${activeCoaching.suggested_structure_type})`, icon: Layers },
+                            { id: 'model', label: 'Model Improved Answer', icon: BookOpen }
+                          ].map(tab => {
+                            const Icon = tab.icon;
+                            const active = activeCoachingTab === tab.id;
+                            return (
                               <button
-                                key={star}
+                                key={tab.id}
                                 type="button"
-                                onClick={() => setHumanRating(star)}
-                                className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${
-                                  humanRating >= star 
-                                    ? 'bg-[#FF4103] text-white shadow-md' 
-                                    : 'bg-[#001f2e] text-slate-500 hover:text-white'
+                                onClick={() => setActiveCoachingTab(tab.id as any)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                  active 
+                                    ? 'bg-[#FF4103] text-white shadow-sm' 
+                                    : 'bg-[#001824] text-slate-400 hover:text-white border border-[#002f47]'
                                 }`}
                               >
-                                ★ {star}
+                                <Icon className="w-3.5 h-3.5" />
+                                <span>{tab.label}</span>
                               </button>
-                            ))}
-                          </div>
+                            );
+                          })}
+                        </div>
 
-                          <input
-                            type="text"
-                            value={humanNotes}
-                            onChange={e => setHumanNotes(e.target.value)}
-                            placeholder="Interviewer qualitative notes on candidate rationale..."
-                            className="w-full bg-[#00111a] border border-[#00283d] rounded-lg p-2 text-white text-xs focus:outline-none focus:border-[#FF4103]"
+                        {/* TAB 1: DIAGNOSTIC COACHING */}
+                        {activeCoachingTab === 'feedback' && (
+                          <div className="space-y-3.5">
+                            {/* What Worked */}
+                            <div className="p-3 bg-emerald-950/20 border border-emerald-500/25 rounded-xl space-y-1.5">
+                              <span className="text-emerald-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>What Worked in Your Response</span>
+                              </span>
+                              <ul className="list-disc list-inside text-slate-200 text-xs space-y-1">
+                                {activeCoaching.what_worked?.map((w: string, i: number) => (
+                                  <li key={i}>{w}</li>
+                                ))}
+                              </ul>
+                            </div>
+
+                            {/* What to Improve */}
+                            <div className="p-3 bg-amber-950/20 border border-amber-500/25 rounded-xl space-y-1.5">
+                              <span className="text-amber-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                                <span>What to Improve</span>
+                              </span>
+                              <ul className="list-disc list-inside text-slate-200 text-xs space-y-1">
+                                {activeCoaching.what_to_improve?.map((w: string, i: number) => (
+                                  <li key={i}>{w}</li>
+                                ))}
+                              </ul>
+                            </div>
+
+                            {/* Why It Matters */}
+                            <div className="p-3 bg-blue-950/20 border border-blue-500/25 rounded-xl space-y-1">
+                              <span className="text-blue-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                <HelpCircle className="w-3.5 h-3.5 text-blue-400" />
+                                <span>Why This Competency Matters</span>
+                              </span>
+                              <p className="text-slate-300 text-xs leading-relaxed">{activeCoaching.why_it_matters}</p>
+                            </div>
+
+                            {/* How to Improve */}
+                            <div className="p-3 bg-purple-950/20 border border-purple-500/25 rounded-xl space-y-1">
+                              <span className="text-purple-400 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                <Target className="w-3.5 h-3.5 text-purple-400" />
+                                <span>How to Elevate Your Response</span>
+                              </span>
+                              <p className="text-slate-300 text-xs leading-relaxed">{activeCoaching.how_to_improve}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* TAB 2: STRUCTURE BLUEPRINT */}
+                        {activeCoachingTab === 'blueprint' && (
+                          <div className="space-y-3">
+                            <div className="p-2.5 bg-[#001824] rounded-xl border border-[#002f47] text-[11px] text-slate-300 flex items-center justify-between">
+                              <span>Framework: <strong className="text-white">{activeCoaching.suggested_structure_type}</strong></span>
+                              <span className="text-slate-400 font-mono text-[10px]">Strategic Narrative Blueprint</span>
+                            </div>
+
+                            <div className="grid gap-2">
+                              {activeCoaching.suggested_structure_outline?.map((step: any, idx: number) => (
+                                <div key={idx} className="p-3 bg-[#001622] rounded-xl border border-[#002b40] space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-[#FF4103] text-xs uppercase tracking-wide">
+                                      {step.step}: {step.label}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-slate-500">Step {idx + 1}</span>
+                                  </div>
+                                  <p className="text-slate-300 text-[11px] leading-relaxed">{step.prompt}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* TAB 3: ILLUSTRATIVE MODEL ANSWER */}
+                        {activeCoachingTab === 'model' && (
+                          <div className="space-y-3">
+                            <div className="p-3 bg-[#001824] rounded-xl border border-[#002f47] space-y-2">
+                              <span className="text-slate-400 font-bold uppercase text-[10px] tracking-wider block">
+                                Illustrative Exemplar (Grounded in Your Stated Facts)
+                              </span>
+                              <p className="text-slate-200 text-xs leading-relaxed whitespace-pre-wrap font-sans">
+                                {activeCoaching.illustrative_improved_answer}
+                              </p>
+                            </div>
+
+                            <div className="p-2.5 bg-[#00121d] border border-emerald-500/20 rounded-xl flex items-center gap-2 text-[10px] text-slate-400">
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>Anti-Hallucination Safe Harbor: Anchored strictly in your response with bracketed placeholders [like metrics]. No unverified facts added.</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Gated Progression & Retry Controls */}
+                        <div className="pt-3 border-t border-[#002a40] flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsRetrying(true);
+                              setRetryResponse(candidateResponse);
+                            }}
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#001824] hover:bg-[#00283d] text-slate-200 hover:text-white border border-[#063750] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-[#FF4103]" />
+                            <span>Retry This Question (Refine Answer)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={advancingTurn}
+                            onClick={advanceToNextTurn}
+                            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-[#FF4103]/25 transition-all"
+                          >
+                            <span>{advancingTurn ? 'Advancing Panel…' : currentTurn >= totalQuestions ? 'Finish Interview & Synthesize Readiness →' : `Continue to Next Question (Q${currentTurn + 1}/${totalQuestions}) →`}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : isRetrying ? (
+                      /* RETRY ANSWER EDITOR */
+                      <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
+                        <div className="flex items-center justify-between pb-2 border-b border-[#002a40]">
+                          <div>
+                            <span className="text-[#FF4103] font-bold uppercase tracking-wider text-[11px] block">
+                              Retry Attempt {turnAttempts.length + 1}
+                            </span>
+                            <span className="text-slate-400 text-[11px]">
+                              Apply the {activeCoaching?.suggested_structure_type || 'STAR'} structure blueprint to refine your answer.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsRetrying(false)}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-[11px]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                            <span>Your Revised Response:</span>
+                            <span>{retryResponse.trim().split(/\s+/).filter(Boolean).length} words</span>
+                          </div>
+                          <textarea
+                            rows={7}
+                            value={retryResponse}
+                            onChange={e => setRetryResponse(e.target.value)}
+                            disabled={submittingRetry}
+                            placeholder="Draft your refined answer applying the coaching feedback and structure outline..."
+                            className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed disabled:opacity-50"
                           />
                         </div>
-                      )}
 
-                      {/* Submission Action Bar */}
-                      <div className="flex items-center justify-between pt-2">
-                        <span className="text-[11px] text-slate-500">
-                          Turn {currentTurn} of {totalQuestions || 10}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={submittingTurn || !candidateResponse.trim()}
-                          onClick={submitTurn}
-                          className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#FF4103]/20 transition-all"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>{submittingTurn ? 'Extracting Evidence & Coordinating Next Turn…' : 'Submit Turn & Advance Panel'}</span>
-                        </button>
+                        {turnError && (
+                          <div className="p-2.5 bg-red-950/30 border border-red-500/30 rounded-xl text-red-300 text-xs">
+                            {turnError}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsRetrying(false)}
+                            className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:text-white"
+                          >
+                            Cancel Retry
+                          </button>
+                          <button
+                            type="button"
+                            disabled={submittingRetry || !retryResponse.trim()}
+                            onClick={submitRetry}
+                            className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#FF4103]/20 transition-all"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{submittingRetry ? 'Evaluating Revision…' : 'Submit Revised Answer'}</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      /* INITIAL SUBMISSION INTERFACE */
+                      <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-bold uppercase tracking-wider block">
+                            Candidate Oral / Stated Response
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            {candidateResponse.trim().split(/\s+/).filter(Boolean).length} words
+                          </span>
+                        </div>
+
+                        <textarea
+                          rows={6}
+                          value={candidateResponse}
+                          onChange={e => setCandidateResponse(e.target.value)}
+                          disabled={submittingTurn}
+                          placeholder="Transcribe candidate's response detailing their methodology, trade-offs, and concrete examples..."
+                          className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed disabled:opacity-50"
+                        />
+
+                        {turnError && (
+                          <div className="p-2.5 bg-red-950/30 border border-red-500/30 rounded-xl text-red-300 text-xs">
+                            {turnError}
+                          </div>
+                        )}
+
+                        {/* Human Assessor Calibrated Rating Interface (if in recruiter cockpit or review) */}
+                        {!isCandidateRole && (
+                          <div className="p-4 bg-[#001621] rounded-xl border border-[#002f47] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                                <UserCheck className="w-3.5 h-3.5 text-[#FF4103]" />
+                                <span>Human Assessor Rating (Independent from AI)</span>
+                              </span>
+                              <span className="font-bold text-[#FF4103] text-sm">{humanRating} / 5.0</span>
+                            </div>
+
+                            <div className="flex gap-2">
+                              {[1, 2, 3, 4, 5].map(star => (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  onClick={() => setHumanRating(star)}
+                                  className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${
+                                    humanRating >= star 
+                                      ? 'bg-[#FF4103] text-white shadow-md' 
+                                      : 'bg-[#001f2e] text-slate-500 hover:text-white'
+                                  }`}
+                                >
+                                  ★ {star}
+                                </button>
+                              ))}
+                            </div>
+
+                            <input
+                              type="text"
+                              value={humanNotes}
+                              onChange={e => setHumanNotes(e.target.value)}
+                              placeholder="Interviewer qualitative notes on candidate rationale..."
+                              className="w-full bg-[#00111a] border border-[#00283d] rounded-lg p-2 text-white text-xs focus:outline-none focus:border-[#FF4103]"
+                            />
+                          </div>
+                        )}
+
+                        {/* Submission Action Bar */}
+                        <div className="flex items-center justify-between pt-2">
+                          <span className="text-[11px] text-slate-500">
+                            Turn {currentTurn} of {totalQuestions || 10}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={submittingTurn || !candidateResponse.trim()}
+                            onClick={submitTurn}
+                            className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#FF4103]/20 transition-all"
+                          >
+                            <span>
+                              {submittingTurn 
+                                ? (isCandidateRole ? 'Extracting Evidence & Generating Coaching…' : 'Extracting Evidence & Coordinating Next Turn…')
+                                : (isCandidateRole ? 'Submit Response & Receive Coaching' : 'Submit Turn & Advance Panel')
+                              }
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

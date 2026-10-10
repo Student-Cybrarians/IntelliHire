@@ -93,4 +93,20 @@ describe('InterviewCameraPreview Component', () => {
       expect(screen.getByText(/CAMERA OFF/i)).toBeInTheDocument();
     });
   });
+
+  it('renders expandable Presentation Setup Guide with lighting, framing, and pacing checklist', () => {
+    render(<InterviewCameraPreview />);
+
+    const guideToggle = screen.getByText(/Camera & Microphone Presentation Setup Guide/i);
+    expect(guideToggle).toBeInTheDocument();
+
+    // Expand
+    fireEvent.click(guideToggle);
+
+    expect(screen.getByText(/Front Lighting:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Eye-Level Camera Framing:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Acoustic Clarity & Noise:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Speaking Pace & Articulation:/i)).toBeInTheDocument();
+    expect(screen.getByText(/purely for your personal professional presentation comfort/i)).toBeInTheDocument();
+  });
 });

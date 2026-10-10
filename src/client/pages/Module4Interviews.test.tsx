@@ -234,5 +234,193 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     expect(await screen.findByText(/Tell us about a time when you made a critical decision with ambiguous requirements/i)).toBeInTheDocument();
     expect(await screen.findByText(/3 turns completed/i)).toBeInTheDocument();
   });
+
+  it('renders Answer Coaching Card with tabs, structure outline, and model answer upon candidate turn submission', async () => {
+    // Mock candidate user auth
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'c1', role: 'candidate', full_name: 'Alex Mercer' } })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            session_id: 'session-candidate-1',
+            active_panel_role: 'Principal Systems Architect',
+            current_turn: 1,
+            total_questions: 10,
+            first_question: mockProtocols.protocols[0].question_sequence[0]
+          })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/session-candidate-1/turn' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            observation_id: 'obs-c-1',
+            turn_completed: 1,
+            is_retry: false,
+            evaluation: {
+              score: 78,
+              observable_evidence: ['Detailed consensus architecture']
+            },
+            coaching: {
+              what_worked: ['Directly addressed partition trade-offs'],
+              what_to_improve: ['Quantify network heartbeat timeouts'],
+              why_it_matters: 'Engineering panels evaluate concrete operational safety bounds.',
+              how_to_improve: 'Use Claim-Execution-Impact model.',
+              suggested_structure_type: 'CLAIM_EXECUTION_IMPACT',
+              suggested_structure_outline: [
+                { step: 'Claim', label: 'Technical Thesis', prompt: 'State thesis' },
+                { step: 'Execution', label: 'Implementation', prompt: 'Walk through implementation' },
+                { step: 'Impact', label: 'Verification', prompt: 'Provide telemetry' }
+              ],
+              illustrative_improved_answer: '[Claim]: In-memory quorum is ideal. [Execution]: We deployed 3 nodes. [Impact]: 99.99% uptime.',
+              anti_hallucination_guarantee: true
+            },
+            attempts: [{ attempt_number: 1, score: 78 }]
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Launch candidate interview
+    const launchBtn = await screen.findByRole('button', { name: /Begin 10-Question Personalized Interview/i });
+    fireEvent.click(launchBtn);
+
+    // Enter answer
+    const textarea = await screen.findByPlaceholderText(/Transcribe candidate's response/i);
+    fireEvent.change(textarea, { target: { value: 'We use Raft with heartbeat leases to isolate partitions.' } });
+
+    // Submit answer
+    const submitBtn = screen.getByRole('button', { name: /Submit Response & Receive Coaching/i });
+    fireEvent.click(submitBtn);
+
+    // Assert Coaching Card appears
+    expect(await screen.findByText('Answer Coaching & Presentation Guidance')).toBeInTheDocument();
+    expect(await screen.findByText('Score: 78%')).toBeInTheDocument();
+    expect(await screen.findByText('Directly addressed partition trade-offs')).toBeInTheDocument();
+    expect(await screen.findByText('Quantify network heartbeat timeouts')).toBeInTheDocument();
+    expect(await screen.findByText('Engineering panels evaluate concrete operational safety bounds.')).toBeInTheDocument();
+
+    // Switch to Structure Blueprint Tab
+    const blueprintTab = screen.getByRole('button', { name: /Structure Blueprint/i });
+    fireEvent.click(blueprintTab);
+    expect(await screen.findByText(/Claim: Technical Thesis/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Execution: Implementation/i)).toBeInTheDocument();
+
+    // Switch to Model Answer Tab
+    const modelTab = screen.getByRole('button', { name: /Model Improved Answer/i });
+    fireEvent.click(modelTab);
+    expect(await screen.findByText(/Anti-Hallucination Safe Harbor/i)).toBeInTheDocument();
+    expect(await screen.findByText(/\[Claim\]: In-memory quorum is ideal/i)).toBeInTheDocument();
+
+    // Verify Continue button is present
+    expect(screen.getByRole('button', { name: /Continue to Next Question/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry This Question/i })).toBeInTheDocument();
+  });
+
+  it('allows candidate to retry answer and renders Retry Comparison Delta banner', async () => {
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'c1', role: 'candidate', full_name: 'Alex Mercer' } })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/active') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            active_session: {
+              id: 'session-retry-test-1',
+              status: 'in_progress',
+              current_turn: 1,
+              total_questions: 10,
+              active_panel_role: 'Principal Systems Architect',
+              active_question: mockProtocols.protocols[0].question_sequence[0],
+              pending_advance: true,
+              active_turn_score: 75,
+              active_turn_observation: { candidate_response: 'Initial draft' },
+              active_turn_coaching: {
+                what_worked: ['Initial attempt'],
+                what_to_improve: ['Need telemetry'],
+                why_it_matters: 'Telemetry validates architecture.',
+                how_to_improve: 'Add metrics.',
+                suggested_structure_type: 'STAR',
+                suggested_structure_outline: [],
+                illustrative_improved_answer: 'Exemplar...'
+              },
+              active_turn_attempts: [{ attempt_number: 1, score: 75 }]
+            }
+          })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions/session-retry-test-1/retry' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            observation_id: 'obs-retry-1',
+            turn_completed: 1,
+            is_retry: true,
+            evaluation: { score: 92, observable_evidence: ['Added 99.99% metric'] },
+            coaching: {
+              what_worked: ['Excellent quantitative grounding'],
+              what_to_improve: ['Minor edge cases'],
+              why_it_matters: 'Confidence.',
+              how_to_improve: 'Ready.',
+              suggested_structure_type: 'STAR',
+              suggested_structure_outline: [],
+              illustrative_improved_answer: 'Model answer...'
+            },
+            retry_comparison: {
+              attempt_number: 2,
+              previous_score: 75,
+              current_score: 92,
+              score_delta: 17,
+              delta_summary: 'Revised attempt improved competency demonstration by +17% points.',
+              improvements_noted: ['Included 99.99% availability metric', 'Clear mitigation sequence'],
+              remaining_gaps: ['Elaborate on disaster recovery sync']
+            },
+            attempts: [{ attempt_number: 1, score: 75 }, { attempt_number: 2, score: 92 }]
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Candidate clicks Retry This Question
+    const retryBtn = await screen.findByRole('button', { name: /Retry This Question/i });
+    fireEvent.click(retryBtn);
+
+    // Assert retry editor appears
+    expect(await screen.findByText(/Retry Attempt 2/i)).toBeInTheDocument();
+    const retryTextarea = screen.getByPlaceholderText(/Draft your refined answer/i);
+    fireEvent.change(retryTextarea, { target: { value: 'Revised answer with full 99.99% metrics and quorum details.' } });
+
+    // Submit revised answer
+    const submitRetryBtn = screen.getByRole('button', { name: /Submit Revised Answer/i });
+    fireEvent.click(submitRetryBtn);
+
+    // Verify Retry Comparison Delta banner appears
+    expect(await screen.findByText('Revised Attempt Delta')).toBeInTheDocument();
+    expect(await screen.findByText(/75% → 92% \(\+17%\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Revised attempt improved competency demonstration by \+17% points/i)).toBeInTheDocument();
+    expect(await screen.findByText('Included 99.99% availability metric')).toBeInTheDocument();
+  });
 });
 

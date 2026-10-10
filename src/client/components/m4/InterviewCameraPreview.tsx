@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Camera, CameraOff, Mic, MicOff, ShieldCheck, AlertCircle, 
-  Video, Eye, Volume2, Info 
+  Video, Eye, Volume2, Info, ChevronDown, ChevronUp, Sun, Sparkles, CheckCircle2 
 } from 'lucide-react';
 
 interface InterviewCameraPreviewProps {
@@ -18,6 +18,7 @@ export default function InterviewCameraPreview({
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState<number>(0);
+  const [showSetupGuide, setShowSetupGuide] = useState<boolean>(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -258,6 +259,69 @@ export default function InterviewCameraPreview({
           </div>
         </div>
       )}
+
+      {/* Presentation Setup Guidance Toggle */}
+      <div className="pt-1">
+        <button
+          type="button"
+          onClick={() => setShowSetupGuide(!showSetupGuide)}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#001522] hover:bg-[#002235] border border-[#063750] text-[11px] font-bold text-slate-300 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Sun className="w-3.5 h-3.5 text-[#FF4103]" />
+            <span>Camera & Microphone Presentation Setup Guide</span>
+          </div>
+          {showSetupGuide ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+        </button>
+
+        {showSetupGuide && (
+          <div className="mt-2 p-3 bg-[#00121d] rounded-xl border border-[#002d45] space-y-2.5 text-[11px]">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-slate-200">Front Lighting:</strong>
+                <p className="text-slate-400 text-[10px] mt-0.5 leading-relaxed">
+                  Position your primary light source in front of your face. Avoid sitting with bright windows directly behind you to prevent silhouetting.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-slate-200">Eye-Level Camera Framing:</strong>
+                <p className="text-slate-400 text-[10px] mt-0.5 leading-relaxed">
+                  Elevate your device so the camera is level with your eyes. Center your head and upper shoulders within the frame.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-slate-200">Acoustic Clarity & Noise:</strong>
+                <p className="text-slate-400 text-[10px] mt-0.5 leading-relaxed">
+                  Ensure a quiet room with minimal echo. Watch the green microphone level meter above while speaking to confirm audio responsiveness.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-slate-200">Speaking Pace & Articulation:</strong>
+                <p className="text-slate-400 text-[10px] mt-0.5 leading-relaxed">
+                  Aim for a measured delivery (~130–150 words/min) with deliberate pauses between structural points (e.g. Situation → Action → Result).
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-1.5 border-t border-[#00283d] text-[10px] text-slate-400 italic">
+              Note: This guide is purely for your personal professional presentation comfort. Evaluation evaluates job-relevant verbal evidence exclusively.
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Explicit Privacy & Ethical Charter Banner */}
       <div className="p-2.5 bg-[#00101a] border border-[#063750] rounded-xl flex items-start gap-2 text-[11px] text-slate-400">

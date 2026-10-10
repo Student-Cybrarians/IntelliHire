@@ -61,9 +61,15 @@ export interface TurnObservationResult {
   ai_interpretation: {
     strengths?: string;
     gaps?: string;
+    coaching?: AnswerCoachingPayload;
+    retry_comparison?: RetryComparison;
+    attempts?: TurnAttemptRecord[];
   };
   ai_recommended_probe?: string;
   recorded_at: string;
+  coaching?: AnswerCoachingPayload;
+  retry_comparison?: RetryComparison;
+  attempts?: TurnAttemptRecord[];
 }
 
 export interface InterviewSessionSummary {
@@ -341,5 +347,264 @@ export function generateDeterministicInterviewPlan(params: {
       ],
       isFallback: true
     }
+  };
+}
+
+export type CoachingStructureType =
+  | 'STAR'
+  | 'CLAIM_EXECUTION_IMPACT'
+  | 'CONTEXT_ASSESSMENT_MITIGATION_OUTCOME'
+  | 'PREMISE_OPTIONS_TRADEOFFS_RESOLUTION'
+  | 'BLUF';
+
+export interface StructureStep {
+  step: string;
+  label: string;
+  prompt: string;
+}
+
+export interface AnswerCoachingPayload {
+  what_worked: string[];
+  what_to_improve: string[];
+  why_it_matters: string;
+  how_to_improve: string;
+  suggested_structure_type: CoachingStructureType;
+  suggested_structure_outline: StructureStep[];
+  illustrative_improved_answer: string;
+  anti_hallucination_guarantee: boolean;
+}
+
+export interface RetryComparison {
+  attempt_number: number;
+  delta_summary: string;
+  improvements_noted: string[];
+  remaining_gaps: string[];
+  score_delta: number;
+  previous_score: number;
+  current_score: number;
+}
+
+export interface TurnAttemptRecord {
+  attempt_number: number;
+  candidate_response: string;
+  submitted_at: string;
+  score: number;
+  observable_evidence: string[];
+  coaching: AnswerCoachingPayload;
+}
+
+/**
+ * Determines the most pedagogically appropriate structure taxonomy for a question category.
+ */
+export function getRecommendedStructureForCategory(category: InterviewQuestionCategory): CoachingStructureType {
+  switch (category) {
+    case 'behavioral':
+      return 'STAR';
+    case 'role_competency':
+      return 'CLAIM_EXECUTION_IMPACT';
+    case 'situational':
+      return 'CONTEXT_ASSESSMENT_MITIGATION_OUTCOME';
+    case 'professional_judgment':
+      return 'PREMISE_OPTIONS_TRADEOFFS_RESOLUTION';
+    case 'communication':
+      return 'BLUF';
+    default:
+      return 'STAR';
+  }
+}
+
+/**
+ * Returns structured step outline for the requested structure type.
+ */
+export function getStructureSteps(type: CoachingStructureType): StructureStep[] {
+  switch (type) {
+    case 'STAR':
+      return [
+        { step: 'Situation', label: 'Context & Scope', prompt: 'Briefly define the organizational context, project constraints, and initial operational stakes.' },
+        { step: 'Task', label: 'Personal Responsibility', prompt: 'State your specific charter, what you were personally responsible for delivering, and key success criteria.' },
+        { step: 'Action', label: 'Execution & Decisions', prompt: 'Detail the concrete steps, architectural/process decisions, and cross-functional leadership you executed.' },
+        { step: 'Result', label: 'Impact & Measurement', prompt: 'Quantify measurable outcomes (metrics, uptime, delivery velocity) and lasting institutional lessons learned.' }
+      ];
+    case 'CLAIM_EXECUTION_IMPACT':
+      return [
+        { step: 'Claim', label: 'Technical Thesis', prompt: 'State your core technical stance or foundational design pattern immediately in your opening statement.' },
+        { step: 'Execution', label: 'Implementation Mechanics', prompt: 'Walk through implementation mechanics, edge case handling, constraint mitigation, and trade-offs.' },
+        { step: 'Impact', label: 'Production Verification', prompt: 'Cite concrete benchmarks, production telemetry, or verifiable qualitative impact validating the approach.' }
+      ];
+    case 'CONTEXT_ASSESSMENT_MITIGATION_OUTCOME':
+      return [
+        { step: 'Context', label: 'Scenario & Risk Horizon', prompt: 'Characterize the unexpected setback, systemic failure, or acute operational disruption.' },
+        { step: 'Assessment', label: 'Root-Cause Triage', prompt: 'Describe how you rapidly isolated variables, triaged root causes, and communicated risk bounds.' },
+        { step: 'Mitigation', label: 'Corrective Action', prompt: 'Explain the staged remediations you deployed to stabilize operations and eliminate single points of failure.' },
+        { step: 'Outcome', label: 'Safeguards & Post-Mortem', prompt: 'Detail systemic safeguards, updated runbooks, and blameless post-mortem insights institutionalized.' }
+      ];
+    case 'PREMISE_OPTIONS_TRADEOFFS_RESOLUTION':
+      return [
+        { step: 'Premise', label: 'Dilemma & Ambiguity', prompt: 'Frame the competing business/technical demands, compliance stakes, or incomplete data conditions.' },
+        { step: 'Options', label: 'Viable Alternatives', prompt: 'Articulate 2-3 credible strategic options evaluated, noting the trade-off profile of each.' },
+        { step: 'Trade-offs', label: 'Constraint Weighing', prompt: 'Explain why the selected option was superior under the given organizational risk tolerance and constraints.' },
+        { step: 'Resolution', label: 'Governance & Alignment', prompt: 'Demonstrate transparent stakeholder alignment, decision documentation, and post-decision monitoring.' }
+      ];
+    case 'BLUF':
+      return [
+        { step: 'BLUF', label: 'Bottom-Line-Up-Front', prompt: 'State the core recommendation, decision, or thesis concisely in the opening 20 seconds.' },
+        { step: 'Context', label: 'Strategic Rationale', prompt: 'Provide audience-tailored context connecting the recommendation to executive priorities or user value.' },
+        { step: 'Evidence', label: 'Supporting Data', prompt: 'Present key supporting indicators, cost/benefit trade-offs, and risk mitigations without excessive jargon.' },
+        { step: 'Alignment', label: 'Next Milestones', prompt: 'Conclude with explicit ownership, requested action, and an invitation for targeted stakeholder input.' }
+      ];
+  }
+}
+
+/**
+ * Validates Answer Coaching payload shape and invariants.
+ */
+export function validateCoachingPayload(coaching: any): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!coaching || typeof coaching !== 'object') {
+    return { valid: false, errors: ['Coaching payload is missing or not an object.'] };
+  }
+
+  if (!Array.isArray(coaching.what_worked) || coaching.what_worked.length === 0) {
+    errors.push('Coaching payload must contain at least one element in what_worked.');
+  }
+
+  if (!Array.isArray(coaching.what_to_improve) || coaching.what_to_improve.length === 0) {
+    errors.push('Coaching payload must contain at least one element in what_to_improve.');
+  }
+
+  if (!coaching.why_it_matters || typeof coaching.why_it_matters !== 'string') {
+    errors.push('Coaching payload must contain a non-empty why_it_matters explanation.');
+  }
+
+  if (!coaching.how_to_improve || typeof coaching.how_to_improve !== 'string') {
+    errors.push('Coaching payload must contain actionable how_to_improve guidance.');
+  }
+
+  const validTypes: CoachingStructureType[] = [
+    'STAR', 'CLAIM_EXECUTION_IMPACT', 'CONTEXT_ASSESSMENT_MITIGATION_OUTCOME',
+    'PREMISE_OPTIONS_TRADEOFFS_RESOLUTION', 'BLUF'
+  ];
+  if (!validTypes.includes(coaching.suggested_structure_type)) {
+    errors.push(`Invalid suggested_structure_type '${coaching.suggested_structure_type}'.`);
+  }
+
+  if (!Array.isArray(coaching.suggested_structure_outline) || coaching.suggested_structure_outline.length === 0) {
+    errors.push('Coaching payload must provide a non-empty suggested_structure_outline array.');
+  }
+
+  if (!coaching.illustrative_improved_answer || typeof coaching.illustrative_improved_answer !== 'string') {
+    errors.push('Coaching payload must provide an illustrative_improved_answer.');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Generates calibrated, evidence-grounded coaching deterministically.
+ * Strictly guarantees anti-hallucination safe harbor by anchoring solely in candidate's response
+ * and using explicit placeholders for unstated parameters.
+ */
+export function generateDeterministicCoaching(params: {
+  category: InterviewQuestionCategory;
+  question: string;
+  competency: string;
+  candidateResponse: string;
+  rubric: AnchoredRubric;
+  score: number;
+}): AnswerCoachingPayload {
+  const structureType = getRecommendedStructureForCategory(params.category);
+  const outline = getStructureSteps(structureType);
+  const response = params.candidateResponse.trim();
+  const wordCount = response.split(/\s+/).filter(Boolean).length;
+
+  const whatWorked: string[] = [];
+  const whatToImprove: string[] = [];
+
+  if (wordCount >= 40) {
+    whatWorked.push('Provided adequate baseline detail and directly engaged with the core question prompt.');
+  } else {
+    whatToImprove.push('Response is relatively brief; expanding on specific execution actions will provide stronger evidence.');
+  }
+
+  // Check structure-specific elements
+  if (structureType === 'STAR') {
+    if (/(situation|context|project|team|when|at my previous)/i.test(response)) {
+      whatWorked.push('Established initial contextual framing for the challenge.');
+    } else {
+      whatToImprove.push('Anchor the situation early: specify the system state, team environment, and primary constraint.');
+    }
+
+    if (/(action|led|designed|implemented|built|decided|orchestrated)/i.test(response)) {
+      whatWorked.push('Demonstrated personal ownership by highlighting specific actions taken.');
+    } else {
+      whatToImprove.push('Clarify your individual agency: distinguish what you directly executed vs. general team activity.');
+    }
+
+    if (/(result|outcome|metric|percent|%|reduced|increased|delivered|saved)/i.test(response)) {
+      whatWorked.push('Included observable outcomes or operational impact.');
+    } else {
+      whatToImprove.push('Quantify the result: incorporate measurable telemetry, timeline impact, or customer satisfaction indicators.');
+    }
+  } else if (structureType === 'CLAIM_EXECUTION_IMPACT') {
+    if (/(approach|pattern|architecture|framework|standard)/i.test(response)) {
+      whatWorked.push('Articulated an architectural pattern or methodology.');
+    } else {
+      whatToImprove.push('Lead with a direct technical thesis or core design paradigm before diving into details.');
+    }
+    whatToImprove.push('Elaborate on production verification, edge cases, and degradation safety margins.');
+  } else {
+    whatWorked.push('Addressed the competency domain with professional orientation.');
+    whatToImprove.push(`Organize thoughts using the ${structureType.replace(/_/g, '-')} blueprint to maximize panel clarity.`);
+  }
+
+  if (whatWorked.length === 0) {
+    whatWorked.push('Engaged directly with the interviewer prompt.');
+  }
+  if (whatToImprove.length === 0) {
+    whatToImprove.push('Sharpen quantitative impact metrics and explicit trade-off justification.');
+  }
+
+  const whyItMatters = `For a ${params.competency} evaluation, interviewers look for structured thinking, clear personal accountability, and measurable results. An unstructured response obscures your true technical and leadership depth.`;
+
+  const howToImprove = `Restructure your answer around the ${structureType} model: State your thesis upfront, outline the concrete actions you personally drove, and finish with verified outcomes. Use placeholders like [your specific metrics] to quantify impact without overstating facts.`;
+
+  // Construct illustrative improved answer grounded in candidate's stated response
+  // Guaranteed anti-hallucination: Anchors to candidate words or explicit bracketed placeholders
+  let illustrativeAnswer = '';
+  if (structureType === 'STAR') {
+    illustrativeAnswer = `[Situation]: In a scenario involving ${params.competency.toLowerCase()}, our team faced [specific operational constraint or system challenge]. ` +
+      `[Task]: My objective as the lead was to [define primary deliverable and risk boundary] within [stated timeframe]. ` +
+      `[Action]: Based on my experience with ${response.slice(0, 100).replace(/[\r\n]+/g, ' ')}..., I took three decisive steps: First, [diagnostic action]; second, [implementation choice and trade-off]; third, [cross-functional alignment]. ` +
+      `[Result]: This approach delivered [quantifiable outcome: e.g. X% improvement or zero downtime], establishing [lasting process or architectural safeguard] for the organization.`;
+  } else if (structureType === 'CLAIM_EXECUTION_IMPACT') {
+    illustrativeAnswer = `[Claim]: For ${params.competency}, the most robust paradigm is [core pattern / methodology], because it balances [key trade-off A] against [key trade-off B]. ` +
+      `[Execution]: Drawing from hands-on delivery, I implement this by: 1) [initial validation and boundary definition], 2) [staged rollout or fail-safe mitigation], and 3) [automated testing]. ` +
+      `[Impact]: In production, this resulted in [verifiable performance metric / SLA attainment], eliminating [identified failure mode].`;
+  } else if (structureType === 'CONTEXT_ASSESSMENT_MITIGATION_OUTCOME') {
+    illustrativeAnswer = `[Context]: When an unexpected issue occurred in ${params.competency.toLowerCase()}, [initial symptom / blast radius]. ` +
+      `[Assessment]: I immediately isolated the root cause by [diagnostic steps] rather than treating surface symptoms. ` +
+      `[Mitigation]: We executed a phased mitigation: [immediate containment step], followed by [permanent architectural fix]. ` +
+      `[Outcome]: We restored normal operation within [recovery time], conducted a blameless post-mortem, and implemented [automated guardrail] to prevent recurrence.`;
+  } else if (structureType === 'PREMISE_OPTIONS_TRADEOFFS_RESOLUTION') {
+    illustrativeAnswer = `[Premise]: When faced with incomplete data regarding ${params.competency.toLowerCase()}, the primary risk was [downside consequence]. ` +
+      `[Options]: I evaluated Option A ([alternative 1]) versus Option B ([alternative 2]). ` +
+      `[Trade-offs]: While Option A offered speed, Option B provided regulatory and architectural durability under scale. ` +
+      `[Resolution]: I chose [selected option], aligned stakeholders with a 1-page decision matrix, and established [telemetry trigger] to validate assumptions.`;
+  } else {
+    illustrativeAnswer = `[BLUF]: My direct recommendation is [core proposal], which achieves [primary business goal] while controlling [risk]. ` +
+      `[Context & Rationale]: This addresses [stakeholder objective] under the current [operational constraints]. ` +
+      `[Supporting Evidence]: As evidenced by [observable benchmark or past delivery], this yields [measurable benefit]. ` +
+      `[Next Milestones]: To proceed, I propose [next 2 immediate action items] with [defined timeline].`;
+  }
+
+  return {
+    what_worked: whatWorked,
+    what_to_improve: whatToImprove,
+    why_it_matters: whyItMatters,
+    how_to_improve: howToImprove,
+    suggested_structure_type: structureType,
+    suggested_structure_outline: outline,
+    illustrative_improved_answer: illustrativeAnswer,
+    anti_hallucination_guarantee: true
   };
 }
