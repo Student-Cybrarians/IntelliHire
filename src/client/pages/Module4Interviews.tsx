@@ -201,8 +201,8 @@ export default function Module4Interviews() {
           camera_enabled: cameraActive
         })
       });
-      const data = await res.json() as any;
-      if (data.success) {
+      const data = await res.json().catch(() => null) as any;
+      if (res.ok && data?.success) {
         setSessionId(data.session_id);
         setCurrentTurn(data.current_turn || 1);
         setTotalQuestions(data.total_questions || data.protocol?.question_sequence?.length || 10);
@@ -213,10 +213,10 @@ export default function Module4Interviews() {
         setHumanRating(4);
         setHumanNotes('');
       } else {
-        alert('Failed to initialize interview session');
+        setTurnError(data?.error || 'Failed to initialize interview session. Please try again.');
       }
     } catch (e) {
-      alert('Failed to start interview session');
+      setTurnError('Network error while starting interview session. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -649,6 +649,25 @@ export default function Module4Interviews() {
                 </div>
               )}
             </div>
+
+            {/* PRE-SESSION ERROR BANNER */}
+            {!sessionId && turnError && (
+              <div
+                role="alert"
+                className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-between text-xs text-red-300"
+              >
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{turnError}</span>
+                </div>
+                <button
+                  onClick={() => setTurnError(null)}
+                  className="text-red-400 hover:text-white font-bold px-2 py-0.5 rounded"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {/* PRE-SESSION BRIEFING: When no interview is actively running */}
             {!sessionId && (

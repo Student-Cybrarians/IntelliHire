@@ -1172,5 +1172,135 @@ describe('Priority 16: M04 Interaction / Interview Simulation & Enterprise Proto
     expect(data.retry_comparison.calibration_notice).toBeDefined();
     expect(data.retry_comparison.calibration_notice).toContain('Formative practice metric reflects rubric-aligned presentation guidance');
   });
+
+  it('33. Production D1 Constraints Regression: seed protocol and taxonomy domain plans satisfy interview_protocol FK and CHECK constraints before inserting interview_session', async () => {
+    const validDomains = new Set(['software', 'data', 'finance', 'operations', 'marketing', 'hr', 'healthcare_admin', 'general']);
+    const validTypes = new Set(['behavioral', 'situational', 'technical', 'functional', 'competency', 'structured_panel', 'stakeholder_negotiation', 'conflict_resolution', 'leadership_crisis', 'case_discussion']);
+    const insertedProtocols = new Set<string>();
+    const insertedUsers = new Set<string>(['candidate-user-1']);
+    const insertedOrgs = new Set<string>(['org-m4']);
+
+    const strictD1Env = {
+      DB: {
+        prepare: (query: string) => ({
+          bind: (...args: any[]) => ({
+            first: vi.fn().mockImplementation(async () => {
+              if (query.includes('user_account')) return { organization_id: 'org-m4' };
+              if (query.includes('candidate_profile')) {
+                return {
+                  id: 'prof-tax-1',
+                  user_id: 'candidate-user-1',
+                  target_role: 'Principal Platform Architect',
+                  primary_domain: 'Software & Technology', // Unnormalized taxonomy label
+                  experience_level: 'Principal / Staff (10+ Years)'
+                };
+              }
+              return null;
+            }),
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockImplementation(async () => {
+              if (query.includes('INSERT OR IGNORE INTO organization')) {
+                insertedOrgs.add(args[0]);
+              }
+              if (query.includes('INSERT OR IGNORE INTO user_account')) {
+                insertedUsers.add(args[0]);
+              }
+              if (query.includes('INSERT OR IGNORE INTO interview_protocol')) {
+                const [id, orgId, _title, _occupationCode, _targetRole, domain, interviewType] = args;
+                if (!insertedOrgs.has(orgId)) {
+                  throw new Error('D1_ERROR: FOREIGN KEY constraint failed: organization_id');
+                }
+                if (!validDomains.has(domain)) {
+                  throw new Error(`D1_ERROR: CHECK constraint failed: domain (${domain})`);
+                }
+                if (!validTypes.has(interviewType)) {
+                  throw new Error(`D1_ERROR: CHECK constraint failed: interview_type (${interviewType})`);
+                }
+                insertedProtocols.add(id);
+              }
+              if (query.includes('INSERT INTO interview_session')) {
+                const [_id, orgId, protocolId, candidateId, interviewerId] = args;
+                if (!insertedOrgs.has(orgId)) {
+                  throw new Error('D1_ERROR: FOREIGN KEY constraint failed: organization_id');
+                }
+                if (!insertedProtocols.has(protocolId)) {
+                  throw new Error(`D1_ERROR: FOREIGN KEY constraint failed: protocol_id (${protocolId})`);
+                }
+                if (!insertedUsers.has(candidateId) || !insertedUsers.has(interviewerId)) {
+                  throw new Error('D1_ERROR: FOREIGN KEY constraint failed: user_account');
+                }
+              }
+              return { success: true };
+            })
+          })
+        })
+      },
+      SESSION_KV: {
+        get: vi.fn().mockResolvedValue('candidate-token')
+      }
+    };
+
+    // Case A: Starting with a seed protocol ID ('proto-tech-arch-distributed')
+    const seedReq = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ protocol_id: 'proto-tech-arch-distributed', use_personalized_plan: false })
+    });
+    const seedRes = await app.request(seedReq, {}, strictD1Env as any);
+    expect(seedRes.status).toBe(200);
+    const seedData = await seedRes.json() as any;
+    expect(seedData.success).toBe(true);
+    expect(insertedProtocols.has('proto-tech-arch-distributed')).toBe(true);
+    expect(seedData.total_questions).toBe(10);
+    expect(seedData.plan.questions.length).toBe(10);
+    expect(seedData.plan.questions[0].question).toBe(seedData.first_question.question);
+
+    // Case B: Starting a personalized 10-question session with taxonomy domain 'Software & Technology'
+    const persReq = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_personalized_plan: true })
+    });
+    const persRes = await app.request(persReq, {}, strictD1Env as any);
+    expect(persRes.status).toBe(200);
+    const persData = await persRes.json() as any;
+    expect(persData.success).toBe(true);
+    expect(persData.total_questions).toBe(10);
+    expect(insertedProtocols.size).toBe(2);
+  });
+
+  it('34. Production Error Handling: POST /api/m4/interviews/sessions returns sanitized HTTP 500 JSON when D1 session insert fails', async () => {
+    const failingDbEnv = {
+      DB: {
+        prepare: (query: string) => ({
+          bind: () => ({
+            first: vi.fn().mockResolvedValue({ organization_id: 'org-m4' }),
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockImplementation(async () => {
+              if (query.includes('INSERT INTO interview_session')) {
+                throw new Error('D1_ERROR: simulated database outage');
+              }
+              return { success: true };
+            })
+          })
+        })
+      },
+      SESSION_KV: {
+        get: vi.fn().mockResolvedValue('candidate-token')
+      }
+    };
+
+    const req = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ protocol_id: 'proto-tech-arch-distributed' })
+    });
+    const res = await app.request(req, {}, failingDbEnv as any);
+    expect(res.status).toBe(500);
+    const data = await res.json() as any;
+    expect(data.success).toBe(false);
+    expect(data.error).toBe('Failed to start interview session. Please try again.');
+  });
 });
+
 

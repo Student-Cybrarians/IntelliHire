@@ -722,5 +722,38 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     expect(await screen.findByText(/How do you measure and alert on failover latency across regions\?/i)).toBeInTheDocument();
     expect(await screen.findByText(/Practice quantifying degradation metrics under network partition/i)).toBeInTheDocument();
   });
+
+  it('displays an accessible error alert banner when starting an interview session fails', async () => {
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'c1', role: 'candidate', full_name: 'Alex Mercer' } })
+        });
+      }
+      if (url === '/api/m4/interviews/sessions' && opts?.method === 'POST') {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({
+            success: false,
+            error: 'Failed to start interview session. Please try again.'
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    const launchBtn = await screen.findByRole('button', { name: /Begin 10-Question Personalized Interview/i });
+    fireEvent.click(launchBtn);
+
+    const alertBanner = await screen.findByRole('alert');
+    expect(alertBanner).toBeInTheDocument();
+    expect(alertBanner).toHaveTextContent('Failed to start interview session. Please try again.');
+  });
 });
+
 

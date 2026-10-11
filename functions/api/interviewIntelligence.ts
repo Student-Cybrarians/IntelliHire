@@ -83,6 +83,8 @@ Return ONLY valid JSON matching this schema:
   "anti_hallucination_guarantee": true
 }`;
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -97,8 +99,9 @@ Return ONLY valid JSON matching this schema:
           ],
           temperature: 0.2,
           max_tokens: 1500
-        })
-      });
+        }),
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
 
       if (aiResp.ok) {
         const aiData = await aiResp.json() as any;
@@ -203,6 +206,8 @@ Return ONLY valid JSON matching this schema:
   "probe_category": "${params.category}"
 }`;
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -217,8 +222,9 @@ Return ONLY valid JSON matching this schema:
           ],
           temperature: 0.2,
           max_tokens: 600
-        })
-      });
+        }),
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
 
       if (aiResp.ok) {
         const aiData = await aiResp.json() as any;
@@ -310,6 +316,8 @@ Return ONLY valid JSON matching this structure:
   "questions": [ ...exactly 10 question objects... ]
 }`;
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -324,8 +332,9 @@ Return ONLY valid JSON matching this structure:
           ],
           temperature: 0.2,
           max_tokens: 4096
-        })
-      });
+        }),
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
 
       if (aiResp.ok) {
         const aiData = await aiResp.json() as any;
@@ -523,6 +532,81 @@ export const SEED_PROTOCOLS: InterviewProtocol[] = [
   }
 ];
 
+export const VALID_M4_DB_DOMAINS = [
+  'software', 'data', 'finance', 'operations', 'marketing', 'hr', 'healthcare_admin', 'general'
+] as const;
+
+export const VALID_M4_DB_INTERVIEW_TYPES = [
+  'behavioral', 'situational', 'technical', 'functional',
+  'competency', 'structured_panel', 'stakeholder_negotiation',
+  'conflict_resolution', 'leadership_crisis', 'case_discussion'
+] as const;
+
+export function normalizeProtocolDbDomain(domain?: string): string {
+  const raw = (domain || 'general').toLowerCase().trim();
+  if ((VALID_M4_DB_DOMAINS as readonly string[]).includes(raw)) return raw;
+  if (/soft|tech|eng|cloud|cyber|it|dev|sys|arch|code|web/.test(raw)) return 'software';
+  if (/data|analyt|ml|ai|scien|research|stat|bi/.test(raw)) return 'data';
+  if (/fin|account|bank|invest|audit|tax|capital|treasur/.test(raw)) return 'finance';
+  if (/health|clinic|med|nurs|pharma|hospital|patient/.test(raw)) return 'healthcare_admin';
+  if (/ops|operat|supply|logist|manufact|procure|project|program/.test(raw)) return 'operations';
+  if (/market|sales|growth|brand|comm|pr|advertis|customer/.test(raw)) return 'marketing';
+  if (/hr|human|people|talent|recruit|org|train/.test(raw)) return 'hr';
+  return 'general';
+}
+
+export function normalizeProtocolDbInterviewType(interviewType?: string): string {
+  const raw = (interviewType || 'structured_panel').toLowerCase().trim();
+  if ((VALID_M4_DB_INTERVIEW_TYPES as readonly string[]).includes(raw)) return raw;
+  return 'structured_panel';
+}
+
+function normalizeUserAccountRole(role?: string): string {
+  const validRoles = ['platform_admin', 'org_admin', 'recruiter', 'hiring_manager', 'interviewer', 'candidate'];
+  const raw = (role || 'candidate').toLowerCase().trim();
+  if (validRoles.includes(raw)) return raw;
+  if (raw === 'admin') return 'org_admin';
+  return 'candidate';
+}
+
+export async function ensureInterviewProtocolInDb(
+  db: any,
+  params: {
+    id: string;
+    organization_id: string;
+    title: string;
+    occupation_code?: string | null;
+    target_role: string;
+    domain: string;
+    interview_type?: string;
+    seniority_level?: string;
+    panel_roles: string[];
+    competency_targets: any[];
+    question_sequence: any[];
+  }
+) {
+  const dbDomain = normalizeProtocolDbDomain(params.domain);
+  const dbInterviewType = normalizeProtocolDbInterviewType(params.interview_type);
+
+  await db.prepare(
+    `INSERT OR IGNORE INTO interview_protocol 
+     (id, organization_id, title, occupation_code, target_role, domain, interview_type, seniority_level, panel_roles_json, competency_targets_json, question_sequence_json, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+  ).bind(
+    params.id,
+    params.organization_id,
+    params.title,
+    params.occupation_code || null,
+    params.target_role,
+    dbDomain,
+    dbInterviewType,
+    params.seniority_level || 'mid',
+    JSON.stringify(params.panel_roles || ['Hiring Manager']),
+    JSON.stringify(params.competency_targets || []),
+    JSON.stringify(params.question_sequence || [])
+  ).run();
+}
+
 export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindings }>) {
 
   // Helper: Enforce participant and tenant authorization for interview sessions
@@ -533,7 +617,7 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     }
 
     const isParticipant = session.candidate_user_id === user.id || session.interviewer_user_id === user.id;
-    const isOrgAuthorized = (user.role === 'recruiter' || user.role === 'admin') && 
+    const isOrgAuthorized = (user.role === 'recruiter' || user.role === 'admin' || user.role === 'org_admin') && 
                             Boolean(user.organization_id && session.organization_id && user.organization_id === session.organization_id);
 
     if (!isParticipant && !isOrgAuthorized) {
@@ -568,44 +652,59 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
     // Get candidate profile
-    const profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+    let profile: any = null;
+    try {
+      profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(user.id).first();
+    } catch (_) {}
 
     // M01 Claims
-    const claims = await c.env.DB.prepare(
-      `SELECT cl.* FROM candidate_claim cl
-       JOIN candidate_context ctx ON cl.context_id = ctx.id
-       WHERE ctx.user_id = ? LIMIT 10`
-    ).bind(user.id).all();
+    let claims: any = { results: [] };
+    try {
+      claims = await c.env.DB.prepare(
+        `SELECT cl.* FROM candidate_claim cl
+         JOIN candidate_context ctx ON cl.context_id = ctx.id
+         WHERE ctx.user_id = ? LIMIT 10`
+      ).bind(user.id).all();
+    } catch (_) {}
 
     // M02 Proficiencies & Misconceptions
-    const proficiencies = await c.env.DB.prepare(
-      `SELECT p.*, s.name as skill_name, c.name as competency_name 
-       FROM candidate_skill_proficiency_v2 p
-       LEFT JOIN skill s ON p.skill_id = s.id
-       LEFT JOIN competency c ON s.competency_id = c.id
-       WHERE p.user_id = ?`
-    ).bind(user.id).all();
+    let proficiencies: any = { results: [] };
+    try {
+      proficiencies = await c.env.DB.prepare(
+        `SELECT p.*, s.name as skill_name, c.name as competency_name 
+         FROM candidate_skill_proficiency_v2 p
+         LEFT JOIN skill s ON p.skill_id = s.id
+         LEFT JOIN competency c ON s.competency_id = c.id
+         WHERE p.user_id = ?`
+      ).bind(user.id).all();
+    } catch (_) {}
 
-    const misconceptions = await c.env.DB.prepare(
-      `SELECT e.evaluation_json, s.name as skill_name 
-       FROM assessment_evaluation e
-       JOIN assessment_response_v2 r ON e.response_id = r.id
-       JOIN assessment_attempt a ON r.attempt_id = a.id
-       JOIN assessment_item_v2 i ON r.item_id = i.id
-       LEFT JOIN skill s ON i.skill_id = s.id
-       WHERE a.user_id = ? ORDER BY e.created_at DESC LIMIT 5`
-    ).bind(user.id).all();
+    let misconceptions: any = { results: [] };
+    try {
+      misconceptions = await c.env.DB.prepare(
+        `SELECT e.evaluation_json, s.name as skill_name 
+         FROM assessment_evaluation e
+         JOIN assessment_response_v2 r ON e.response_id = r.id
+         JOIN assessment_attempt a ON r.attempt_id = a.id
+         JOIN assessment_item_v2 i ON r.item_id = i.id
+         LEFT JOIN skill s ON i.skill_id = s.id
+         WHERE a.user_id = ? ORDER BY e.created_at DESC LIMIT 5`
+      ).bind(user.id).all();
+    } catch (_) {}
 
     // M03 Simulations Completed
-    const simulations = await c.env.DB.prepare(
-      `SELECT ev.overall_score, ev.dimension_scores_json, ev.observable_evidence_json, def.title, def.domain, def.simulation_type
-       FROM simulation_evaluation ev
-       JOIN simulation_definition def ON ev.definition_id = def.id
-       WHERE ev.user_id = ? ORDER BY ev.created_at DESC LIMIT 5`
-    ).bind(user.id).all();
+    let simulations: any = { results: [] };
+    try {
+      simulations = await c.env.DB.prepare(
+        `SELECT ev.overall_score, ev.dimension_scores_json, ev.observable_evidence_json, def.title, def.domain, def.simulation_type
+         FROM simulation_evaluation ev
+         JOIN simulation_definition def ON ev.definition_id = def.id
+         WHERE ev.user_id = ? ORDER BY ev.created_at DESC LIMIT 5`
+      ).bind(user.id).all();
+    } catch (_) {}
 
     const harvestedMisconceptions: string[] = [];
-    (misconceptions.results || []).forEach((m: any) => {
+    (misconceptions?.results || []).forEach((m: any) => {
       try {
         const parsed = JSON.parse(m.evaluation_json || '{}');
         if (parsed.teaching_payload?.misconception_remediation && parsed.teaching_payload.misconception_remediation !== 'N/A') {
@@ -614,13 +713,17 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
       } catch (_) {}
     });
 
-    const parsedSimulations = (simulations.results || []).map((s: any) => ({
-      title: s.title,
-      domain: s.domain,
-      type: s.simulation_type,
-      score: Math.round(Number(s.overall_score) * 100),
-      evidence: JSON.parse((s.observable_evidence_json as string) || '{}')
-    }));
+    const parsedSimulations = (simulations?.results || []).map((s: any) => {
+      let parsedEv = {};
+      try { parsedEv = JSON.parse((s.observable_evidence_json as string) || '{}'); } catch (_) {}
+      return {
+        title: s.title,
+        domain: s.domain,
+        type: s.simulation_type,
+        score: Math.round(Number(s.overall_score) * 100),
+        evidence: parsedEv
+      };
+    });
 
     return c.json({
       success: true,
@@ -631,8 +734,8 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         domain: profile?.primary_domain || 'General',
         experience_level: profile?.experience_level || 'mid',
         readiness_score: Math.round(Number(profile?.readiness_score || 0.72) * 100),
-        m01_verified_claims_count: (claims.results || []).length,
-        m02_proficiencies: (proficiencies.results || []).map((p: any) => ({
+        m01_verified_claims_count: (claims?.results || []).length,
+        m02_proficiencies: (proficiencies?.results || []).map((p: any) => ({
           skill: p.skill_name || p.skill_id,
           competency: p.competency_name || 'Domain Competency',
           estimate: Math.round((p.proficiency_estimate || 0.5) * 100),
@@ -646,146 +749,207 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
 
   // 3. Start or Schedule Structured Interview Session (Supports Seed Protocols & Personalized 10-Question Generator)
   app.post('/m4/interviews/sessions', async (c) => {
-    const user = await getSessionUser(c);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
-    const dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
-    const orgId = (dbUser?.organization_id as string) || 'org_default_public';
+      let dbUser: any = null;
+      try {
+        dbUser = await c.env.DB.prepare('SELECT organization_id FROM user_account WHERE id = ?').bind(user.id).first();
+      } catch (_) {}
+      const orgId = (dbUser?.organization_id as string) || (user as any).organization_id || 'org_default_public';
 
-    const { protocol_id, candidate_user_id, requisition_id, personalized, camera_enabled } = await c.req.json().catch(() => ({}));
-    let targetCandidateId = user.id;
-    if (candidate_user_id && candidate_user_id !== user.id) {
-      if (user.role !== 'recruiter' && user.role !== 'admin') {
-        return c.json({ error: 'Forbidden: Candidates cannot schedule interviews for other candidates' }, 403);
-      }
-      targetCandidateId = candidate_user_id;
-    }
-
-    // Check if an existing seed protocol was explicitly requested without personalization
-    const seedProtocol = protocol_id && protocol_id !== 'personalized' && protocol_id !== 'auto'
-      ? SEED_PROTOCOLS.find(p => p.id === protocol_id)
-      : null;
-
-    let plan: InterviewPlan;
-    let activeRole: string;
-    let firstQuestion: any;
-    let protoId: string;
-
-    if (seedProtocol && personalized !== true) {
-      protoId = seedProtocol.id;
-      activeRole = seedProtocol.panel_roles[0] || 'Hiring Manager';
-      firstQuestion = seedProtocol.question_sequence[0] || null;
-      plan = {
-        planId: seedProtocol.id,
-        targetRole: seedProtocol.target_role,
-        domain: seedProtocol.domain,
-        seniority: seedProtocol.seniority_level,
-        totalQuestions: 10,
-        questions: seedProtocol.question_sequence.length === 10
-          ? seedProtocol.question_sequence as any
-          : generateDeterministicInterviewPlan({
-              targetRole: seedProtocol.target_role,
-              domain: seedProtocol.domain,
-              seniority: seedProtocol.seniority_level
-            }).questions,
-        provenance: {
-          generatedAt: new Date().toISOString(),
-          modelUsed: 'seed-protocol-grounded',
-          personalizationInputs: [seedProtocol.id],
-          isFallback: true
+      const { protocol_id, candidate_user_id, requisition_id, personalized, camera_enabled } = await c.req.json().catch(() => ({}));
+      let targetCandidateId = user.id;
+      if (candidate_user_id && candidate_user_id !== user.id) {
+        if (user.role !== 'recruiter' && user.role !== 'admin' && user.role !== 'org_admin') {
+          return c.json({ error: 'Forbidden: Candidates cannot schedule interviews for other candidates' }, 403);
         }
-      };
-    } else {
-      // Load candidate profile context from DB
-      const profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(targetCandidateId).first();
-      const claims = await c.env.DB.prepare(
-        `SELECT cl.claim_value FROM candidate_claim cl
-         JOIN candidate_context ctx ON cl.context_id = ctx.id
-         WHERE ctx.user_id = ? LIMIT 10`
-      ).bind(targetCandidateId).all();
-      const proficiencies = await c.env.DB.prepare(
-        `SELECT s.name as skill_name FROM candidate_skill_proficiency_v2 p
-         LEFT JOIN skill s ON p.skill_id = s.id
-         WHERE p.user_id = ?`
-      ).bind(targetCandidateId).all();
+        targetCandidateId = candidate_user_id;
+      }
 
-      const candidateSkills = [
-        ...((claims.results || []).map((r: any) => r.claim_value).filter(Boolean)),
-        ...((proficiencies.results || []).map((r: any) => r.skill_name).filter(Boolean))
-      ];
+      // Check if an existing seed protocol was explicitly requested without personalization
+      const seedProtocol = protocol_id && protocol_id !== 'personalized' && protocol_id !== 'auto'
+        ? SEED_PROTOCOLS.find(p => p.id === protocol_id)
+        : null;
 
-      const generated = await generatePersonalized10QuestionPlan(c.env, {
-        targetRole: (profile?.target_role as string) || 'Senior Professional',
-        domain: (profile?.primary_domain as string) || 'software',
-        seniority: (profile?.experience_level as string) || 'senior',
-        skills: Array.from(new Set(candidateSkills)).slice(0, 5),
-        bio: profile?.bio as string
-      });
+      let plan: InterviewPlan;
+      let activeRole: string;
+      let firstQuestion: any;
+      let protoId: string;
 
-      plan = generated.plan;
-      protoId = plan.planId;
-      activeRole = plan.questions[0].panel_role;
-      firstQuestion = plan.questions[0];
-    }
+      if (seedProtocol && personalized !== true) {
+        protoId = seedProtocol.id;
+        activeRole = seedProtocol.panel_roles[0] || 'Hiring Manager';
+        firstQuestion = seedProtocol.question_sequence[0] || null;
+        const fallbackQuestions = generateDeterministicInterviewPlan({
+          targetRole: seedProtocol.target_role,
+          domain: seedProtocol.domain,
+          seniority: seedProtocol.seniority_level
+        }).questions;
+        const mergedQuestions = seedProtocol.question_sequence.length === 10
+          ? (seedProtocol.question_sequence as any)
+          : [
+              ...seedProtocol.question_sequence.map((q, idx) => ({
+                ...q,
+                turn: idx + 1,
+                category: (q as any).category || q.question_type || 'situational'
+              })),
+              ...fallbackQuestions.slice(seedProtocol.question_sequence.length).map((q, idx) => ({
+                ...q,
+                turn: seedProtocol.question_sequence.length + idx + 1
+              }))
+            ];
+        plan = {
+          planId: seedProtocol.id,
+          targetRole: seedProtocol.target_role,
+          domain: seedProtocol.domain,
+          seniority: seedProtocol.seniority_level,
+          totalQuestions: 10,
+          questions: mergedQuestions,
+          provenance: {
+            generatedAt: new Date().toISOString(),
+            modelUsed: 'seed-protocol-grounded',
+            personalizationInputs: [seedProtocol.id],
+            isFallback: true
+          }
+        };
+      } else {
+        // Load candidate profile context from DB (defensively isolated)
+        let profile: any = null;
+        let claims: any = { results: [] };
+        let proficiencies: any = { results: [] };
 
-    const sessionId = crypto.randomUUID();
+        try {
+          profile = await c.env.DB.prepare('SELECT * FROM candidate_profile WHERE user_id = ?').bind(targetCandidateId).first();
+        } catch (_) {}
+        try {
+          claims = await c.env.DB.prepare(
+            `SELECT cl.claim_value FROM candidate_claim cl
+             JOIN candidate_context ctx ON cl.context_id = ctx.id
+             WHERE ctx.user_id = ? LIMIT 10`
+          ).bind(targetCandidateId).all();
+        } catch (_) {}
+        try {
+          proficiencies = await c.env.DB.prepare(
+            `SELECT s.name as skill_name FROM candidate_skill_proficiency_v2 p
+             LEFT JOIN skill s ON p.skill_id = s.id
+             WHERE p.user_id = ?`
+          ).bind(targetCandidateId).all();
+        } catch (_) {}
 
-    // Persist custom protocol if not already in seed protocols
-    if (!seedProtocol) {
+        const candidateSkills = [
+          ...((claims?.results || []).map((r: any) => r.claim_value).filter(Boolean)),
+          ...((proficiencies?.results || []).map((r: any) => r.skill_name).filter(Boolean))
+        ];
+
+        const generated = await generatePersonalized10QuestionPlan(c.env, {
+          targetRole: (profile?.target_role as string) || seedProtocol?.target_role || 'Senior Professional',
+          domain: (profile?.primary_domain as string) || seedProtocol?.domain || 'software',
+          seniority: (profile?.experience_level as string) || seedProtocol?.seniority_level || 'senior',
+          skills: Array.from(new Set(candidateSkills)).slice(0, 5),
+          bio: profile?.bio as string
+        });
+
+        plan = generated.plan;
+        protoId = plan.planId;
+        activeRole = plan.questions[0].panel_role;
+        firstQuestion = plan.questions[0];
+      }
+
+      const sessionId = crypto.randomUUID();
+
+      // Self-heal organization and user_account rows to guarantee FK integrity on interview_session
       await c.env.DB.prepare(
-        `INSERT INTO interview_protocol 
-         (id, organization_id, title, target_role, domain, interview_type, seniority_level, panel_roles_json, competency_targets_json, question_sequence_json, is_active)
-         VALUES (?, ?, ?, ?, ?, 'structured_10_question', ?, ?, ?, ?, 1)`
+        `INSERT OR IGNORE INTO organization (id, name, slug, tier) VALUES (?, 'IntelliHire Public Sandbox', ?, 'free')`
+      ).bind(orgId, `org-${orgId}`).run().catch(() => {});
+
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO user_account (id, organization_id, email, full_name, role, onboarding_completed)
+         VALUES (?, ?, ?, ?, ?, 1)`
       ).bind(
-        protoId,
+        user.id,
         orgId,
-        `${plan.targetRole} Structured 10-Question Interview`,
-        plan.targetRole,
-        plan.domain,
-        plan.seniority,
-        JSON.stringify(Array.from(new Set(plan.questions.map(q => q.panel_role)))),
-        JSON.stringify(plan.questions.map(q => ({ name: q.competency, description: q.probe_intent, weight: 0.1 }))),
-        JSON.stringify(plan.questions)
+        user.email || `${user.id}@intellihire.local`,
+        user.full_name || 'Candidate',
+        normalizeUserAccountRole(user.role)
       ).run().catch(() => {});
-    }
 
-    await c.env.DB.prepare(
-      `INSERT INTO interview_session 
-       (id, organization_id, protocol_id, candidate_user_id, interviewer_user_id, requisition_id, status, active_panel_role, current_turn, evidence_summary_json)
-       VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?, 1, ?)`
-    ).bind(
-      sessionId,
-      orgId,
-      protoId,
-      targetCandidateId,
-      user.id,
-      requisition_id || null,
-      activeRole,
-      JSON.stringify({ plan, camera_enabled: Boolean(camera_enabled) })
-    ).run();
+      if (targetCandidateId !== user.id) {
+        await c.env.DB.prepare(
+          `INSERT OR IGNORE INTO user_account (id, organization_id, email, full_name, role, onboarding_completed)
+           VALUES (?, ?, ?, 'Candidate', 'candidate', 1)`
+        ).bind(targetCandidateId, orgId, `${targetCandidateId}@intellihire.local`).run().catch(() => {});
+      }
 
-    await logAuditEvent(c, orgId, user.id, 'START', 'INTERVIEW_SESSION', sessionId, { protocol_id: protoId, total_questions: plan.questions.length });
-
-    return c.json({
-      success: true,
-      session_id: sessionId,
-      protocol: seedProtocol || {
+      // Self-heal interview_protocol row (for BOTH seed protocols and personalized plans)
+      // Normalizes domain & interview_type to strictly satisfy production D1 CHECK constraints and FK on interview_session.protocol_id
+      await ensureInterviewProtocolInDb(c.env.DB, {
         id: protoId,
-        title: `${plan.targetRole} Structured 10-Question Interview`,
+        organization_id: orgId,
+        title: seedProtocol && personalized !== true
+          ? seedProtocol.title
+          : `${plan.targetRole} Structured 10-Question Interview`,
+        occupation_code: seedProtocol?.occupation_code || null,
         target_role: plan.targetRole,
         domain: plan.domain,
-        interview_type: 'structured_10_question',
+        interview_type: seedProtocol && personalized !== true ? seedProtocol.interview_type : 'structured_panel',
         seniority_level: plan.seniority,
         panel_roles: Array.from(new Set(plan.questions.map(q => q.panel_role))),
-        competency_targets: plan.questions.map(q => ({ name: q.competency, description: q.probe_intent, weight: 0.1 })),
+        competency_targets: seedProtocol && personalized !== true
+          ? seedProtocol.competency_targets
+          : plan.questions.map(q => ({ name: q.competency, description: q.probe_intent, weight: 0.1 })),
         question_sequence: plan.questions
-      },
-      active_panel_role: activeRole,
-      current_turn: 1,
-      total_questions: plan.questions.length,
-      first_question: firstQuestion,
-      plan
-    });
+      });
+
+      await c.env.DB.prepare(
+        `INSERT INTO interview_session 
+         (id, organization_id, protocol_id, candidate_user_id, interviewer_user_id, requisition_id, status, active_panel_role, current_turn, evidence_summary_json)
+         VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?, 1, ?)`
+      ).bind(
+        sessionId,
+        orgId,
+        protoId,
+        targetCandidateId,
+        user.id,
+        requisition_id || null,
+        activeRole,
+        JSON.stringify({ plan, camera_enabled: Boolean(camera_enabled) })
+      ).run();
+
+      try {
+        await logAuditEvent(c, orgId, user.id, 'START', 'INTERVIEW_SESSION', sessionId, { protocol_id: protoId, total_questions: plan.questions.length });
+      } catch (auditErr: any) {
+        console.warn('Non-fatal audit log warning on M04 session start:', auditErr?.message || auditErr);
+      }
+
+      return c.json({
+        success: true,
+        session_id: sessionId,
+        protocol: (seedProtocol && personalized !== true) ? seedProtocol : {
+          id: protoId,
+          title: `${plan.targetRole} Structured 10-Question Interview`,
+          target_role: plan.targetRole,
+          domain: plan.domain,
+          interview_type: 'structured_10_question',
+          seniority_level: plan.seniority,
+          panel_roles: Array.from(new Set(plan.questions.map(q => q.panel_role))),
+          competency_targets: plan.questions.map(q => ({ name: q.competency, description: q.probe_intent, weight: 0.1 })),
+          question_sequence: plan.questions
+        },
+        active_panel_role: activeRole,
+        current_turn: 1,
+        total_questions: plan.questions.length,
+        first_question: firstQuestion,
+        plan
+      });
+    } catch (err: any) {
+      console.error('Error starting M04 interview session:', err?.message || err);
+      return c.json({
+        success: false,
+        error: 'Failed to start interview session. Please try again.'
+      }, 500);
+    }
   });
 
   // 3b. Active Interview Session Recovery (Page Refresh & Resume)
@@ -1037,6 +1201,8 @@ Return ONLY valid JSON matching:
   "recommended_follow_up_probe": "<sharp probing question to challenge an assumption or uncover depth>"
 }`;
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
         const aiResp = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -1051,8 +1217,9 @@ Return ONLY valid JSON matching:
             ],
             temperature: 0.2,
             max_tokens: 800
-          })
-        });
+          }),
+          signal: controller.signal
+        }).finally(() => clearTimeout(timeoutId));
 
         if (aiResp.ok) {
           const aiData = await aiResp.json() as any;
