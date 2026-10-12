@@ -569,6 +569,83 @@ function normalizeUserAccountRole(role?: string): string {
   return 'candidate';
 }
 
+export async function ensureM4SchemaInDb(db: any) {
+  const ddlStatements = [
+    `CREATE TABLE IF NOT EXISTS interview_protocol (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      occupation_code TEXT,
+      target_role TEXT NOT NULL,
+      domain TEXT NOT NULL,
+      interview_type TEXT NOT NULL DEFAULT 'structured_panel',
+      seniority_level TEXT NOT NULL DEFAULT 'mid',
+      panel_roles_json TEXT NOT NULL DEFAULT '["Hiring Manager", "Domain Expert"]',
+      competency_targets_json TEXT NOT NULL DEFAULT '[]',
+      question_sequence_json TEXT NOT NULL DEFAULT '[]',
+      rubric_anchors_json TEXT NOT NULL DEFAULT '{}',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS interview_session (
+      id TEXT PRIMARY KEY,
+      organization_id TEXT NOT NULL,
+      protocol_id TEXT NOT NULL,
+      candidate_user_id TEXT NOT NULL,
+      interviewer_user_id TEXT NOT NULL,
+      requisition_id TEXT,
+      status TEXT NOT NULL DEFAULT 'in_progress',
+      active_panel_role TEXT DEFAULT 'Hiring Manager',
+      current_turn INTEGER NOT NULL DEFAULT 1,
+      evidence_summary_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS interview_observation (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      turn_number INTEGER NOT NULL,
+      interviewer_role TEXT NOT NULL,
+      question_text TEXT NOT NULL,
+      question_type TEXT NOT NULL,
+      candidate_response TEXT NOT NULL,
+      observable_evidence_json TEXT NOT NULL DEFAULT '[]',
+      rubric_evaluation_json TEXT NOT NULL DEFAULT '{}',
+      ai_interpretation_json TEXT NOT NULL DEFAULT '{}',
+      ai_recommended_probe TEXT,
+      human_rating REAL,
+      human_notes TEXT,
+      confidence_score REAL NOT NULL DEFAULT 0.85,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS interview_synthesis (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      candidate_user_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      overall_rating REAL NOT NULL,
+      competency_coverage_json TEXT NOT NULL DEFAULT '{}',
+      strengths_json TEXT NOT NULL DEFAULT '[]',
+      gaps_json TEXT NOT NULL DEFAULT '[]',
+      unanswered_areas_json TEXT NOT NULL DEFAULT '[]',
+      human_review_notes TEXT,
+      m05_evidence_package_json TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  ];
+
+  for (const sql of ddlStatements) {
+    try {
+      const stmt = db.prepare(sql);
+      if (typeof stmt?.run === 'function') {
+        await stmt.run();
+      } else if (typeof stmt?.bind === 'function') {
+        await stmt.bind().run();
+      }
+    } catch (_) {}
+  }
+}
+
 export async function ensureInterviewProtocolInDb(
   db: any,
   params: {
@@ -585,6 +662,7 @@ export async function ensureInterviewProtocolInDb(
     question_sequence: any[];
   }
 ) {
+  await ensureM4SchemaInDb(db);
   const dbDomain = normalizeProtocolDbDomain(params.domain);
   const dbInterviewType = normalizeProtocolDbInterviewType(params.interview_type);
 
@@ -862,6 +940,10 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
       // Self-heal organization and user_account rows to guarantee FK integrity on interview_session
       await c.env.DB.prepare(
         `INSERT OR IGNORE INTO organization (id, name, slug, tier) VALUES (?, 'IntelliHire Public Sandbox', ?, 'free')`
+      ).bind(orgId, orgId === 'org_default_public' ? 'public-sandbox' : `org-${orgId}`).run().catch(() => {});
+
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO organization (id, name, slug, tier) VALUES (?, 'IntelliHire Public Sandbox', ?, 'free')`
       ).bind(orgId, `org-${orgId}`).run().catch(() => {});
 
       await c.env.DB.prepare(
@@ -871,6 +953,18 @@ export function registerInterviewIntelligenceRoutes(app: Hono<{ Bindings: Bindin
         user.id,
         orgId,
         user.email || `${user.id}@intellihire.local`,
+        user.full_name || 'Candidate',
+        normalizeUserAccountRole(user.role)
+      ).run().catch(() => {});
+
+      // Fallback if user.email already existed under a different id in user_account
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO user_account (id, organization_id, email, full_name, role, onboarding_completed)
+         VALUES (?, ?, ?, ?, ?, 1)`
+      ).bind(
+        user.id,
+        orgId,
+        `${user.id}@intellihire.local`,
         user.full_name || 'Candidate',
         normalizeUserAccountRole(user.role)
       ).run().catch(() => {});
