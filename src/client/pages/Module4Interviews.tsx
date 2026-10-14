@@ -137,7 +137,17 @@ export default function Module4Interviews() {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [simSessions, setSimSessions] = useState<any[]>([]);
   const [trackFilter, setTrackFilter] = useState<'all' | 'hr_mock' | 'technical_sim'>('all');
-  const [showWorkspaceDuringSession, setShowWorkspaceDuringSession] = useState<boolean>(false);
+  const [showWorkspaceDuringSession, setShowWorkspaceDuringSession] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'cockpit' || params.get('room')) return false;
+      if (params.get('mode') === 'workspace') return true;
+    }
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
+      return false;
+    }
+    return true;
+  });
 
   // Parse URL search parameters for direct room joins (?room=...&token=...)
   useEffect(() => {

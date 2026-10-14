@@ -67,6 +67,7 @@ export default function Module3Simulation() {
   const [simulationHistory, setSimulationHistory] = useState<any[]>([]);
   const [simulationStats, setSimulationStats] = useState<any>({ total: 0, completed: 0, average_score: null });
   const [simSearchQuery, setSimSearchQuery] = useState('');
+  const [activeSessionSummary, setActiveSessionSummary] = useState<any>(null);
 
   const loadDefinitions = async () => {
     setLoading(true);
@@ -95,50 +96,54 @@ export default function Module3Simulation() {
     }
   };
 
+  const resumeActiveSession = (s: any) => {
+    if (!s || !s.definition) return;
+    setActiveSim(s.definition);
+    setSessionId(s.id);
+    setCurrentStep(s.current_step || 1);
+
+    let initialWork = s.candidate_work || s.definition?.scenario?.starting_data || {};
+    try {
+      const localDraft = localStorage.getItem(`m3_draft_${s.id}`);
+      if (localDraft) {
+        const parsedDraft = JSON.parse(localDraft);
+        if (parsedDraft && Object.keys(parsedDraft).length > 0) {
+          initialWork = parsedDraft;
+        }
+      }
+    } catch (_) {}
+
+    setCandidateWork(initialWork);
+    setTelemetryCount(s.telemetry_events_count || 0);
+    if (s.dynamic_state?.injected) {
+      setDynamicAlert(s.dynamic_state.injection);
+    }
+    if (s.dynamic_state?.current_round_index) {
+      setCurrentRoundIndex(s.dynamic_state.current_round_index);
+    }
+    if (s.dynamic_state?.rounds_history) {
+      setRoundsHistory(s.dynamic_state.rounds_history);
+    }
+    if (s.dynamic_state?.latest_adaptation_decision) {
+      setAdaptationDecision(s.dynamic_state.latest_adaptation_decision);
+    }
+    if (s.dynamic_state?.progression) {
+      setProgressionSummary(s.dynamic_state.progression);
+    }
+    if (s.status === 'evaluated' && s.evaluation) {
+      setEvaluation(s.evaluation);
+      if (s.evaluation.adaptation_decision) {
+        setAdaptationDecision(s.evaluation.adaptation_decision);
+      }
+    }
+  };
+
   const checkActiveSession = async () => {
     try {
       const res = await fetch('/api/m3/simulations/sessions/active');
       const data = await res.json() as any;
       if (data.success && data.active_session) {
-        const s = data.active_session;
-        setActiveSim(s.definition);
-        setSessionId(s.id);
-        setCurrentStep(s.current_step || 1);
-
-        let initialWork = s.candidate_work || s.definition?.scenario?.starting_data || {};
-        try {
-          const localDraft = localStorage.getItem(`m3_draft_${s.id}`);
-          if (localDraft) {
-            const parsedDraft = JSON.parse(localDraft);
-            if (parsedDraft && Object.keys(parsedDraft).length > 0) {
-              initialWork = parsedDraft;
-            }
-          }
-        } catch (_) {}
-
-        setCandidateWork(initialWork);
-        setTelemetryCount(s.telemetry_events_count || 0);
-        if (s.dynamic_state?.injected) {
-          setDynamicAlert(s.dynamic_state.injection);
-        }
-        if (s.dynamic_state?.current_round_index) {
-          setCurrentRoundIndex(s.dynamic_state.current_round_index);
-        }
-        if (s.dynamic_state?.rounds_history) {
-          setRoundsHistory(s.dynamic_state.rounds_history);
-        }
-        if (s.dynamic_state?.latest_adaptation_decision) {
-          setAdaptationDecision(s.dynamic_state.latest_adaptation_decision);
-        }
-        if (s.dynamic_state?.progression) {
-          setProgressionSummary(s.dynamic_state.progression);
-        }
-        if (s.status === 'evaluated' && s.evaluation) {
-          setEvaluation(s.evaluation);
-          if (s.evaluation.adaptation_decision) {
-            setAdaptationDecision(s.evaluation.adaptation_decision);
-          }
-        }
+        setActiveSessionSummary(data.active_session);
       }
     } catch (e) {
       console.warn('No active simulation session restored:', e);
@@ -443,7 +448,7 @@ export default function Module3Simulation() {
 
           {activeSim && (
             <button
-              onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); }}
+              onClick={() => { setActiveSim(null); setSessionId(null); setEvaluation(null); loadDefinitions(); checkActiveSession(); }}
               className="px-4 py-2.5 rounded-xl bg-[#001f2e] border border-[#063750] text-slate-300 hover:text-white text-xs font-bold flex items-center gap-2 transition-colors"
             >
               <Layers className="w-4 h-4" />
@@ -455,6 +460,44 @@ export default function Module3Simulation() {
         {/* VIEW 1: SIMULATION CATALOG */}
         {!activeSim && (
           <div className="space-y-6">
+            {activeSessionSummary && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-[#002a40] to-[#001f2e] border border-[#FF4103]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-[#FF4103]/5">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#FF4103]/15 border border-[#FF4103]/30 flex items-center justify-center shrink-0">
+                    <Laptop className="w-5 h-5 text-[#FF4103]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#FF4103] bg-[#FF4103]/10 px-2 py-0.5 rounded">
+                        {activeSessionSummary.status === 'in_progress' ? 'Active Exercise In Progress' : 'Completed Rep Available'}
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">
+                        {activeSessionSummary.status === 'in_progress' ? `Step ${activeSessionSummary.current_step || 1}` : `${activeSessionSummary.overall_score || 0}% Score`}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-white mt-1">
+                      {activeSessionSummary.title || activeSessionSummary.definition?.title || 'Interactive Technical Simulation'}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {activeSessionSummary.status === 'in_progress'
+                        ? 'You have an ongoing interactive simulation session in progress. Continue right where you left off.'
+                        : 'Your comprehensive evaluation debrief and pedagogical breakdown is ready for review.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                  <button
+                    onClick={() => resumeActiveSession(activeSessionSummary)}
+                    className="px-4 py-2 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold transition-all shadow-md shadow-[#FF4103]/20 flex items-center gap-2"
+                  >
+                    <span>{activeSessionSummary.status === 'in_progress' ? 'Resume Simulation Workbench' : 'Review Evaluation Debrief'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* KPI Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-[#001f2e] border border-[#063750]">
@@ -660,16 +703,34 @@ export default function Module3Simulation() {
                             {new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                           </span>
 
-                          <button
-                            onClick={() => {
-                              if (matchedDef) {
-                                startSimulation(matchedDef, s.status !== 'in_progress');
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold transition-all shadow-md shadow-[#FF4103]/20"
-                          >
-                            {s.status === 'in_progress' ? 'Resume' : 'Re-run'}
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            {s.status === 'evaluated' && (
+                              <button
+                                onClick={() => {
+                                  if (matchedDef) {
+                                    resumeActiveSession({ ...s, definition: matchedDef });
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 rounded-xl bg-[#001f2e] border border-[#063750] hover:border-slate-500 text-slate-300 hover:text-white text-xs font-bold transition-all"
+                              >
+                                Debrief
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (matchedDef) {
+                                  if (s.status === 'in_progress') {
+                                    resumeActiveSession({ ...s, definition: matchedDef });
+                                  } else {
+                                    startSimulation(matchedDef, true);
+                                  }
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold transition-all shadow-md shadow-[#FF4103]/20"
+                            >
+                              {s.status === 'in_progress' ? 'Resume' : 'Re-run'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
