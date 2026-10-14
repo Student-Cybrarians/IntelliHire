@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IntelliHire: An Intelligent Recruitment Training Platform — ISO A1 Academic Poster</title>
+  <style>
+    /* ISO A1 Landscape: 841mm (Width) x 594mm (Height) */
+    @page {
+      size: 841mm 594mm;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 841mm;
+      height: 594mm;
+      max-width: 841mm;
+      max-height: 594mm;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(180deg, #F8FAFC 0%, #EEF2F6 100%);
+      color: #0F172A;
+      display: flex;
+      flex-direction: column;
+      padding: 7mm 9.5mm;
+    }
+
+    /* Outer Poster Frame */
+    .poster-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 3.8mm;
+    }
+
+    /* ========================================================= */
+    /* HEADER BLOCK */
+    /* ========================================================= */
+    .header-card {
+      background: #FFFFFF;
+      border: 2px solid #CBD5E1;
+      border-radius: 10px;
+      padding: 4mm 7.5mm;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+      display: grid;
+      grid-template-columns: 82mm 1fr 88mm;
+      align-items: center;
+      gap: 6mm;
+      height: 64mm;
+      flex-shrink: 0;
+    }
+
+    .gat-logos-col {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4.5mm;
+      border-right: 2px solid #E2E8F0;
+      padding-right: 5mm;
+      height: 100%;
+    }
+
+    .gat-crest-svg {
+      width: 35mm;
+      height: 50mm;
+    }
+
+    .gat-anniv-svg {
+      width: 38mm;
+      height: 50mm;
+    }
+
+    .gat-title-col {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .inst-name {
+      font-size: 16.5pt;
+      font-weight: 900;
+      color: #0F2A4A;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .inst-sub {
+      font-size: 9.2pt;
+      font-weight: 600;
+      color: #475569;
+      margin-top: 1px;
+    }
+
+    .dept-name {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #0284C7;
+      margin-top: 1.5px;
+    }
+
+    .project-title {
+      font-size: 22.5pt;
+      font-weight: 900;
+      color: #0B1E36;
+      margin-top: 3.5px;
+      line-height: 1.15;
+      letter-spacing: -0.3px;
+    }
+
+    .project-subtitle-badge {
+      display: inline-block;
+      margin-top: 4px;
+      background: #FFF7ED;
+      border: 1.5px solid #FFEDD5;
+      color: #C2410C;
+      font-size: 9.2pt;
+      font-weight: 700;
+      padding: 2.5px 14px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .header-meta-col {
+      border-left: 2px solid #E2E8F0;
+      padding-left: 5.5mm;
+      display: flex;
+      flex-direction: column;
+      gap: 4.2mm;
+      height: 100%;
+      justify-content: center;
+    }
+
+    .meta-box {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      padding: 3.5px 7px;
+    }
+
+    .meta-label {
+      font-size: 7.4pt;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #64748B;
+      letter-spacing: 0.4px;
+    }
+
+    .meta-value {
+      font-size: 9.5pt;
+      font-weight: 700;
+      color: #0F172A;
+      line-height: 1.22;
+    }
+
+    .sdg-strip {
+      display: flex;
+      gap: 3.5px;
+      margin-top: 2px;
+    }
+
+    .sdg-badge {
+      font-size: 7.2pt;
+      font-weight: 800;
+      color: #FFFFFF;
+      padding: 1px 4.5px;
+      border-radius: 3px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .sdg-4 { background: #C5192D; }
+    .sdg-8 { background: #A21942; }
+    .sdg-9 { background: #F36E25; }
+    .sdg-10 { background: #DD1367; }
+
+    /* ========================================================= */
+    /* MAIN BODY GRID (3 COLUMNS: LEFT, CENTERPIECE, RIGHT) */
+    /* ========================================================= */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 242mm 328mm 242mm;
+      gap: 4.5mm;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .card {
+      background: #FFFFFF;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 8px;
+      padding: 3.5mm 4.5mm;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-title {
+      font-size: 11pt;
+      font-weight: 800;
+      color: #0F2A4A;
+      text-transform: uppercase;
+      letter-spacing: 0.35px;
+      padding-bottom: 3.5px;
+      margin-bottom: 5px;
+      border-bottom: 2px solid #0284C7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .card-title .badge {
+      font-size: 7.2pt;
+      font-weight: 700;
+      background: #EFF6FF;
+      color: #1D4ED8;
+      border: 1px solid #BFDBFE;
+      padding: 1.5px 6.5px;
+      border-radius: 10px;
+      text-transform: uppercase;
+    }
+
+    /* LEFT COLUMN (Abstract, Problem, Objectives) */
+    .left-col {
+      display: flex;
+      flex-direction: column;
+      gap: 3.8mm;
+      height: 100%;
+    }
+
+    .left-col .card:nth-child(1) { flex: 1.05; }
+    .left-col .card:nth-child(2) { flex: 1.25; }
+    .left-col .card:nth-child(3) { flex: 1.25; }
+
+    .abstract-text {
+      font-size: 9.1pt;
+      line-height: 1.45;
+      color: #334155;
+      text-align: justify;
+    }
+
+    .lifecycle-pill-bar {
+      margin-top: 7px;
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      padding: 4.5px 7px;
+      font-size: 7.6pt;
+      font-weight: 700;
+      color: #0F2A4A;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pill-step {
+      background: #FFFFFF;
+      border: 1px solid #CBD5E1;
+      padding: 1.5px 5.5px;
+      border-radius: 4px;
+      font-size: 7.2pt;
+    }
+
+    .bullet-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 5.5px;
+    }
+
+    .bullet-item {
+      font-size: 8.7pt;
+      line-height: 1.36;
+      color: #334155;
+      position: relative;
+      padding-left: 13px;
+    }
+
+    .bullet-item::before {
+      content: "▪";
+      position: absolute;
+      left: 0;
+      color: #0284C7;
+      font-size: 10.5pt;
+      line-height: 1;
+      top: 0px;
+    }
+
+    .bullet-item strong {
+      color: #0F172A;
+    }
+
+    /* CENTER COLUMN (CENTERPIECE: METHODOLOGY & ARCHITECTURE) */
+    .center-col {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .methodology-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      gap: 3mm;
+    }
+
+    .architecture-diagram-svg {
+      width: 100%;
+      height: 310mm;
+      background: #FAFCFF;
+      border: 1.5px solid #D0DCEB;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
+
+    .methodology-tiers {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 3mm;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .tier-box {
+      background: #F8FAFC;
+      border: 1.5px solid #E2E8F0;
+      border-radius: 7px;
+      padding: 2.5mm 3.5mm;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tier-header {
+      font-size: 9.2pt;
+      font-weight: 800;
+      color: #0F2A4A;
+      margin-bottom: 3.5px;
+      display: flex;
+      align-items: center;
+      gap: 4.5px;
+      border-bottom: 1.5px solid #E2E8F0;
+      padding-bottom: 2.5px;
+    }
+
+    .tier-header .tier-num {
+      background: #0284C7;
+      color: #FFF;
+      font-size: 7.2pt;
+      font-weight: 800;
+      padding: 1px 4.5px;
+      border-radius: 3px;
+    }
+
+    .tier-content {
+      font-size: 8.1pt;
+      line-height: 1.34;
+      color: #334155;
+      display: flex;
+      flex-direction: column;
+      gap: 3.5px;
+    }
+
+    .tier-pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2.5px;
+      margin-top: 3.5px;
+    }
+
+    .tech-pill {
+      font-size: 6.8pt;
+      font-weight: 700;
+      background: #EDF2F7;
+      border: 1px solid #CBD5E1;
+      padding: 1px 4.5px;
+      border-radius: 3px;
+      color: #1E293B;
+    }
+
+    /* RIGHT COLUMN (Results, Applications, Conclusion) */
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      gap: 3.8mm;
+      height: 100%;
+    }
+
+    .right-col .card:nth-child(1) { flex: 1.55; }
+    .right-col .card:nth-child(2) { flex: 0.95; }
+    .right-col .card:nth-child(3) { flex: 0.95; }
+
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8pt;
+      margin-top: 3.5px;
+    }
+
+    .results-table th {
+      background: #0F2A4A;
+      color: #FFFFFF;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 7.3pt;
+      letter-spacing: 0.3px;
+      padding: 4.5px 5.5px;
+      text-align: left;
+      border: 1px solid #0F2A4A;
+    }
+
+    .results-table td {
+      padding: 4px 5.5px;
+      border: 1px solid #CBD5E1;
+      color: #334155;
+      line-height: 1.25;
+    }
+
+    .results-table tr:nth-child(even) {
+      background: #F8FAFC;
+    }
+
+    .status-badge {
+      font-size: 6.8pt;
+      font-weight: 800;
+      padding: 1px 4.5px;
+      border-radius: 3px;
+      display: inline-block;
+      text-transform: uppercase;
+    }
+    .status-verified {
+      background: #DCFCE7;
+      color: #166534;
+      border: 1px solid #86EFAC;
+    }
+    .status-qualified {
+      background: #FEF9C3;
+      color: #854D0E;
+      border: 1px solid #FDE047;
+    }
+
+    .metrics-highlight-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+      margin-top: 7px;
+    }
+
+    .metric-kpi-card {
+      background: #F1F5F9;
+      border: 1.5px solid #CBD5E1;
+      border-radius: 6px;
+      padding: 4.5px 5.5px;
+      text-align: center;
+    }
+
+    .kpi-number {
+      font-size: 13pt;
+      font-weight: 900;
+      color: #0F2A4A;
+      line-height: 1;
+    }
+
+    .kpi-label {
+      font-size: 6.8pt;
+      font-weight: 700;
+      color: #64748B;
+      text-transform: uppercase;
+      margin-top: 2.5px;
+    }
+
+    .conclusion-box {
+      background: #F8FAFC;
+      border-left: 3px solid #0284C7;
+      padding: 6px 8.5px;
+      font-size: 8.2pt;
+      line-height: 1.38;
+      color: #334155;
+      font-style: italic;
+    }
+
+    /* ========================================================= */
+    /* FOOTER BANNER */
+    /* ========================================================= */
+    .footer-card {
+      background: #0B1E36;
+      color: #FFFFFF;
+      border-radius: 7px;
+      padding: 2mm 6.5mm;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 15mm;
+      flex-shrink: 0;
+      box-shadow: 0 3px 10px rgba(11, 30, 54, 0.15);
+    }
+
+    .footer-left {
+      font-size: 8.5pt;
+      font-weight: 700;
+      color: #93C5FD;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .footer-center {
+      font-size: 8.1pt;
+      color: #E2E8F0;
+      text-align: center;
+      max-width: 440mm;
+    }
+
+    .footer-right {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="poster-container">
+
+    <!-- ========================================================= -->
+    <!-- HEADER -->
+    <!-- ========================================================= -->
+    <header class="header-card">
+      
+      <!-- LOGOS COLUMN: GAT CREST & 25 YEARS -->
+      <div class="gat-logos-col">
+        <!-- GAT Crest SVG -->
+        <svg class="gat-crest-svg" viewBox="0 0 160 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 80 10 L 145 35 L 145 125 C 145 175 80 210 80 210 C 80 210 15 175 15 125 L 15 35 Z" fill="#0A2540" stroke="#C59B27" stroke-width="4"/>
+          <path d="M 80 20 L 135 42 L 135 122 C 135 165 80 196 80 196 C 80 196 25 165 25 122 L 25 42 Z" fill="#FFFFFF" stroke="#C59B27" stroke-width="1.5"/>
+          <path d="M 80 28 L 128 48 L 128 105 L 80 105 Z" fill="#E8EEF5"/>
+          <path d="M 80 28 L 32 48 L 32 105 L 80 105 Z" fill="#0F3863"/>
+          <path d="M 32 105 L 80 105 L 80 185 C 50 165 32 135 32 105 Z" fill="#E8EEF5"/>
+          <path d="M 80 105 L 128 105 C 128 135 110 165 80 185 Z" fill="#0F3863"/>
+          <!-- Sun / Rays -->
+          <circle cx="56" cy="72" r="14" fill="#C59B27"/>
+          <path d="M 56 46 L 56 54 M 56 90 L 56 98 M 30 72 L 38 72 M 74 72 L 82 72 M 38 54 L 44 60 M 68 84 L 74 90 M 38 90 L 44 84 M 68 60 L 74 54" stroke="#C59B27" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- Book -->
+          <path d="M 92 65 C 100 60 110 60 118 63 L 118 85 C 110 82 100 82 92 87 Z" fill="#C59B27"/>
+          <path d="M 92 65 C 84 60 74 60 66 63 L 66 85 C 74 82 84 82 92 87 Z" fill="#D4AF37"/>
+          <path d="M 92 65 L 92 87" stroke="#0A2540" stroke-width="1.5"/>
+          <!-- Gear -->
+          <circle cx="56" cy="138" r="16" fill="none" stroke="#0F3863" stroke-width="4"/>
+          <circle cx="56" cy="138" r="8" fill="#C59B27"/>
+          <!-- Lamp of Knowledge -->
+          <path d="M 96 148 C 96 148 102 144 108 144 C 114 144 120 148 120 148 L 122 152 C 118 155 102 155 94 152 Z" fill="#C59B27"/>
+          <path d="M 118 144 C 122 138 124 130 116 130 C 110 130 108 136 108 140" fill="none" stroke="#C59B27" stroke-width="2"/>
+          <path d="M 98 144 C 95 138 97 132 100 130 C 102 134 100 138 98 144" fill="#E11D48"/>
+          <!-- Ribbon -->
+          <path d="M 20 195 Q 80 185 140 195 L 148 215 Q 80 200 12 215 Z" fill="#C59B27"/>
+          <text x="80" y="208" font-family="Arial, sans-serif" font-size="9" font-weight="900" fill="#0A2540" text-anchor="middle" letter-spacing="1">GAT • BANGALORE</text>
+        </svg>
+
+        <!-- 25 Years Emblem SVG -->
+        <svg class="gat-anniv-svg" viewBox="0 0 220 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <text x="75" y="85" font-family="'Impact', 'Arial Black', sans-serif" font-size="92" font-weight="900" fill="#1E3A8A" letter-spacing="-2">25</text>
+          <path d="M 12 70 C 25 35 60 18 115 18 C 170 18 205 45 208 72" stroke="#1E3A8A" stroke-width="5" stroke-linecap="round" fill="none"/>
+          <path d="M 28 82 C 45 32 85 24 135 25 C 178 26 195 48 198 68" stroke="#F59E0B" stroke-width="2.5" fill="none"/>
+          <text x="140" y="52" font-family="Arial, sans-serif" font-size="16" font-weight="900" fill="#1E3A8A" letter-spacing="1.5">YEARS</text>
+          <text x="140" y="68" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#D97706" letter-spacing="0.8">OF EXCELLENCE</text>
+          <text x="140" y="84" font-family="Arial, sans-serif" font-size="7.5" font-weight="800" fill="#475569" letter-spacing="0.5">INSPIRING MINDS</text>
+          <text x="140" y="98" font-family="Arial, sans-serif" font-size="9.5" font-weight="900" fill="#1E3A8A" letter-spacing="1">NEXT 25 YEARS</text>
+          <polygon points="198,14 200,18 204,18 201,21 202,25 198,22 194,25 195,21 192,18 196,18" fill="#1E3A8A"/>
+        </svg>
+      </div>
+
+      <!-- TITLE & INSTITUTION DETAILS -->
+      <div class="gat-title-col">
+        <div class="inst-name">Global Academy of Technology</div>
+        <div class="inst-sub">Autonomous Institute, Affiliated to VTU, Belagavi • Accredited by NAAC with 'A+' Grade</div>
+        <div class="dept-name">Department of Computer Science and Engineering (Artificial Intelligence & Machine Learning)</div>
+        <h1 class="project-title">IntelliHire: An Intelligent Recruitment Training Platform</h1>
+        <div class="project-subtitle-badge">
+          Autonomous Skill Diagnostics • Adaptive Learning • Multi-Modal Interview Simulation
+        </div>
+      </div>
+
+      <!-- TEAM, GUIDE & SDGS -->
+      <div class="header-meta-col">
+        <div class="meta-box">
+          <div class="meta-label">Team No. 13</div>
+          <div class="meta-value">Mokshith Y Nanda • Suhas N</div>
+        </div>
+        <div class="meta-box">
+          <div class="meta-label">Faculty Guide</div>
+          <div class="meta-value" style="font-size: 8.6pt; line-height: 1.2;">
+            Dr. Sharadadevi K<br>
+            <span style="font-size: 7.6pt; font-weight: 600; color: #475569;">Assistant Professor, Dept. of CSE (AI & ML)</span>
+          </div>
+        </div>
+        <div class="meta-box">
+          <div class="meta-label">UN Sustainable Development Goals</div>
+          <div class="sdg-strip">
+            <span class="sdg-badge sdg-4">SDG 4: Quality Edu</span>
+            <span class="sdg-badge sdg-8">SDG 8: Decent Work</span>
+            <span class="sdg-badge sdg-9">SDG 9: Innovation</span>
+            <span class="sdg-badge sdg-10">SDG 10: Reduced Ineq</span>
+          </div>
+        </div>
+      </div>
+
+    </header>
+
+    <!-- ========================================================= -->
+    <!-- MAIN CONTENT GRID (3 COLUMNS) -->
+    <!-- ========================================================= -->
+    <main class="main-grid">
+
+      <!-- ========================================== -->
+      <!-- COLUMN 1 (LEFT): ABSTRACT, PROBLEM, OBJECTIVES -->
+      <!-- ========================================== -->
+      <section class="left-col">
+        
+        <!-- 1. ABSTRACT -->
+        <div class="card">
+          <div class="card-title">
+            <span>Abstract</span>
+            <span class="badge">Scope & Contribution</span>
+          </div>
+          <p class="abstract-text">
+            Conventional recruitment heavily depends on opaque keyword-matching Applicant Tracking Systems (ATS) and uncalibrated human interviews, frequently resulting in keyword gaming, demographic bias, and an absence of candidate diagnostic feedback. <strong>IntelliHire</strong> is an intelligent recruitment training and talent intelligence platform structured into five sequential, evidence-grounded modules: <strong>Module 1 (Resume Intelligence, ATS & Job Description Matching)</strong>, <strong>Module 2 (Adaptive Learning, Assessment & Interview Preparation)</strong>, <strong>Module 3 (Technical, Domain & Professional Simulation)</strong>, <strong>Module 4 (Behavioral, Communication & Professional Interaction Simulation)</strong>, and <strong>Module 5 (Candidate Readiness & Human Decision Support)</strong>. Powered by an edge-native serverless architecture and verified across 523 automated tests, IntelliHire anchors all evaluations in verified candidate claims, provides adaptive misconception remediation, enforces zero biometric facial emotion scoring, and preserves human decision sovereignty.
+          </p>
+          <div class="lifecycle-pill-bar">
+            <span style="font-size: 7pt; text-transform: uppercase; color: #64748B;">Core Progression:</span>
+            <span class="pill-step">Resume & JD</span> ➔
+            <span class="pill-step">Diagnostics</span> ➔
+            <span class="pill-step">Adaptive Learn</span> ➔
+            <span class="pill-step">Simulation</span> ➔
+            <span class="pill-step">Voice AI Mock</span> ➔
+            <span class="pill-step">Readiness</span>
+          </div>
+        </div>
+
+        <!-- 2. PROBLEM STATEMENT -->
+        <div class="card">
+          <div class="card-title">
+            <span>Problem Statement</span>
+            <span class="badge">Industry Challenges</span>
+          </div>
+          <ul class="bullet-list">
+            <li class="bullet-item">
+              <strong>ATS Keyword Gaming & Inaccurate Filtering (Module 1):</strong> Static heuristic keyword filters reject qualified applicants due to minor syntax or layout variations while incentivizing prompt injection and keyword stuffing.
+            </li>
+            <li class="bullet-item">
+              <strong>The "Teach-Test" Disconnect & Missing Feedback (Module 2):</strong> Rejected candidates receive uninformative rejection notices without diagnostic feedback or remediation of underlying conceptual misconceptions.
+            </li>
+            <li class="bullet-item">
+              <strong>Trivia Quizzes vs Realistic Execution (Module 3):</strong> Traditional screening relies on abstract puzzles rather than realistic domain tasks that evaluate architecture tradeoffs, database queries, and debugging.
+            </li>
+            <li class="bullet-item">
+              <strong>Uncalibrated Interviews & Biometric Surveillance (Module 4 & 5):</strong> Subjective interviewer bias and controversial facial emotion AI compromise candidate fairness without transparent rubric calibration.
+            </li>
+          </ul>
+        </div>
+
+        <!-- 3. OBJECTIVES -->
+        <div class="card">
+          <div class="card-title">
+            <span>Objectives</span>
+            <span class="badge">Modular Design Goals</span>
+          </div>
+          <ul class="bullet-list">
+            <li class="bullet-item">
+              <strong>Objective 1 (Module 1 — Resume Intelligence):</strong> Develop an in-process, PII-redacted multi-pass parser aligning resume evidence to job descriptions using neural embeddings (<tt>bge-base-en-v1.5</tt>).
+            </li>
+            <li class="bullet-item">
+              <strong>Objective 2 (Module 2 — Adaptive Learning):</strong> Formulate a Bayesian skill proficiency engine with teach-before-testing curricula that dynamically updates mastery uncertainty intervals.
+            </li>
+            <li class="bullet-item">
+              <strong>Objective 3 (Module 3 — Technical Simulation):</strong> Implement role-aligned task workspaces to observe practical code execution, database queries, and system design tradeoffs.
+            </li>
+            <li class="bullet-item">
+              <strong>Objective 4 (Module 4 — Interaction Simulation):</strong> Build dual-mode interviews: a 10-turn Voice AI simulation with adaptive probing alongside a WebRTC live human room.
+            </li>
+            <li class="bullet-item">
+              <strong>Objective 5 (Module 5 — Readiness & Decision Support):</strong> Synthesize multi-module evidence into calibrated 1–5 rubrics and candidate dossiers with zero biometric profiling.
+            </li>
+          </ul>
+        </div>
+
+      </section>
+
+      <!-- ========================================== -->
+      <!-- COLUMN 2 (CENTER): METHODOLOGY & FRAMEWORK -->
+      <!-- ========================================== -->
+      <section class="center-col">
+        <div class="card" style="height: 100%;">
+          <div class="card-title">
+            <span>Methodology & System Framework — End-to-End Five-Module Architecture</span>
+            <span class="badge">Cloudflare Edge-Native Serverless Implementation</span>
+          </div>
+
+          <div class="methodology-container">
+            <!-- ARCHITECTURE SVG DIAGRAM (calibrated for ISO A1 landscape proportion) -->
+            <svg class="architecture-diagram-svg" viewBox="0 0 1360 880" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="1360" height="880" fill="#F8FAFC" rx="8"/>
+
+              <!-- ================= STAGE 1: MODULE 1 ================= -->
+              <g transform="translate(15, 20)">
+                <rect width="245" height="840" rx="10" fill="#FFFFFF" stroke="#0284C7" stroke-width="2"/>
+                <rect width="245" height="46" rx="10" fill="#E0F2FE"/>
+                <text x="122" y="26" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#0369A1" text-anchor="middle">MODULE 1: RESUME INTELLIGENCE</text>
+                <text x="122" y="39" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#0284C7" text-anchor="middle">ATS & JOB DESCRIPTION MATCHING</text>
+                
+                <rect x="15" y="60" width="215" height="85" rx="6" fill="#F0F9FF" stroke="#BAE6FD" stroke-width="1.2"/>
+                <text x="25" y="82" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#0C4A6E">Input Documents</text>
+                <text x="25" y="102" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">PDF • DOCX • LaTeX • Text JD</text>
+                <text x="25" y="118" font-family="Arial, sans-serif" font-size="8" fill="#64748B">Pyodide micro-worker extraction</text>
+                <text x="25" y="132" font-family="Arial, sans-serif" font-size="7.5" fill="#0284C7">Multi-format ingestion pipeline</text>
+
+                <rect x="15" y="160" width="215" height="100" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1.2"/>
+                <text x="25" y="182" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#14532D">PII Redaction Guard</text>
+                <text x="25" y="202" font-family="Arial, sans-serif" font-size="8.5" fill="#166534">Deterministic Regex Redaction</text>
+                <text x="25" y="218" font-family="Arial, sans-serif" font-size="8" fill="#475569">Strips email, phone, SSN, URLs</text>
+                <text x="25" y="233" font-family="Arial, sans-serif" font-size="8" fill="#166534">Prevents demographic model bias</text>
+                <text x="25" y="247" font-family="Arial, sans-serif" font-size="7.5" fill="#059669">Pre-inference zero-leakage invariant</text>
+
+                <rect x="15" y="275" width="215" height="115" rx="6" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.2"/>
+                <text x="25" y="297" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#0F172A">Multi-Pass Parser</text>
+                <text x="25" y="317" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">• Pass 1: Structural Segmentation</text>
+                <text x="25" y="333" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">• Pass 2: Entity & Claim Parsing</text>
+                <text x="25" y="349" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">• Pass 3: Taxonomy Normalization</text>
+                <text x="25" y="365" font-family="Arial, sans-serif" font-size="8" fill="#64748B">Model: meta/muse-glimmer-30b</text>
+                <text x="25" y="378" font-family="Arial, sans-serif" font-size="7.5" fill="#0F172A">Cached via content hash SHA-256</text>
+
+                <rect x="15" y="405" width="215" height="135" rx="6" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.2"/>
+                <text x="25" y="427" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#1E3A8A">Embedding Taxonomy</text>
+                <text x="25" y="447" font-family="Arial, sans-serif" font-size="8.5" fill="#1D4ED8">BAAI BGE-Base-en-v1.5</text>
+                <text x="25" y="463" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">Hybrid ATS Scoring Model:</text>
+                <text x="25" y="479" font-family="Arial, sans-serif" font-size="8" fill="#64748B">• Format Compliance: 30%</text>
+                <text x="25" y="493" font-family="Arial, sans-serif" font-size="8" fill="#64748B">• Keyword Match: 35%</text>
+                <text x="25" y="507" font-family="Arial, sans-serif" font-size="8" fill="#64748B">• Structure Metrics: 10%</text>
+                <text x="25" y="521" font-family="Arial, sans-serif" font-size="8" fill="#64748B">• Semantic AI Alignment: 25%</text>
+
+                <rect x="15" y="555" width="215" height="120" rx="6" fill="#FEF3C7" stroke="#FDE68A" stroke-width="1.2"/>
+                <text x="25" y="577" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#92400E">D1 & KV Provenance</text>
+                <text x="25" y="597" font-family="Arial, sans-serif" font-size="8.5" fill="#78350F">candidate_resume • context</text>
+                <text x="25" y="613" font-family="Arial, sans-serif" font-size="8.5" fill="#78350F">candidate_claim (Extracted)</text>
+                <text x="25" y="629" font-family="Arial, sans-serif" font-size="8" fill="#B45309">Raw file encrypted in RESUME_KV</text>
+                <text x="25" y="645" font-family="Arial, sans-serif" font-size="8" fill="#78350F">Immutable verification stamps</text>
+                <text x="25" y="660" font-family="Arial, sans-serif" font-size="7.5" fill="#92400E">Traceable audit provenance</text>
+
+                <rect x="15" y="690" width="215" height="120" rx="6" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.2"/>
+                <text x="25" y="712" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#0F172A">Output Contract</text>
+                <text x="25" y="732" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">Normalized skill graph &</text>
+                <text x="25" y="748" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">verified candidate evidence</text>
+                <text x="25" y="764" font-family="Arial, sans-serif" font-size="8" fill="#64748B">Tenant-isolated user scope</text>
+                <text x="25" y="780" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#0284C7">Dispatched to Module 2 ➔</text>
+              </g>
+
+              <!-- ARROW M1 -> M2 -->
+              <path d="M 262 430 L 285 430" stroke="#0284C7" stroke-width="3" marker-end="url(#arrow)"/>
+
+              <!-- ================= STAGE 2: MODULE 2 ================= -->
+              <g transform="translate(288, 20)">
+                <rect width="245" height="840" rx="10" fill="#FFFFFF" stroke="#0D9488" stroke-width="2"/>
+                <rect width="245" height="46" rx="10" fill="#CCFBF1"/>
+                <text x="122" y="26" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#0F766E" text-anchor="middle">MODULE 2: ADAPTIVE LEARNING</text>
+                <text x="122" y="39" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#0D9488" text-anchor="middle">ASSESSMENT & INTERVIEW PREPARATION</text>
+
+                <rect x="15" y="60" width="215" height="125" rx="6" fill="#F0FDFA" stroke="#99F6E4" stroke-width="1.2"/>
+                <text x="25" y="82" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#134E4A">Bayesian Skill Engine</text>
+                <text x="25" y="102" font-family="Arial, sans-serif" font-size="8.5" fill="#0F766E">• Prior Probability Initialization</text>
+                <text x="25" y="118" font-family="Arial, sans-serif" font-size="8.5" fill="#0F766E">• Likelihood Ratio Formulation</text>
+                <text x="25" y="134" font-family="Arial, sans-serif" font-size="8.5" fill="#0F766E">• Posterior Mastery Distribution</text>
+                <text x="25" y="150" font-family="Arial, sans-serif" font-size="8" fill="#475569">Uncertainty-Weighted Proficiency</text>
+                <text x="25" y="165" font-family="Arial, sans-serif" font-size="7.5" fill="#0F766E">Tracks candidate_skill_proficiency_v2</text>
+
+                <rect x="15" y="200" width="215" height="125" rx="6" fill="#FEF2F2" stroke="#FECACA" stroke-width="1.2"/>
+                <text x="25" y="222" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#991B1B">candidate_gap Isolation</text>
+                <text x="25" y="242" font-family="Arial, sans-serif" font-size="8.5" fill="#B91C1C">Identifies specific skill deficits</text>
+                <text x="25" y="258" font-family="Arial, sans-serif" font-size="8.5" fill="#7F1D1D">Harvests misconceptions from</text>
+                <text x="25" y="274" font-family="Arial, sans-serif" font-size="8" fill="#991B1B">assessment_evaluation audit logs</text>
+                <text x="25" y="290" font-family="Arial, sans-serif" font-size="8" fill="#B91C1C">Separates conceptual vs syntax errors</text>
+                <text x="25" y="306" font-family="Arial, sans-serif" font-size="7.5" fill="#7F1D1D">Prioritizes high-uncertainty skills</text>
+
+                <rect x="15" y="340" width="215" height="155" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1.2"/>
+                <text x="25" y="362" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#166534">Teach-Before-Testing</text>
+                <text x="25" y="382" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Adaptive Lesson Generation</text>
+                <text x="25" y="398" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Misconception Remediation Units</text>
+                <text x="25" y="414" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Worked Examples & Guidance</text>
+                <text x="25" y="430" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Targeted Practice Exercises</text>
+                <text x="25" y="446" font-family="Arial, sans-serif" font-size="8" fill="#475569">• Dynamic Reassessment Loop</text>
+                <text x="25" y="462" font-family="Arial, sans-serif" font-size="8" fill="#166534">Reduces epistemic uncertainty</text>
+                <text x="25" y="477" font-family="Arial, sans-serif" font-size="7.5" fill="#15803D">Eliminates cold-start testing anxiety</text>
+
+                <rect x="15" y="510" width="215" height="145" rx="6" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.2"/>
+                <text x="25" y="532" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#1E40AF">10-Turn Blueprint Generator</text>
+                <text x="25" y="552" font-family="Arial, sans-serif" font-size="8.5" fill="#1D4ED8">Injects diagnosed gaps into</text>
+                <text x="25" y="568" font-family="Arial, sans-serif" font-size="8.5" fill="#1D4ED8">Turn 7 Quality/Hygiene round</text>
+                <text x="25" y="584" font-family="Arial, sans-serif" font-size="8.5" fill="#1D4ED8">10 competencies mapped to JD</text>
+                <text x="25" y="600" font-family="Arial, sans-serif" font-size="8" fill="#475569">Cross-occupation plan synthesis</text>
+                <text x="25" y="616" font-family="Arial, sans-serif" font-size="8" fill="#1E40AF">Bloom's Taxonomy calibration</text>
+                <text x="25" y="632" font-family="Arial, sans-serif" font-size="7.5" fill="#1D4ED8">Dynamic interview roadmap ready</text>
+
+                <rect x="15" y="670" width="215" height="140" rx="6" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.2"/>
+                <text x="25" y="692" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#0F172A">Output Contract</text>
+                <text x="25" y="712" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">Curriculum mastery graph &</text>
+                <text x="25" y="728" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">tailored interview blueprint</text>
+                <text x="25" y="744" font-family="Arial, sans-serif" font-size="8" fill="#64748B">Dispatched to Module 3</text>
+                <text x="25" y="760" font-family="Arial, sans-serif" font-size="8" fill="#64748B">and Module 4 simulators</text>
+                <text x="25" y="776" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#0D9488">Dispatched to M03 & M04 ➔</text>
+              </g>
+
+              <!-- ARROW M2 -> M3 -->
+              <path d="M 535 430 L 558 430" stroke="#0D9488" stroke-width="3" marker-end="url(#arrow)"/>
+
+              <!-- ================= STAGE 3: MODULE 3 ================= -->
+              <g transform="translate(561, 20)">
+                <rect width="245" height="840" rx="10" fill="#FFFFFF" stroke="#D97706" stroke-width="2"/>
+                <rect width="245" height="46" rx="10" fill="#FEF3C7"/>
+                <text x="122" y="26" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#B45309" text-anchor="middle">MODULE 3: WORK SIMULATION</text>
+                <text x="122" y="39" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#D97706" text-anchor="middle">TECHNICAL, DOMAIN & PROFESSIONAL</text>
+
+                <rect x="15" y="60" width="215" height="135" rx="6" fill="#FFFBEB" stroke="#FDE68A" stroke-width="1.2"/>
+                <text x="25" y="82" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#92400E">Role-Aligned Scenarios</text>
+                <text x="25" y="102" font-family="Arial, sans-serif" font-size="8.5" fill="#78350F">• Multi-domain task catalog</text>
+                <text x="25" y="118" font-family="Arial, sans-serif" font-size="8.5" fill="#78350F">• Architectural tradeoff prompts</text>
+                <text x="25" y="134" font-family="Arial, sans-serif" font-size="8" fill="#475569">IT, Finance, Healthcare archetypes</text>
+                <text x="25" y="150" font-family="Arial, sans-serif" font-size="8" fill="#92400E">Contextualized practical hurdles</text>
+                <text x="25" y="166" font-family="Arial, sans-serif" font-size="8" fill="#78350F">No abstract leetcode riddles</text>
+                <text x="25" y="180" font-family="Arial, sans-serif" font-size="7.5" fill="#92400E">Genuine job-task fidelity</text>
+
+                <rect x="15" y="210" width="215" height="135" rx="6" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.2"/>
+                <text x="25" y="232" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#0F172A">Technical Workspaces</text>
+                <text x="25" y="252" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">• SQL Query Execution Console</text>
+                <text x="25" y="268" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">• Code Editor & Test Harness</text>
+                <text x="25" y="284" font-family="Arial, sans-serif" font-size="8" fill="#475569">In-browser sandbox execution</text>
+                <text x="25" y="300" font-family="Arial, sans-serif" font-size="8" fill="#0F172A">Observes real operational actions</text>
+                <text x="25" y="316" font-family="Arial, sans-serif" font-size="8" fill="#334155">Live query plan inspection</text>
+                <text x="25" y="330" font-family="Arial, sans-serif" font-size="7.5" fill="#64748B">Secure memory boundary</text>
+
+                <rect x="15" y="360" width="215" height="145" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1.2"/>
+                <text x="25" y="382" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#166534">Objective Evaluation</text>
+                <text x="25" y="402" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Test assertion verifications</text>
+                <text x="25" y="418" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Edge case coverage checks</text>
+                <text x="25" y="434" font-family="Arial, sans-serif" font-size="8" fill="#475569">Automated code debrief generation</text>
+                <text x="25" y="450" font-family="Arial, sans-serif" font-size="8" fill="#166534">Deterministic objective score</text>
+                <text x="25" y="466" font-family="Arial, sans-serif" font-size="8" fill="#15803D">Computes runtime complexity</text>
+                <text x="25" y="482" font-family="Arial, sans-serif" font-size="7.5" fill="#166534">Validates architectural rationale</text>
+
+                <rect x="15" y="520" width="215" height="135" rx="6" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="1.2"/>
+                <text x="25" y="542" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#1E40AF">Practical Task Evidence</text>
+                <text x="25" y="562" font-family="Arial, sans-serif" font-size="8.5" fill="#1D4ED8">Packages code artifacts and</text>
+                <text x="25" y="578" font-family="Arial, sans-serif" font-size="8.5" fill="#1D4ED8">metrics for downstream</text>
+                <text x="25" y="594" font-family="Arial, sans-serif" font-size="8" fill="#475569">M04 probing and M05 synthesis</text>
+                <text x="25" y="610" font-family="Arial, sans-serif" font-size="8" fill="#1E3A8A">Cryptographic evidence digest</text>
+                <text x="25" y="626" font-family="Arial, sans-serif" font-size="7.5" fill="#1D4ED8">Immutable task hash stored in D1</text>
+
+                <rect x="15" y="670" width="215" height="140" rx="6" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.2"/>
+                <text x="25" y="692" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#0F172A">Output Contract</text>
+                <text x="25" y="712" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">Code artifacts, test results &</text>
+                <text x="25" y="728" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">practical domain metrics</text>
+                <text x="25" y="744" font-family="Arial, sans-serif" font-size="8" fill="#64748B">Dispatched to Module 4</text>
+                <text x="25" y="760" font-family="Arial, sans-serif" font-size="8" fill="#64748B">interviewers and Module 5</text>
+                <text x="25" y="776" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#D97706">Dispatched to M04 & M05 ➔</text>
+              </g>
+
+              <!-- ARROW M3 -> M4 -->
+              <path d="M 808 430 L 831 430" stroke="#D97706" stroke-width="3" marker-end="url(#arrow)"/>
+
+              <!-- ================= STAGE 4: MODULE 4 ================= -->
+              <g transform="translate(834, 20)">
+                <rect width="265" height="840" rx="10" fill="#FFFFFF" stroke="#DC2626" stroke-width="2"/>
+                <rect width="265" height="46" rx="10" fill="#FEE2E2"/>
+                <text x="132" y="26" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#B91C1C" text-anchor="middle">MODULE 4: INTERACTION SIMULATION</text>
+                <text x="132" y="39" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#DC2626" text-anchor="middle">BEHAVIORAL & COMMUNICATION SIMULATION</text>
+
+                <!-- Mode 1 Sub-box -->
+                <rect x="12" y="60" width="241" height="355" rx="6" fill="#FFF7ED" stroke="#FDBA74" stroke-width="1.2"/>
+                <text x="22" y="84" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#C2410C">Mode 1: 10-Turn Voice AI Mock</text>
+                <text x="22" y="104" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Web Speech API (STT & TTS)</text>
+                <text x="22" y="120" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Dynamic Adaptive Probing (STAR/BLUF)</text>
+                <text x="22" y="136" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Diagnostic 4-Pillar Coaching Cards:</text>
+                <text x="32" y="152" font-family="Arial, sans-serif" font-size="8" fill="#64748B">What worked, to improve, why, elevation</text>
+                <text x="22" y="168" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Attempt Retry & Delta Comparison</text>
+                <text x="22" y="184" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Grounded in M01 claims & M02 gaps</text>
+                <text x="22" y="200" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Evaluates situational agility & ethics</text>
+                <text x="22" y="216" font-family="Arial, sans-serif" font-size="8.5" fill="#475569">• Transparent text fallback mode</text>
+                
+                <rect x="22" y="230" width="221" height="95" rx="5" fill="#FEF2F2" stroke="#FECACA" stroke-width="1"/>
+                <text x="30" y="248" font-family="Arial, sans-serif" font-size="8.5" font-weight="800" fill="#C2410C">Ethical Invariant Guarantee:</text>
+                <text x="30" y="264" font-family="Arial, sans-serif" font-size="8" fill="#7C2D12">• Zero facial emotion / sentiment scoring</text>
+                <text x="30" y="278" font-family="Arial, sans-serif" font-size="8" fill="#7C2D12">• Video is local ephemeral preview only</text>
+                <text x="30" y="292" font-family="Arial, sans-serif" font-size="8" fill="#7C2D12">• No acoustic pitch/affect profiling</text>
+                <text x="30" y="306" font-family="Arial, sans-serif" font-size="7.5" fill="#991B1B">Preserves candidate fairness & dignity</text>
+
+                <!-- Mode 2 Sub-box -->
+                <rect x="12" y="430" width="241" height="380" rx="6" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.2"/>
+                <text x="22" y="454" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#15803D">Mode 2: Real Human HR Live Video</text>
+                <text x="22" y="474" font-family="Arial, sans-serif" font-size="8.5" fill="#166534">• Peer-to-Peer WebRTC Mesh Video/Audio</text>
+                <text x="22" y="490" font-family="Arial, sans-serif" font-size="8.5" fill="#166534">• Ephemeral D1 Signaling (ice-candidates)</text>
+                <text x="22" y="506" font-family="Arial, sans-serif" font-size="8.5" fill="#166534">• Scheduling Lifecycle (invite, accept, join)</text>
+                <text x="22" y="522" font-family="Arial, sans-serif" font-size="8.5" fill="#166534">• Synchronized candidate scratchpad</text>
+                
+                <text x="22" y="546" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#15803D">Grounded Recruiter Workspace:</text>
+                <text x="32" y="564" font-family="Arial, sans-serif" font-size="8" fill="#475569">Verified M01 skills & project badges</text>
+                <text x="32" y="579" font-family="Arial, sans-serif" font-size="8" fill="#475569">Targeted role question recommendations</text>
+                <text x="32" y="594" font-family="Arial, sans-serif" font-size="8" fill="#475569">Sovereign human 1–5 ratings & notes</text>
+
+                <rect x="22" y="615" width="221" height="95" rx="5" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1"/>
+                <text x="30" y="633" font-family="Arial, sans-serif" font-size="8.5" font-weight="800" fill="#166534">Dual-Party Consent Protocol:</text>
+                <text x="30" y="649" font-family="Arial, sans-serif" font-size="8" fill="#14532D">• Recording disabled until both consent</text>
+                <text x="30" y="663" font-family="Arial, sans-serif" font-size="8" fill="#14532D">• Zero server-side media storage</text>
+                <text x="30" y="677" font-family="Arial, sans-serif" font-size="8" fill="#14532D">• P2P direct stream encryption</text>
+                <text x="30" y="691" font-family="Arial, sans-serif" font-size="7.5" fill="#15803D">Strict candidate privacy guarantee</text>
+
+                <text x="22" y="735" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#DC2626">Output Contract: Synthesizes interaction</text>
+                <text x="22" y="750" font-family="Arial, sans-serif" font-size="8" fill="#334155">metrics and evaluator rubrics for Module 5</text>
+              </g>
+
+              <!-- ARROW M4 -> M5 -->
+              <path d="M 1101 430 L 1124 430" stroke="#DC2626" stroke-width="3" marker-end="url(#arrow)"/>
+
+              <!-- ================= STAGE 5: MODULE 5 ================= -->
+              <g transform="translate(1127, 20)">
+                <rect width="218" height="840" rx="10" fill="#FFFFFF" stroke="#4F46E5" stroke-width="2"/>
+                <rect width="218" height="46" rx="10" fill="#EEF2FF"/>
+                <text x="109" y="26" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#3730A3" text-anchor="middle">MODULE 5: DECISION SUPPORT</text>
+                <text x="109" y="39" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#4F46E5" text-anchor="middle">CANDIDATE READINESS & EVALUATION</text>
+
+                <rect x="12" y="60" width="194" height="145" rx="6" fill="#EEF2FF" stroke="#C7D2FE" stroke-width="1.2"/>
+                <text x="22" y="82" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#312E81">Evidence Aggregator</text>
+                <text x="22" y="102" font-family="Arial, sans-serif" font-size="8.5" fill="#4338CA">• M01 Verified Credentials</text>
+                <text x="22" y="118" font-family="Arial, sans-serif" font-size="8.5" fill="#4338CA">• M02 Diagnostic Mastery</text>
+                <text x="22" y="134" font-family="Arial, sans-serif" font-size="8.5" fill="#4338CA">• M03 Practical Task Artifacts</text>
+                <text x="22" y="150" font-family="Arial, sans-serif" font-size="8.5" fill="#4338CA">• M04 Interview Observations</text>
+                <text x="22" y="166" font-family="Arial, sans-serif" font-size="8" fill="#475569">Unified candidate evidence trail</text>
+                <text x="22" y="180" font-family="Arial, sans-serif" font-size="7.5" fill="#312E81">Integrates multi-stage dossier</text>
+
+                <rect x="12" y="220" width="194" height="165" rx="6" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.2"/>
+                <text x="22" y="242" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#0F172A">Anchored 1–5 Rubrics</text>
+                <text x="22" y="262" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">L1: Unsatisfactory (1.0)</text>
+                <text x="22" y="278" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">L2: Basic Developing (2.0)</text>
+                <text x="22" y="294" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">L3: Competent Standard (3.0)</text>
+                <text x="22" y="310" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">L4: Proficient Advanced (4.0)</text>
+                <text x="22" y="326" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">L5: Exceptional Mastery (5.0)</text>
+                <text x="22" y="344" font-family="Arial, sans-serif" font-size="8" fill="#64748B">Calibrated behavioral anchors</text>
+                <text x="22" y="360" font-family="Arial, sans-serif" font-size="8" fill="#0F172A">Anti-bias standardized criteria</text>
+                <text x="22" y="374" font-family="Arial, sans-serif" font-size="7.5" fill="#475569">Defensible scoring metrics</text>
+
+                <rect x="12" y="400" width="194" height="165" rx="6" fill="#F0FDF4" stroke="#BBF7D0" stroke-width="1.2"/>
+                <text x="22" y="422" font-family="Arial, sans-serif" font-size="10.5" font-weight="700" fill="#166534">Non-Decisional Dossier</text>
+                <text x="22" y="442" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Confidence & limitations log</text>
+                <text x="22" y="458" font-family="Arial, sans-serif" font-size="8.5" fill="#15803D">• Growth & learning roadmap</text>
+                <text x="22" y="476" font-family="Arial, sans-serif" font-size="8.5" font-weight="800" fill="#166534">Human Sovereignty Invariant:</text>
+                <text x="22" y="492" font-family="Arial, sans-serif" font-size="8" fill="#14532D">AI does not make hire decisions</text>
+                <text x="22" y="508" font-family="Arial, sans-serif" font-size="8" fill="#15803D">Explainable diagnostic audit</text>
+                <text x="22" y="524" font-family="Arial, sans-serif" font-size="8" fill="#166534">Reduces hiring team fatigue</text>
+                <text x="22" y="538" font-family="Arial, sans-serif" font-size="7.5" fill="#14532D">Transparent candidate defense</text>
+
+                <rect x="12" y="580" width="194" height="230" rx="6" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.2"/>
+                <text x="22" y="602" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#0F172A">Reviewer Cockpit</text>
+                <text x="22" y="622" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">Provides hiring managers</text>
+                <text x="22" y="638" font-family="Arial, sans-serif" font-size="8.5" fill="#334155">with transparent evidence trails</text>
+                <text x="22" y="654" font-family="Arial, sans-serif" font-size="8" fill="#64748B">for defensible human judgment</text>
+                
+                <text x="22" y="678" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#1E3A8A">Multi-Tenant RBAC:</text>
+                <text x="22" y="694" font-family="Arial, sans-serif" font-size="8" fill="#475569">• Candidate vs Recruiter scopes</text>
+                <text x="22" y="708" font-family="Arial, sans-serif" font-size="8" fill="#475569">• Encrypted data isolation</text>
+                <text x="22" y="722" font-family="Arial, sans-serif" font-size="8" fill="#475569">• Exportable readiness bundle</text>
+                <text x="22" y="736" font-family="Arial, sans-serif" font-size="8" fill="#475569">• Comprehensive audit log</text>
+                <text x="22" y="756" font-family="Arial, sans-serif" font-size="8.5" font-weight="700" fill="#4F46E5">Final Candidate Readiness ➔</text>
+              </g>
+
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748B"/>
+                </marker>
+              </defs>
+            </svg>
+
+            <!-- 3-TIER TEXT SUMMARY -->
+            <div class="methodology-tiers">
+              
+              <!-- TIER 1 -->
+              <div class="tier-box">
+                <div class="tier-header">
+                  <span class="tier-num">Tier 1</span>
+                  <span>Ingestion & Claims Grounding</span>
+                </div>
+                <div class="tier-content">
+                  <p><strong>Module 1:</strong> Ingests candidate resumes (PDF/DOCX/TeX) and target JDs. Deterministically strips sensitive PII before entity extraction to prevent model demographic bias. BGE-Base neural embeddings align extracted skills to standardized O*NET/ESCO taxonomies with cryptographic provenance stored in Cloudflare D1.</p>
+                  <div class="tier-pill-row">
+                    <span class="tech-pill">Pages Functions</span>
+                    <span class="tech-pill">D1 SQLite</span>
+                    <span class="tech-pill">RESUME_KV</span>
+                    <span class="tech-pill">bge-base-en-v1.5</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TIER 2 -->
+              <div class="tier-box">
+                <div class="tier-header">
+                  <span class="tier-num">Tier 2</span>
+                  <span>Adaptive Learning & Simulation</span>
+                </div>
+                <div class="tier-content">
+                  <p><strong>Modules 2, 3 & 4:</strong> Module 2 computes Bayesian skill proficiency and targets diagnosed misconceptions with teach-before-testing units. Module 3 evaluates practical code and query tasks. Module 4 synthesizes a 10-turn blueprint across 10 competency dimensions, executing real-time voice interviews and WebRTC human rooms.</p>
+                  <div class="tier-pill-row">
+                    <span class="tech-pill">Bayesian Update Engine</span>
+                    <span class="tech-pill">Web Speech STT/TTS</span>
+                    <span class="tech-pill">Peer WebRTC Mesh</span>
+                    <span class="tech-pill">meta/muse-glimmer-30b</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TIER 3 -->
+              <div class="tier-box">
+                <div class="tier-header">
+                  <span class="tier-num">Tier 3</span>
+                  <span>Readiness & Decision Support</span>
+                </div>
+                <div class="tier-content">
+                  <p><strong>Module 5:</strong> Consolidates multi-module evidence into candidate coaching feedback and calibrated recruiter dossiers. All evaluations are anchored to 1–5 behavioral rubrics (Unsatisfactory, Competent, Exceptional). Strict human sovereignty guarantees that AI acts solely as evidence synthesis without autonomous hire/reject rulings.</p>
+                  <div class="tier-pill-row">
+                    <span class="tech-pill">Anchored Rubrics (1–5)</span>
+                    <span class="tech-pill">STAR/BLUF Framework</span>
+                    <span class="tech-pill">Zero Biometrics</span>
+                    <span class="tech-pill">Dual-Party Consent</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- COLUMN 3 (RIGHT): RESULTS, APPLICATIONS, CONCLUSION -->
+      <!-- ========================================== -->
+      <section class="right-col">
+
+        <!-- EXPERIMENTAL RESULTS: WORKING PROTOTYPE & EVALUATION FRAMEWORK -->
+        <div class="card" id="experimental-results-card">
+          <div class="card-title">
+            <span>Experimental Results</span>
+            <span class="badge" style="background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D;">Working Prototype</span>
+          </div>
+
+          <!-- Current Status Callout -->
+          <div style="background: #F8FAFC; border-left: 4px solid #0284C7; padding: 6px 9px; border-radius: 4px; margin-bottom: 7px;">
+            <div style="font-size: 8.8pt; font-weight: 800; color: #0F2A4A; display: flex; align-items: center; justify-content: space-between;">
+              <span>Current Status: Working Prototype</span>
+              <span style="font-size: 7.2pt; font-weight: 700; color: #0284C7; background: #E0F2FE; border: 1px solid #BAE6FD; padding: 1.5px 6px; border-radius: 3px; text-transform: uppercase;">Functional System</span>
+            </div>
+            <p style="font-size: 7.8pt; color: #334155; margin-top: 3px; line-height: 1.35;">
+              The platform architecture, interactive UI, and core module pipelines are functionally implemented. Quantitative performance evaluation remains pending systematic benchmarking on large empirical candidate datasets.
+            </p>
+          </div>
+
+          <!-- Section Subtitle -->
+          <div style="font-size: 8.2pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #0F2A4A; margin-bottom: 4px;">
+            Proposed Evaluation Framework &amp; Metrics:
+          </div>
+
+          <!-- Evaluation Framework Table -->
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th style="width: 38mm;">Evaluation Dimension</th>
+                <th style="width: 58mm;">Metric Formulation</th>
+                <th>Proposed Target / Current Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>1. Resume Extraction Completeness</strong></td>
+                <td><span style="font-family: 'Courier New', monospace; font-size: 7.5pt; color: #0F2A4A; font-weight: 600;">(Correctly extracted fields / Total evaluated fields) × 100</span></td>
+                <td><strong>Proposed Target: ≥ 92%</strong> extraction accuracy across standard formats</td>
+              </tr>
+              <tr>
+                <td><strong>2. Job-Match Precision &amp; Gap Alignment</strong></td>
+                <td><span style="font-family: 'Courier New', monospace; font-size: 7.5pt; color: #0F2A4A; font-weight: 600;">(Relevant matched skills / All retrieved skills) × 100</span></td>
+                <td><strong>Proposed Target: ≥ 88%</strong> precision in identified competency gaps</td>
+              </tr>
+              <tr>
+                <td><strong>3. Assessment Scoring Consistency</strong></td>
+                <td><span style="font-family: 'Courier New', monospace; font-size: 7.5pt; color: #0F2A4A; font-weight: 600;">(Correct answers evaluated / Total questions evaluated) × 100</span></td>
+                <td><strong>Proposed Target: ≥ 90%</strong> scoring reliability on standardized rubrics</td>
+              </tr>
+              <tr>
+                <td><strong>4. Simulation Feedback &amp; Latency</strong></td>
+                <td><span style="font-family: 'Courier New', monospace; font-size: 7.5pt; color: #0F2A4A; font-weight: 600;">Median &amp; 95th-percentile response time across runs</span></td>
+                <td><strong>Proposed Target: &lt; 1.5s</strong> API latency on serverless edge functions</td>
+              </tr>
+              <tr>
+                <td><strong>5. Workflow Execution Reliability</strong></td>
+                <td><span style="font-family: 'Courier New', monospace; font-size: 7.5pt; color: #0F2A4A; font-weight: 600;">(Successful pipeline executions / Total test executions) × 100</span></td>
+                <td><span class="status-badge status-verified">Current Status: 100%</span> functional pass on automated test suites (523 / 523 tests across 65 suites)</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Benchmarking Protocol Note -->
+          <div style="font-size: 7.3pt; color: #475569; font-style: italic; margin-top: 5px; line-height: 1.3;">
+            * Note: Quantitative benchmarking protocol established for upcoming multi-user experimental trials.
+          </div>
+
+          <!-- Metrics Highlight Strip -->
+          <div class="metrics-highlight-strip">
+            <div class="metric-kpi-card">
+              <div class="kpi-number" style="font-size: 11pt; color: #0284C7;">Working</div>
+              <div class="kpi-label">Current Prototype</div>
+            </div>
+            <div class="metric-kpi-card">
+              <div class="kpi-number" style="font-size: 11pt;">≥ 92% Target</div>
+              <div class="kpi-label">Extraction Accuracy</div>
+            </div>
+            <div class="metric-kpi-card">
+              <div class="kpi-number" style="font-size: 11pt;">&lt; 1.5s Target</div>
+              <div class="kpi-label">Edge API Latency</div>
+            </div>
+            <div class="metric-kpi-card">
+              <div class="kpi-number" style="font-size: 11pt; color: #166534;">100% Pass</div>
+              <div class="kpi-label">523 / 523 Tests</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- APPLICATIONS -->
+        <div class="card">
+          <div class="card-title">
+            <span>Practical Applications</span>
+            <span class="badge">Deployment Targets</span>
+          </div>
+          <ul class="bullet-list">
+            <li class="bullet-item">
+              <strong>University Campus Placement Preparation:</strong> Enables continuous, autonomous interview training and diagnostic skill gap remediation for engineering students prior to competitive placement drives.
+            </li>
+            <li class="bullet-item">
+              <strong>Calibrated Technical Hiring Workflows:</strong> Equips hiring managers with evidence-based interview kits and standardized 1–5 anchored rubrics, mitigating interviewer fatigue and halo effects.
+            </li>
+            <li class="bullet-item">
+              <strong>Regulated & High-Stakes Skill Verification:</strong> Provides defensible, auditable candidate evidence packages in cloud systems, finance, and healthcare with tamper-resistant provenance logs.
+            </li>
+          </ul>
+        </div>
+
+        <!-- CONCLUSION -->
+        <div class="card">
+          <div class="card-title">
+            <span>Conclusion & Contribution</span>
+            <span class="badge">Research Impact</span>
+          </div>
+          <div class="conclusion-box">
+            "IntelliHire demonstrates that transitioning from speculative keyword-based screening to an evidence-grounded, five-module training architecture substantially enhances candidate preparation while upholding human decision sovereignty. By combining deterministic PII redaction, Bayesian skill mastery, practical work simulations, calibrated Voice AI interviews, and non-decisional readiness dossiers, the platform establishes an ethical, transparent, and technically rigorous foundation for recruitment training and candidate evaluation."
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- ========================================================= -->
+    <!-- FOOTER BANNER -->
+    <!-- ========================================================= -->
+    <footer class="footer-card">
+      <div class="footer-left">
+        <span>Global Academy of Technology</span>
+        <span>•</span>
+        <span>Autonomous Institute, Affiliated to VTU, Belagavi</span>
+        <span>•</span>
+        <span>Team No. 13</span>
+      </div>
+
+      <div class="footer-center">
+        <strong>ETHICAL INVARIANT:</strong> Camera and audio data are strictly ephemeral. IntelliHire does not perform facial emotion scoring, tone sentiment detection, or autonomous hiring decisions. Human decision sovereignty is preserved throughout.
+      </div>
+
+      <div class="footer-right">
+        <span class="sdg-badge sdg-4">SDG 4</span>
+        <span class="sdg-badge sdg-8">SDG 8</span>
+        <span class="sdg-badge sdg-9">SDG 9</span>
+        <span class="sdg-badge sdg-10">SDG 10</span>
+      </div>
+    </footer>
+
+  </div>
+</body>
+</html>
