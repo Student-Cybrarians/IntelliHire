@@ -89,10 +89,20 @@ async def on_fetch(request, env):
                     paragraphs = []
                     total_len = 0
                     
+                    w_ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
                     for paragraph in tree.findall('.//w:p', namespaces):
-                        texts = [node.text for node in paragraph.findall('.//w:t', namespaces) if node.text]
-                        if texts:
-                            joined = ''.join(texts)
+                        parts = []
+                        for elem in paragraph.iter():
+                            if elem.tag == f'{w_ns}t' and elem.text:
+                                parts.append(elem.text)
+                            elif elem.tag == f'{w_ns}tab':
+                                parts.append(' ')
+                            elif elem.tag in (f'{w_ns}br', f'{w_ns}cr'):
+                                parts.append('\n')
+                        if parts:
+                            joined = ''.join(parts).strip()
+                            if not joined:
+                                continue
                             if total_len + len(joined) > MAX_TEXT_SIZE:
                                 paragraphs.append(joined[:(MAX_TEXT_SIZE - total_len)])
                                 break

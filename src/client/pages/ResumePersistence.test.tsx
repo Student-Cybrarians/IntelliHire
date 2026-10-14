@@ -339,4 +339,131 @@ describe('M01 State Persistence & Stuck Loading Reliability Frontend Integration
     expect(textarea.value).toBe('');
     expect(screen.queryByText(/Bob confidential target job description/i)).not.toBeInTheDocument();
   });
+
+  it('6. Renders structured experience/education/quality analysis, supports candidate field editing, and applies edited optimization suggestions', async () => {
+    let contextUpdatedBody: any = null;
+    let optimizeSubmittedBody: any = null;
+
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'cand-1', role: 'candidate' } })
+        });
+      }
+      if (url === '/api/m1/state') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            has_resume: true,
+            resume: { id: 'res-v15', version: 15, filename: 'MOKSHITH_AIML.pdf', file_format: 'pdf' },
+            resume_data: {
+              skills: ['Python', 'Java'],
+              experience: [{ company: 'NeuralTech', title: 'AI Engineer', duration: '2024 - Present' }],
+              education: ['B.Tech in Artificial Intelligence'],
+              certifications: ['AWS Certified ML Specialty'],
+              achievements: ['Reduced model latency by 42%'],
+              quality_analysis: {
+                overall_quality_score: 95,
+                checks: [{ dimension: 'Skills Inventory', status: 'PASS', detail: '2 verified skills' }],
+                missing_sections: []
+              }
+            },
+            claims: [],
+            has_jd: true,
+            jd: { id: 'jd-1', raw_text: 'Senior AI Engineer' },
+            jd_data: { requirements: [{ requirement: 'Python & FastAPI', importance: 'MANDATORY' }] },
+            has_match: true,
+            match_data: {
+              ats_score: 78,
+              gap_analysis: [
+                { requirement: 'Python & FastAPI', status: 'UNCERTAIN', candidate_evidence: 'Python found; missing FastAPI', explanation: 'Partial match' }
+              ],
+              contradictions: [
+                { claim: '10 years Kubernetes', evidence: 'Graduated in 2024', explanation: 'Timeline mismatch requires review' }
+              ],
+              improvement_suggestions: [
+                { source_evidence: 'AI Engineer at NeuralTech', suggested_text: 'Built FastAPI & Python inference services at NeuralTech.', rationale: 'Highlights FastAPI experience.' }
+              ]
+            },
+            match_stale: false
+          })
+        });
+      }
+      if (url === '/api/resume/res-v15/context' && opts?.method === 'PUT') {
+        contextUpdatedBody = JSON.parse(opts.body);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: {
+              ...contextUpdatedBody,
+              provenance: { confidence: 'candidate_verified' }
+            }
+          })
+        });
+      }
+      if (url === '/api/resume/res-v15/optimize' && opts?.method === 'POST') {
+        optimizeSubmittedBody = JSON.parse(opts.body);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            new_resume_id: 'res-v16',
+            version: 16,
+            data: { skills: ['Python', 'Java', 'FastAPI'] }
+          })
+        });
+      }
+      return Promise.reject(new Error(`Unhandled fetch url: ${url}`));
+    }));
+
+    render(
+      <MemoryRouter>
+        <Resume />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Resume Quality & Completeness/i)).toBeInTheDocument();
+    });
+
+    // Verify structured fields and contradictions are displayed
+    expect(screen.getByText('NeuralTech')).toBeInTheDocument();
+    expect(screen.getByText('B.Tech in Artificial Intelligence')).toBeInTheDocument();
+    expect(screen.getByText('AWS Certified ML Specialty')).toBeInTheDocument();
+    expect(screen.getByText(/Flagged Contradictions & Review Alerts/i)).toBeInTheDocument();
+    expect(screen.getByText(/UNCERTAIN \/ PARTIAL/i)).toBeInTheDocument();
+
+    // Test candidate editing of extracted fields
+    fireEvent.click(screen.getByText(/Edit Extracted Fields/i));
+    const skillsInput = screen.getByLabelText(/Verified Skills \(comma-separated\)/i) as HTMLInputElement;
+    fireEvent.change(skillsInput, { target: { value: 'Python, Java, FastAPI' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Save Verified Profile/i));
+    });
+
+    await waitFor(() => {
+      expect(contextUpdatedBody?.skills).toEqual(['Python', 'Java', 'FastAPI']);
+      expect(screen.getByText('FastAPI')).toBeInTheDocument();
+    });
+
+    // Test editing suggestion text and applying optimization
+    const suggestionTextarea = screen.getByLabelText('Edit suggestion 1') as HTMLTextAreaElement;
+    fireEvent.change(suggestionTextarea, { target: { value: 'Custom verified FastAPI & Python microservice architecture.' } });
+
+    const checkbox = screen.getByLabelText('Accept suggestion 1');
+    fireEvent.click(checkbox);
+
+    const applyBtn = screen.getByText(/Apply 1 Optimizations/i);
+    await act(async () => {
+      fireEvent.click(applyBtn);
+    });
+
+    await waitFor(() => {
+      expect(optimizeSubmittedBody?.accepted_suggestions?.[0]?.suggested_text).toBe('Custom verified FastAPI & Python microservice architecture.');
+      expect(screen.getAllByText(/v16/i).length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

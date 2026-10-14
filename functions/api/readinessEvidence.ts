@@ -4,24 +4,33 @@
 
 import { Hono } from 'hono';
 import { verify } from 'hono/jwt';
+import { getSessionUser as getCanonicalSessionUser } from './[[route]]';
 
 type Bindings = {
   DB: D1Database;
   SESSION_KV: KVNamespace;
   RESUME_KV?: KVNamespace;
   NVIDIA_API_KEY?: string;
+  JWT_SECRET?: string;
   AI?: any;
 };
 
 // Helper: Get authenticated session user
 async function getSessionUser(c: any): Promise<{ id: string; role: string; organization_id?: string; email?: string; full_name?: string } | null> {
+  try {
+    const canonicalUser = await getCanonicalSessionUser(c);
+    if (canonicalUser && canonicalUser.id) {
+      return canonicalUser;
+    }
+  } catch (_) {}
+
   const cookieHeader = c.req.header('Cookie') || '';
   const match = cookieHeader.match(/intellihire_session=([^;]+)/);
   if (!match) return null;
   const token = match[1];
 
   try {
-    const payload = await verify(token, 'intellihire_secret_key_mock_fallback');
+    const payload = await verify(token, c.env?.JWT_SECRET || 'intellihire_secret_key_mock_fallback');
     if (payload && payload.id) {
       return payload as any;
     }
@@ -190,28 +199,33 @@ export function registerReadinessEvidenceRoutes(app: Hono<{ Bindings: Bindings }
 
     // If no ledger rows exist yet, perform baseline extraction from existing tables
     if (ledger.length === 0) {
-      // Fetch M01 claims
+      // Fetch M01 claims from active resume
       const claims = await c.env.DB.prepare(
-        `SELECT cl.id, cl.claim_text, cl.confidence_score, cl.character_start, cl.character_end 
+        `SELECT cl.id, cl.claim_type, cl.claim_value, cl.confidence_score, cl.provenance_start_index, cl.provenance_end_index, cl.verification_state 
          FROM candidate_claim cl 
          JOIN candidate_context ctx ON cl.context_id = ctx.id 
-         WHERE ctx.user_id = ? LIMIT 5`
+         JOIN candidate_resume r ON ctx.resume_id = r.id
+         WHERE ctx.user_id = ? AND r.is_active = 1
+         ORDER BY r.version DESC, cl.created_at ASC LIMIT 8`
       ).bind(candidateId).all();
 
       (claims.results || []).forEach((cl: any) => {
+        const claimValue = cl.claim_value || cl.claim_text || 'Documented Resume Claim';
+        const startOffset = cl.provenance_start_index ?? cl.character_start ?? null;
+        const endOffset = cl.provenance_end_index ?? cl.character_end ?? null;
         ledger.push({
           id: `leg-${crypto.randomUUID()}`,
           source_module: 'm01_resume',
           source_record_id: cl.id,
-          competency_name: 'Documented Career History',
-          skill_name: 'Work Experience',
+          competency_name: cl.claim_type === 'skill' ? 'Verified Skill Inventory' : 'Documented Career History',
+          skill_name: cl.claim_type === 'skill' ? claimValue : 'Work Experience',
           evidence_type: 'claim',
-          observed_fact: cl.claim_text,
+          observed_fact: claimValue,
           model_interpretation: 'Extracted from uploaded resume with character offset provenance.',
           confidence_score: Number(cl.confidence_score || 0.8),
           uncertainty_score: 0.2,
-          provenance: { source: 'resume_extraction', offset: [cl.character_start, cl.character_end] },
-          human_review_status: 'unreviewed',
+          provenance: { source: 'resume_extraction', offset: [startOffset, endOffset], verification_state: cl.verification_state || 'extracted' },
+          human_review_status: cl.verification_state === 'candidate_verified' ? 'approved' : 'unreviewed',
           reviewed_by_user_id: null,
           created_at: new Date().toISOString()
         });

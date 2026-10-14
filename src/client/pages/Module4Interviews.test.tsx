@@ -754,6 +754,267 @@ describe('M04 Calibrated Structured Interview Cockpit UI & Flows', () => {
     expect(alertBanner).toBeInTheDocument();
     expect(alertBanner).toHaveTextContent('Failed to start interview session. Please try again.');
   });
+
+  it('renders Pre-Interview Evidence Grounding Card with candidate skills, target role customization, and interaction mode selection', async () => {
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Verify Evidence Grounding Card headers
+    expect(await screen.findByText(/Personalized 10-Question Voice AI Mock Interview/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Candidate Evidence Grounding & Protocol Calibration/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Target Job Role & Interview Focus/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Verified Competencies \(M01 \/ M02\)/i)).toBeInTheDocument();
+
+    // Verify Ethical AI Invariant
+    expect(await screen.findByText(/Zero biometric profiling, emotion inference, or facial scoring/i)).toBeInTheDocument();
+
+    // Verify Interaction Modes
+    expect(await screen.findByText(/Real-Time Voice AI \(Recommended\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Accessible Text Mode/i)).toBeInTheDocument();
+
+    // Verify customize target role button
+    const customizeBtn = await screen.findByRole('button', { name: /Customize Role \/ JD/i });
+    expect(customizeBtn).toBeInTheDocument();
+    fireEvent.click(customizeBtn);
+
+    const roleInput = await screen.findByPlaceholderText(/e\.g\. Lead Cloud Security Engineer/i);
+    expect(roleInput).toBeInTheDocument();
+    fireEvent.change(roleInput, { target: { value: 'Principal Cybersecurity Architect' } });
+    expect(roleInput).toHaveValue('Principal Cybersecurity Architect');
+  });
+
+  it('renders Voice AI Status Bar, microphone controls, and speech synthesis buttons during active question turn', async () => {
+    let sentPayload: any = null;
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/m4/interviews/sessions' && opts?.method === 'POST') {
+        sentPayload = JSON.parse(opts.body);
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            session_id: 'session-voice-test-1',
+            protocol: mockProtocols.protocols[0],
+            active_panel_role: 'Principal Systems Architect',
+            current_turn: 1,
+            first_question: mockProtocols.protocols[0].question_sequence[0]
+          })
+        });
+      }
+      return (originalFetch as any)(url, opts);
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    const launchBtn = await screen.findByRole('button', { name: /Launch 10-Question Personalized Interview/i });
+    fireEvent.click(launchBtn);
+
+    // Assert session was started with personalized flag
+    await waitFor(() => {
+      expect(sentPayload).toBeDefined();
+      expect(sentPayload.personalized).toBe(true);
+    });
+
+    // Assert Voice Status Bar is rendered
+    expect(await screen.findByText(/Your Turn to Respond/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Start Speaking \(Microphone\)/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Replay Question Aloud/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Switch to Text Mode/i })).toBeInTheDocument();
+
+    // Switch to Text Mode
+    const switchBtn = await screen.findByRole('button', { name: /Switch to Text Mode/i });
+    fireEvent.click(switchBtn);
+    expect(await screen.findByText(/Switch to Voice AI Mode/i)).toBeInTheDocument();
+  });
+
+  it('navigates to Live Human HR Interview tab and renders scheduling card with invitation list', async () => {
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'recruiter-1', role: 'recruiter', full_name: 'Lead Recruiter' } })
+        });
+      }
+      if (url === '/api/m4/human-interviews/invitations') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            invitations: [
+              {
+                id: 'inv-1',
+                room_id: 'room-1',
+                target_role: 'Senior Cloud & Systems Architect',
+                candidate_name: 'Alex Mercer',
+                candidate_email: 'alex@intellihire.test',
+                scheduled_start_time: '2026-10-25T14:00:00Z',
+                status: 'scheduled',
+                interview_type: 'technical_and_behavioral',
+                interviewer_token: 'tok-intv-1',
+                interviewer_join_url: '/interviews?room=room-1&token=tok-intv-1'
+              }
+            ]
+          })
+        });
+      }
+      if (url === '/api/m4/interviews/candidates') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            candidates: [
+              { user_id: 'c1', full_name: 'Alex Mercer', email: 'alex@intellihire.test', target_role: 'Cloud Architect' }
+            ]
+          })
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ success: true, protocols: [] })
+      });
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Click Live Human HR Interview tab
+    const humanTab = await screen.findByRole('button', { name: /Live Human HR Interview/i });
+    fireEvent.click(humanTab);
+
+    // Verify Scheduling Card renders
+    expect(await screen.findByText(/Real Human HR Interview Scheduling & Live Video Rooms/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Scheduled & Active Human Interviews \(1\)/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Senior Cloud & Systems Architect/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Schedule Human Interview/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Enter Live Room/i })).toBeInTheDocument();
+  });
+
+  it('enters Live Room with WebRTC controls and grounded interviewer workspace', async () => {
+    // Mock navigator.mediaDevices.getUserMedia
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [
+            { stop: vi.fn(), enabled: true },
+            { stop: vi.fn(), enabled: true }
+          ],
+          getAudioTracks: () => [{ enabled: true }],
+          getVideoTracks: () => [{ enabled: true }]
+        }),
+        enumerateDevices: vi.fn().mockResolvedValue([])
+      },
+      writable: true,
+      configurable: true
+    });
+
+    // Mock RTCPeerConnection
+    global.RTCPeerConnection = vi.fn().mockImplementation(() => ({
+      addTrack: vi.fn(),
+      createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'dummy-sdp' }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: 'answer', sdp: 'dummy-sdp' }),
+      addIceCandidate: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      iceConnectionState: 'connected'
+    })) as any;
+
+    const originalFetch = global.fetch;
+    vi.stubGlobal('fetch', vi.fn((url: string, opts?: any) => {
+      if (url === '/api/auth/me') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ user: { id: 'recruiter-1', role: 'recruiter', full_name: 'Lead Recruiter' } })
+        });
+      }
+      if (url === '/api/m4/human-interviews/rooms/join') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            room_id: 'room-1',
+            participant_role: 'interviewer',
+            room_status: 'in_progress',
+            recording_enabled: false,
+            candidate_recording_consent: false,
+            interviewer_recording_consent: false,
+            invitation: {
+              id: 'inv-1',
+              target_role: 'Senior Cloud & Systems Architect',
+              interview_type: 'technical_and_behavioral',
+              scheduled_start_time: '2026-10-25T14:00:00Z'
+            },
+            candidate_context: {
+              name: 'Alex Mercer',
+              profile: { experience_level: 'Senior' },
+              resume_data: { skills: ['Distributed Systems', 'Cloud Security'] }
+            },
+            workspace_state: {
+              questions: [
+                {
+                  id: 'q-1',
+                  category: 'technical_execution',
+                  competency: 'Distributed Systems Architecture',
+                  question: 'How do you handle split-brain partitions in multi-region clusters?',
+                  provenance_note: 'Grounded in candidate verified skills',
+                  status: 'suggested'
+                }
+              ]
+            }
+          })
+        });
+      }
+      if (url.includes('/api/m4/human-interviews/rooms/room-1/signals')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, signals: [] })
+        });
+      }
+      if (url.includes('/api/m4/human-interviews/invitations')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            invitations: [
+              {
+                id: 'inv-1',
+                room_id: 'room-1',
+                target_role: 'Senior Cloud & Systems Architect',
+                candidate_name: 'Alex Mercer',
+                candidate_email: 'alex@intellihire.test',
+                scheduled_start_time: '2026-10-25T14:00:00Z',
+                status: 'scheduled',
+                interview_type: 'technical_and_behavioral',
+                interviewer_token: 'tok-intv-1',
+                interviewer_join_url: '/interviews?room=room-1&token=tok-intv-1'
+              }
+            ]
+          })
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ success: true, invitations: [] })
+      });
+    }));
+
+    render(<BrowserRouter><Module4Interviews /></BrowserRouter>);
+
+    // Click Live Human HR Interview tab
+    const humanTab = await screen.findByRole('button', { name: /Live Human HR Interview/i });
+    fireEvent.click(humanTab);
+
+    // Click Enter Live Room
+    const enterRoomBtn = await screen.findByRole('button', { name: /Enter Live Room/i });
+    fireEvent.click(enterRoomBtn);
+
+    // Verify Live Room & Workspace components are mounted
+    expect(await screen.findByText(/Live Human Interview/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Interviewer Evaluation Workspace/i)).toBeInTheDocument();
+    expect(await screen.findByText(/How do you handle split-brain partitions in multi-region clusters\?/i)).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText(/Record confidential notes, technical depth observations/i)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Conclude & Evaluate/i })).toBeInTheDocument();
+  });
 });
+
 
 

@@ -65,6 +65,7 @@ export default function AssessmentV2() {
   
   // Timer
   const [startTime, setStartTime] = useState<number>(0);
+  const [itemStartTime, setItemStartTime] = useState<number>(0);
   const [elapsed, setElapsed] = useState(0);
 
   // Timer effect
@@ -90,6 +91,11 @@ export default function AssessmentV2() {
             const activeId = activeData.attempt.id;
             setAttemptId(activeId);
             setStartTime(Date.now());
+            setItemStartTime(Date.now());
+            try {
+              const parsedState = JSON.parse(activeData.attempt.adaptive_state_json || '{}');
+              if (parsedState.itemCount) setItemCount(Number(parsedState.itemCount));
+            } catch {}
             setState('in_progress');
             await fetchNextItem(activeId);
             return;
@@ -114,9 +120,15 @@ export default function AssessmentV2() {
     }
   };
 
-  const startAttempt = async () => {
+  const startAttempt = async (forceNew: any = false) => {
+    const isForceNew = forceNew === true;
     setState('loading');
     setError('');
+    if (isForceNew) {
+      setItemCount(0);
+      setLastEvaluation(null);
+      setCurrentItem(null);
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
@@ -124,7 +136,7 @@ export default function AssessmentV2() {
       const res = await fetch('/api/m2/attempts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blueprint_id: selectedBlueprint || undefined }),
+        body: JSON.stringify({ blueprint_id: selectedBlueprint || undefined, force_new: isForceNew }),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -145,6 +157,10 @@ export default function AssessmentV2() {
 
       setAttemptId(aid);
       setStartTime(Date.now());
+      setItemStartTime(Date.now());
+      if (typeof data.item_count === 'number') {
+        setItemCount(data.item_count);
+      }
       setState('in_progress');
       await fetchNextItem(aid);
     } catch (e: any) {
@@ -191,7 +207,12 @@ export default function AssessmentV2() {
         setSelectedOption(null);
         setFreeTextResponse('');
         setLastEvaluation(null);
-        setItemCount(prev => prev + 1);
+        setItemStartTime(Date.now());
+        if (typeof data.item_number === 'number') {
+          setItemCount(data.item_number);
+        } else {
+          setItemCount(prev => prev + 1);
+        }
       } else {
         setError(data.error || 'No items available');
         setState('error');
@@ -211,6 +232,8 @@ export default function AssessmentV2() {
       ? { selected_option: selectedOption }
       : { text_response: freeTextResponse };
     
+    const itemDurationSec = itemStartTime ? Math.max(1, Math.floor((Date.now() - itemStartTime) / 1000)) : Math.max(1, elapsed);
+
     try {
       const res = await fetch(`/api/m2/attempts/${attemptId}/respond`, {
         method: 'POST',
@@ -218,7 +241,7 @@ export default function AssessmentV2() {
         body: JSON.stringify({
           item_id: currentItem.id,
           response_data: responseData,
-          time_taken_seconds: elapsed > 0 ? elapsed - (startTime ? Math.floor((Date.now() - startTime) / 1000) : 0) : 0
+          time_taken_seconds: itemDurationSec
         })
       });
       const data = await res.json() as any;
@@ -465,12 +488,26 @@ export default function AssessmentV2() {
                   These results represent evidence-based proficiency estimates, not employment decisions. Uncertainty ranges indicate measurement confidence.
                 </p>
               </div>
-              <button 
-                onClick={() => navigate('/dashboard')}
-                className="w-full py-3 rounded-lg font-medium text-white bg-[#001f2e] border border-[#063750] hover:bg-[#002f47] transition-colors mb-4"
-              >
-                Return to Command Center
-              </button>
+              <div className="grid sm:grid-cols-3 gap-3 mb-4">
+                <button 
+                  onClick={() => startAttempt(true)}
+                  className="py-3 px-4 rounded-lg font-medium text-white bg-[#FF4103] hover:bg-[#e03200] transition-colors"
+                >
+                  Start New Assessment
+                </button>
+                <button 
+                  onClick={() => navigate('/interview-prep')}
+                  className="py-3 px-4 rounded-lg font-medium text-white bg-[#002f47] hover:bg-[#063750] transition-colors"
+                >
+                  Interview Prep Studio
+                </button>
+                <button 
+                  onClick={() => navigate('/dashboard')}
+                  className="py-3 px-4 rounded-lg font-medium text-white bg-[#001f2e] border border-[#063750] hover:bg-[#002f47] transition-colors"
+                >
+                  Return to Command Center
+                </button>
+              </div>
             </div>
           </div>
         </div>

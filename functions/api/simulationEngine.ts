@@ -2870,7 +2870,65 @@ export function registerSimulationRoutes(app: Hono<{ Bindings: Bindings }>) {
     }
   });
 
-  // 3a. Get active session for current candidate (across any definition, for refresh restoration)
+  // 3a. List all simulation sessions for candidate
+  app.get('/m3/simulations/sessions', async (c) => {
+    try {
+      const user = await getSessionUser(c);
+      if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+      let rows: any[] = [];
+      try {
+        const res = await c.env.DB.prepare(
+          `SELECT s.id, s.status, s.current_step, s.created_at, s.updated_at, s.definition_id,
+                  d.title as def_title, d.domain, d.target_role, d.difficulty_level,
+                  e.overall_score
+           FROM simulation_session s
+           LEFT JOIN simulation_definition d ON s.definition_id = d.id
+           LEFT JOIN simulation_evaluation e ON s.id = e.session_id
+           WHERE s.user_id = ?
+           ORDER BY s.created_at DESC`
+        ).bind(user.id).all();
+        rows = res.results || [];
+      } catch (e) {
+        console.warn('Error fetching simulation sessions:', e);
+      }
+
+      const sessions = rows.map((r: any) => {
+        const def = SEED_SIMULATIONS.find(s => s.id === r.definition_id);
+        return {
+          id: r.id,
+          definition_id: r.definition_id,
+          title: r.def_title || def?.title || 'Technical Simulation',
+          domain: r.domain || def?.domain || 'software',
+          target_role: r.target_role || def?.target_role || 'Engineer',
+          difficulty_level: r.difficulty_level || def?.difficulty_level || 3,
+          status: r.status,
+          overall_score: typeof r.overall_score === 'number' ? Math.round(r.overall_score * 100) : null,
+          created_at: r.created_at,
+          updated_at: r.updated_at
+        };
+      });
+
+      const evaluated = sessions.filter(s => typeof s.overall_score === 'number');
+      const avgScore = evaluated.length > 0
+        ? Math.round(evaluated.reduce((acc, s) => acc + (s.overall_score || 0), 0) / evaluated.length)
+        : null;
+
+      return c.json({
+        success: true,
+        sessions,
+        stats: {
+          total: sessions.length,
+          completed: evaluated.length,
+          average_score: avgScore
+        }
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // 3b. Get active session for current candidate (across any definition, for refresh restoration)
   app.get('/m3/simulations/sessions/active', async (c) => {
     try {
       const user = await getSessionUser(c);

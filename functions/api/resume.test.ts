@@ -231,5 +231,64 @@ describe('Hardened Resume API', () => {
     const data = await res.json() as any;
     expect(data.error).toContain('AI Extraction Unavailable');
   });
+
+  it('10. Resilient In-Process Fallback: extracts TXT directly when external service throws', async () => {
+    const env = createMockEnv();
+    const txtContent = new TextEncoder().encode('Senior DevOps Engineer with Kubernetes, Terraform, and AWS experience');
+    const file = new File([txtContent], 'resume.txt', { type: 'text/plain' });
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Simulate external service being offline or unreachable
+    mockFetch.mockRejectedValue(new Error('Connection refused to external worker'));
+
+    const req = new Request('http://localhost/api/resume/upload', {
+      method: 'POST',
+      body: formData,
+      headers: { Cookie: 'intellihire_session=session-1' },
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.resumeId).toBeDefined();
+    expect(data.status).toBe('SUCCESS');
+  });
+
+  it('11. Duplicate Active Resume Resilience: returns existing resume ID without error', async () => {
+    const env = createMockEnv();
+    // Simulate duplicate hash already existing
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => ({
+      bind: vi.fn().mockImplementation((...args) => ({
+        first: vi.fn().mockImplementation(async () => {
+          if (query.includes('content_hash_sha256 = ?')) {
+            return { id: 'existing-resume-uuid', version: 3 };
+          }
+          return { organization_id: 'org-1', max_v: 3 };
+        }),
+        run: vi.fn().mockResolvedValue(true),
+      }))
+    }));
+
+    const txtContent = new TextEncoder().encode('Identical resume content already uploaded');
+    const file = new File([txtContent], 'resume.txt', { type: 'text/plain' });
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const req = new Request('http://localhost/api/resume/upload', {
+      method: 'POST',
+      body: formData,
+      headers: { Cookie: 'intellihire_session=session-1' },
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.resumeId).toBe('existing-resume-uuid');
+    expect(data.version).toBe(3);
+    expect(data.existing).toBe(true);
+  });
 });
 

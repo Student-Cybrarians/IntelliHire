@@ -399,4 +399,29 @@ describe('Priority 18: Training Curriculum & Learning Pathway Engine APIs', () =
     expect(data.cohort_metrics.top_diagnosed_gaps.length).toBeGreaterThanOrEqual(3);
   });
 
+  it('10. DEF-M2-01 & DEF-M2-03: strips exercise correct_index before completion and rejects empty reassessment notes', async () => {
+    const env = createMockEnv();
+    const getReq = new Request('http://localhost/api/training/pathway/pathway-1', {
+      headers: { Cookie: 'intellihire_session=candidate-token' }
+    });
+    const getRes = await app.request(getReq, {}, env as any);
+    expect(getRes.status).toBe(200);
+    const getData = await getRes.json() as any;
+    const uncompletedExerciseUnit = getData.pathway.modules[0].units.find((u: any) => u.id === 'unit-2');
+    expect(uncompletedExerciseUnit.interactive_exercise.question).toBeDefined();
+    expect(uncompletedExerciseUnit.interactive_exercise.correct_index).toBeUndefined();
+    expect(uncompletedExerciseUnit.interactive_exercise.explanation_why).toBeUndefined();
+
+    const badReassessReq = new Request('http://localhost/api/training/module/mod-1/reassess', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'intellihire_session=candidate-token'
+      },
+      body: JSON.stringify({ demonstration_notes: 'too short' })
+    });
+    const badReassessRes = await app.request(badReassessReq, {}, env as any);
+    expect(badReassessRes.status).toBe(400);
+  });
+
 });

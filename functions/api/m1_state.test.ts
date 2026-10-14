@@ -193,4 +193,188 @@ describe('M01 State Persistence & Canonical Restoration Backend API', () => {
     expect(data.error).toContain('not found');
   });
 
+  it('8. deterministicMatchAnalysis prevents false-positive DEMONSTRATED on English stopwords (DEF-02 regression)', async () => {
+    const { deterministicMatchAnalysis } = await import('./[[route]]');
+    const pythonResume = `
+      MOKSHITH — AI/ML Engineer
+      Email: mokshith@example.com
+      Skills: Python, Machine Learning, Prompt Engineering, SQL, Java
+      Experience: Built LLM pipelines with 5 years of experience in data science and strong analytical skills.
+    `;
+    const reactJdReqs = JSON.stringify({
+      requirements: [
+        { requirement: '5+ years of experience with React and TypeScript', importance: 'MANDATORY' },
+        { requirement: 'Strong proficiency in Cloudflare Workers and D1 SQLite', importance: 'MANDATORY' },
+        { requirement: 'Experience with Python and Machine Learning pipelines', importance: 'MANDATORY' }
+      ]
+    });
+
+    const result = deterministicMatchAnalysis(pythonResume, reactJdReqs);
+    expect(result.gap_analysis).toHaveLength(3);
+    // Requirement 1 (React & TypeScript) must be MISSING despite sharing "years", "experience", "with"
+    expect(result.gap_analysis[0].status).toBe('MISSING');
+    // Requirement 2 (Cloudflare Workers & D1 SQLite) must be MISSING despite sharing "strong", "proficiency"
+    expect(result.gap_analysis[1].status).toBe('MISSING');
+    // Requirement 3 (Python & Machine Learning) must be DEMONSTRATED
+    expect(result.gap_analysis[2].status).toBe('DEMONSTRATED');
+  });
+
+  it('9. POST /resume/extract/:resume_id short-circuits with NO_OCR warning when raw_text is empty (DEF-07 regression)', async () => {
+    const env = createMockEnv({
+      first: { organization_id: 'org_default_public' },
+      resume: { id: 'res-empty', raw_text: '   ', context_id: 'ctx-empty', extraction_status: 'NO_OCR' }
+    });
+
+    const req = new Request('http://localhost/api/resume/extract/res-empty', {
+      method: 'POST',
+      headers: { Cookie: 'intellihire_session=cand-1-session' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.data.provenance.extraction_status).toBe('NO_OCR');
+    expect(data.warning).toContain('No selectable text layer');
+  });
+
+  it('10. PUT /resume/:id/context persists candidate-edited skills, experience, and education and marks provenance candidate_verified (DEF-04 regression)', async () => {
+    const env = createMockEnv({
+      context: {
+        id: 'ctx-edit-1',
+        raw_text: 'Mokshith Python Java Engineer B.Tech CS',
+        context_data_json: JSON.stringify({
+          skills: ['JavaBeginner', 'SQLBeginner'],
+          experience: [],
+          education: []
+        })
+      }
+    });
+
+    const req = new Request('http://localhost/api/resume/res-edit-1/context', {
+      method: 'PUT',
+      headers: {
+        'Cookie': 'intellihire_session=cand-1-session',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        skills: ['Java', 'SQL', 'Python'],
+        experience: [{ company: 'Acme AI', title: 'ML Engineer', duration: '2024 - Present' }],
+        education: ['B.Tech in Computer Science & Engineering'],
+        certifications: ['AWS Certified Machine Learning'],
+        achievements: ['Reduced inference latency by 35%']
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.data.skills).toEqual(['Java', 'SQL', 'Python']);
+    expect(data.data.experience[0].company).toBe('Acme AI');
+    expect(data.data.education[0]).toContain('B.Tech');
+    expect(data.data.provenance.confidence).toBe('candidate_verified');
+    expect(data.data.quality_analysis.overall_quality_score).toBeGreaterThan(0);
+  });
+
+  it('11. POST /resume/:id/optimize deactivates prior versions, increments MAX(version), carries forward claims, and records rewrites (DEF-01 regression)', async () => {
+    const queriesExecuted: string[] = [];
+    const env = createMockEnv({
+      resume: {
+        id: 'res-v15',
+        organization_id: 'org_default_public',
+        user_id: 'cand-1',
+        version: 15,
+        max_ver: 17,
+        filename: 'Resume.pdf',
+        file_format: 'pdf',
+        content_hash_sha256: 'oldhash'
+      },
+      context: {
+        id: 'ctx-v15',
+        raw_text: 'Experienced Python developer building ML services.',
+        extraction_method: 'multi_pass_v2',
+        extraction_status: 'parsed',
+        context_data_json: JSON.stringify({ skills: ['Python', 'Machine Learning'] })
+      },
+      claims: [
+        { claim_type: 'skill', claim_value: 'Python', confidence_score: 0.9, provenance_start_index: 12, provenance_end_index: 18, verification_state: 'extracted' }
+      ]
+    });
+
+    const origPrepare = env.DB.prepare;
+    env.DB.prepare = vi.fn().mockImplementation((q: string) => {
+      queriesExecuted.push(q);
+      return origPrepare(q);
+    });
+
+    const req = new Request('http://localhost/api/resume/res-v15/optimize', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=cand-1-session',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        accepted_suggestions: [
+          {
+            source_evidence: 'Experienced Python developer building ML services.',
+            suggested_text: 'Experienced Python developer building production ML services with 99.9% uptime.',
+            rationale: 'Quantifies reliability impact.'
+          }
+        ]
+      })
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.version).toBe(18);
+    expect(data.applied_count).toBe(1);
+    expect(data.data.optimized_rewrites).toHaveLength(1);
+    expect(queriesExecuted.some(q => q.includes('UPDATE candidate_resume SET is_active = 0 WHERE user_id = ?'))).toBe(true);
+    expect(queriesExecuted.some(q => q.includes('INSERT INTO candidate_claim'))).toBe(true);
+  });
+
+  it('12. GET /resume/:id/export generates valid, distinct Global and Tailored DOCX files even without a pre-existing candidate_profile row (DEF-05 regression)', async () => {
+    const env = createMockEnv({
+      first: { full_name: 'Mokshith Reddy', email: 'mokshith@test.com' },
+      context: {
+        id: 'ctx-exp-1',
+        raw_text: 'Mokshith Reddy Python Engineer',
+        context_data_json: JSON.stringify({
+          skills: ['Python', 'FastAPI', 'SQL'],
+          experience: [{ title: 'AI Engineer', company: 'IntelliHire Labs', duration: '2024 - Present', description: 'Built ATS engine' }],
+          education: ['B.Tech Computer Science'],
+          certifications: ['AWS Certified Developer'],
+          achievements: ['Won National AI Hackathon'],
+          optimized_rewrites: [{ suggested_text: 'Architected edge-native ATS engine reducing latency by 45%.' }]
+        })
+      }
+    });
+
+    const globalReq = new Request('http://localhost/api/resume/res-exp-1/export?type=global', {
+      headers: { Cookie: 'intellihire_session=cand-1-session' }
+    });
+    const globalRes = await app.request(globalReq, {}, env as any);
+    expect(globalRes.status).toBe(200);
+    expect(globalRes.headers.get('Content-Disposition')).toContain('ATS_Resume_global.docx');
+    const globalBuf = new Uint8Array(await globalRes.arrayBuffer());
+    // Verify PK zip magic header (0x50, 0x4b)
+    expect(globalBuf[0]).toBe(0x50);
+    expect(globalBuf[1]).toBe(0x4b);
+
+    const tailoredReq = new Request('http://localhost/api/resume/res-exp-1/export?type=tailored', {
+      headers: { Cookie: 'intellihire_session=cand-1-session' }
+    });
+    const tailoredRes = await app.request(tailoredReq, {}, env as any);
+    expect(tailoredRes.status).toBe(200);
+    expect(tailoredRes.headers.get('Content-Disposition')).toContain('ATS_Resume_tailored.docx');
+    const tailoredBuf = new Uint8Array(await tailoredRes.arrayBuffer());
+    expect(tailoredBuf[0]).toBe(0x50);
+    expect(tailoredBuf[1]).toBe(0x4b);
+    // Tailored DOCX contains additional target role alignment section so its byte size differs from global
+    expect(tailoredBuf.byteLength).toBeGreaterThan(globalBuf.byteLength);
+  });
+
 });

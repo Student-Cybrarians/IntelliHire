@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { 
   BookOpen, Sparkles, CheckCircle2, Lock, ArrowRight, RefreshCw, 
   Layers, ShieldCheck, Flame, Users, AlertTriangle, HelpCircle, 
-  CheckCircle, ChevronRight, Laptop, Brain, Award, Play, BarChart3
+  CheckCircle, ChevronRight, Laptop, Brain, Award, Play, BarChart3,
+  Clock, Calendar, Check, X, AlertCircle, History, Info
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
 
@@ -15,10 +16,10 @@ interface LearningUnit {
   interactive_exercise: {
     question: string;
     options: string[];
-    correct_index: number;
-    explanation_why: string;
-    explanation_how: string;
-    misconception_warning: string;
+    correct_index?: number;
+    explanation_why?: string;
+    explanation_how?: string;
+    misconception_warning?: string;
   } | null;
   provenance: {
     author?: string;
@@ -42,6 +43,7 @@ interface CurriculumModule {
   prerequisites: string[];
   status: 'locked' | 'available' | 'in_progress' | 'completed' | 'mastered';
   mastery_status: 'unassessed' | 'needs_practice' | 'proficient' | 'mastered';
+  revision_due_at?: string | null;
   units: LearningUnit[];
 }
 
@@ -61,6 +63,35 @@ interface LearningPathway {
   modules: CurriculumModule[];
 }
 
+interface ReassessmentPromptData {
+  module_id: string;
+  module_title: string;
+  competency_name: string;
+  skill_name: string;
+  target_role: string;
+  variation_index: number;
+  attempt_number: number;
+  challenge_scenario: string;
+  specific_prompt: string;
+  passing_threshold_pct: number;
+  criteria_dimensions: Array<{
+    dimension: string;
+    weight: number;
+    description: string;
+  }>;
+  instructions: string;
+}
+
+const PRESET_ROLES = [
+  { role: 'Registered Nurse & Clinical Specialist', domain: 'healthcare_admin', category: 'Healthcare' },
+  { role: 'Mechanical & Manufacturing Engineer', domain: 'operations', category: 'Engineering' },
+  { role: 'Financial Analyst & Auditor', domain: 'finance', category: 'Finance' },
+  { role: 'Information Security Analyst', domain: 'software', category: 'Cybersecurity' },
+  { role: 'AI & Machine Learning Engineer', domain: 'data', category: 'AI/ML' },
+  { role: 'Senior Distributed Architect', domain: 'software', category: 'Systems' },
+  { role: 'Full-Stack Software Engineer', domain: 'software', category: 'Software' }
+];
+
 export default function TrainingCurriculum() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -69,20 +100,39 @@ export default function TrainingCurriculum() {
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [activeUnitIndex, setActiveUnitIndex] = useState(0);
   
+  // Navigation Tabs: Learner Cockpit, Spaced Revision, Cohort Analytics
+  const [activeTab, setActiveTab] = useState<'learner' | 'revision' | 'cohort'>('learner');
+  const [cohortMetrics, setCohortMetrics] = useState<any>(null);
+  const [generatingPathway, setGeneratingPathway] = useState(false);
+
+  // Pathway Generation Modal State
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [selectedPresetIndex, setSelectedPresetIndex] = useState<number | null>(null);
+  const [customRoleInput, setCustomRoleInput] = useState('');
+  const [customDomainInput, setCustomDomainInput] = useState('auto');
+
   // Exercise State
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [exerciseResult, setExerciseResult] = useState<any>(null);
   const [submittingExercise, setSubmittingExercise] = useState(false);
+  const [hintLoading, setHintLoading] = useState(false);
+  const [activeHint, setActiveHint] = useState<string | null>(null);
 
   // Reassessment Gate State
+  const [reassessmentPrompt, setReassessmentPrompt] = useState<ReassessmentPromptData | null>(null);
+  const [reassessmentPromptLoading, setReassessmentPromptLoading] = useState(false);
+  const [reassessmentSolution, setReassessmentSolution] = useState('');
+  const [reassessmentRationale, setReassessmentRationale] = useState('');
   const [reassessing, setReassessing] = useState(false);
   const [reassessmentResult, setReassessmentResult] = useState<any>(null);
-  const [reassessmentNotes, setReassessmentNotes] = useState('');
+  const [reassessmentHistory, setReassessmentHistory] = useState<any[]>([]);
+  const [showHistoryAccordion, setShowHistoryAccordion] = useState(false);
 
-  // Trainer / Cohort View
-  const [activeTab, setActiveTab] = useState<'learner' | 'cohort'>('learner');
-  const [cohortMetrics, setCohortMetrics] = useState<any>(null);
-  const [generatingPathway, setGeneratingPathway] = useState(false);
+  // Spaced Revision State
+  const [spacedRevisionData, setSpacedRevisionData] = useState<any>(null);
+  const [spacedRevisionLoading, setSpacedRevisionLoading] = useState(false);
+  const [completingRevisionId, setCompletingRevisionId] = useState<string | null>(null);
+  const [revisionSuccessMsg, setRevisionSuccessMsg] = useState<string | null>(null);
 
   // Initialize data
   useEffect(() => {
@@ -108,6 +158,9 @@ export default function TrainingCurriculum() {
           const cData = await cohortRes.json() as any;
           setCohortMetrics(cData.cohort_metrics);
         }
+
+        // Preload spaced revision count
+        loadSpacedRevision();
       } catch (err) {
         console.error('Init training failed:', err);
       } finally {
@@ -129,6 +182,7 @@ export default function TrainingCurriculum() {
           setSelectedOption(null);
           setExerciseResult(null);
           setReassessmentResult(null);
+          setActiveHint(null);
         }
       }
     } catch (err) {
@@ -136,13 +190,37 @@ export default function TrainingCurriculum() {
     }
   };
 
+  const handleOpenGenerateModal = () => {
+    setSelectedPresetIndex(null);
+    setCustomRoleInput('');
+    setCustomDomainInput('auto');
+    setShowGenerateModal(true);
+  };
+
   const handleGeneratePathway = async () => {
     setGeneratingPathway(true);
+    setShowGenerateModal(false);
     try {
+      let rolePayload: string | undefined = undefined;
+      let domainPayload: string | undefined = undefined;
+
+      if (selectedPresetIndex !== null && PRESET_ROLES[selectedPresetIndex]) {
+        rolePayload = PRESET_ROLES[selectedPresetIndex].role;
+        domainPayload = PRESET_ROLES[selectedPresetIndex].domain;
+      } else if (customRoleInput.trim()) {
+        rolePayload = customRoleInput.trim();
+        if (customDomainInput !== 'auto') {
+          domainPayload = customDomainInput;
+        }
+      }
+
       const res = await fetch('/api/training/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({
+          target_role: rolePayload,
+          domain: domainPayload
+        })
       });
       if (res.ok) {
         const data = await res.json() as any;
@@ -152,6 +230,7 @@ export default function TrainingCurriculum() {
           const pData = await pathRes.json() as any;
           setPathways(pData.pathways || []);
         }
+        await loadSpacedRevision();
       }
     } catch (err) {
       console.error('Pathway generation failed:', err);
@@ -162,6 +241,47 @@ export default function TrainingCurriculum() {
 
   const currentModule = activePathway?.modules?.[activeModuleIndex];
   const currentUnit = currentModule?.units?.[activeUnitIndex];
+
+  // Reassessment prompt & history loader
+  useEffect(() => {
+    if (currentUnit?.unit_type === 'reassessment_gate' && currentModule) {
+      loadReassessmentPrompt(currentModule.id);
+      loadReassessmentHistory(currentModule.id);
+    } else {
+      setReassessmentPrompt(null);
+      setReassessmentResult(null);
+    }
+    setActiveHint(null);
+    setSelectedOption(null);
+    setExerciseResult(null);
+  }, [currentUnit?.id, currentModule?.id]);
+
+  const loadReassessmentPrompt = async (moduleId: string) => {
+    setReassessmentPromptLoading(true);
+    try {
+      const res = await fetch(`/api/training/module/${moduleId}/reassessment-prompt`);
+      if (res.ok) {
+        const data = await res.json() as any;
+        setReassessmentPrompt(data);
+      }
+    } catch (err) {
+      console.error('Failed to load reassessment prompt:', err);
+    } finally {
+      setReassessmentPromptLoading(false);
+    }
+  };
+
+  const loadReassessmentHistory = async (moduleId: string) => {
+    try {
+      const res = await fetch(`/api/training/module/${moduleId}/reassessment-history`);
+      if (res.ok) {
+        const data = await res.json() as any;
+        setReassessmentHistory(data.attempts || []);
+      }
+    } catch (err) {
+      console.error('Failed to load reassessment history:', err);
+    }
+  };
 
   // Submit Interactive Exercise
   const handleSubmitExercise = async () => {
@@ -187,6 +307,27 @@ export default function TrainingCurriculum() {
     }
   };
 
+  // Request Progressive Hint
+  const handleRequestHint = async () => {
+    if (!currentUnit) return;
+    setHintLoading(true);
+    try {
+      const res = await fetch(`/api/training/unit/${currentUnit.id}/submit-exercise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_hint: true })
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        setActiveHint(data.hint || data.progressive_hint);
+      }
+    } catch (err) {
+      console.error('Hint request error:', err);
+    } finally {
+      setHintLoading(false);
+    }
+  };
+
   // Submit Unit Progress (Reading)
   const handleMarkUnitComplete = async () => {
     if (!currentUnit || !activePathway) return;
@@ -202,6 +343,7 @@ export default function TrainingCurriculum() {
           setActiveUnitIndex(prev => prev + 1);
           setSelectedOption(null);
           setExerciseResult(null);
+          setActiveHint(null);
         }
       }
     } catch (err) {
@@ -212,20 +354,36 @@ export default function TrainingCurriculum() {
   // Submit Reassessment Checkpoint
   const handleReassessModule = async () => {
     if (!currentModule || !activePathway) return;
+    const combinedLength = (reassessmentSolution.trim() + ' ' + reassessmentRationale.trim()).trim().length;
+    if (combinedLength < 10) {
+      setReassessmentResult({
+        is_mastered: false,
+        error: 'Please provide a substantive technical synthesis solution (at least 10 characters) addressing the challenge scenario.'
+      });
+      return;
+    }
     setReassessing(true);
     try {
       const res = await fetch(`/api/training/module/${currentModule.id}/reassess`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          demonstrated_score: 0.90,
-          demonstration_notes: reassessmentNotes || 'Passed checkpoint demonstrating verified competency.'
+          solution_text: reassessmentSolution.trim(),
+          approach_rationale: reassessmentRationale.trim(),
+          challenge_prompt: reassessmentPrompt?.specific_prompt
         })
       });
+      const data = await res.json() as any;
       if (res.ok) {
-        const data = await res.json() as any;
         setReassessmentResult(data);
         await loadPathwayDetails(activePathway.id);
+        await loadReassessmentHistory(currentModule.id);
+        await loadSpacedRevision();
+      } else {
+        setReassessmentResult({
+          is_mastered: false,
+          error: data.error || 'Reassessment checkpoint validation failed.'
+        });
       }
     } catch (err) {
       console.error('Reassessment failed:', err);
@@ -234,7 +392,52 @@ export default function TrainingCurriculum() {
     }
   };
 
+  // Spaced Revision API
+  const loadSpacedRevision = async () => {
+    setSpacedRevisionLoading(true);
+    try {
+      const res = await fetch('/api/training/spaced-revision');
+      if (res.ok) {
+        const data = await res.json() as any;
+        setSpacedRevisionData(data);
+      }
+    } catch (err) {
+      console.error('Failed to load spaced revision:', err);
+    } finally {
+      setSpacedRevisionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'revision') {
+      loadSpacedRevision();
+    }
+  }, [activeTab]);
+
+  const handleCompleteRevision = async (moduleId: string) => {
+    setCompletingRevisionId(moduleId);
+    try {
+      const res = await fetch(`/api/training/module/${moduleId}/complete-revision`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        setRevisionSuccessMsg(data.message || 'Retention check verified. Next spaced revision scheduled in 21 days.');
+        await loadSpacedRevision();
+        if (activePathway) {
+          await loadPathwayDetails(activePathway.id);
+        }
+        setTimeout(() => setRevisionSuccessMsg(null), 6000);
+      }
+    } catch (err) {
+      console.error('Complete revision failed:', err);
+    } finally {
+      setCompletingRevisionId(null);
+    }
+  };
+
   const isTrainerOrAdmin = currentUser?.role === 'recruiter' || currentUser?.role === 'org_admin';
+  const dueNowCount = spacedRevisionData?.due_now?.length || 0;
 
   return (
     <DashboardLayout role={currentUser?.role || 'candidate'} userFullName={currentUser?.full_name || 'Learner'}>
@@ -245,19 +448,19 @@ export default function TrainingCurriculum() {
           <div>
             <div className="flex items-center gap-2 text-[#FF4103] text-xs font-bold uppercase tracking-wider mb-2">
               <BookOpen className="w-4 h-4 text-[#FF4103]" />
-              <span>Priority 18 · Training Curriculum & Learning Pathway Engine</span>
+              <span>Priority 18 · Personalized Teaching & Adaptive Mastery Engine</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
               Evidence-Driven Learning Pathways
             </h1>
             <p className="text-slate-300 text-sm mt-1">
-              Personalized micro-curricula compiled directly from diagnosed M01–M05 gaps. Enforces prerequisite trees and verified competency gates.
+              Personalized micro-curricula compiled directly from diagnosed M01–M05 gaps. Enforces prerequisite trees, teach-before-test pedagogy, and server-validated mastery gates.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={handleGeneratePathway}
+              onClick={handleOpenGenerateModal}
               disabled={generatingPathway}
               className="px-4 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/25 transition-all"
             >
@@ -281,27 +484,44 @@ export default function TrainingCurriculum() {
                 </span>
               </h3>
               <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                Completing instructional reading units advances completion percentage, but does <span className="text-[#FF4103] font-bold">NOT</span> inflate verified skill proficiency. Verified competency is only awarded when passing targeted checkpoint reassessments, updating Bayesian θ proficiency in M02 and the M05 Evidence Ledger.
+                Completing instructional reading units advances content completion percentage, but does <span className="text-[#FF4103] font-bold">NOT</span> inflate verified skill proficiency. Verified competency is only awarded when passing server-evaluated checkpoint reassessments (≥75%), which update Bayesian θ proficiency in M02, record verified entries in the M05 Evidence Ledger, and schedule spaced retention reviews (+7–14 days).
               </p>
             </div>
           </div>
         </div>
 
-        {/* Navigation Tabs (if trainer/recruiter) */}
-        {isTrainerOrAdmin && (
-          <div className="flex items-center gap-2 border-b border-[#063750] pb-2">
-            <button
-              onClick={() => setActiveTab('learner')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
-                activeTab === 'learner'
-                  ? 'bg-[#FF4103] text-white shadow-lg shadow-[#FF4103]/25'
-                  : 'bg-[#001f2e] text-slate-300 hover:text-white border border-[#063750]'
-              }`}
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>Learner Curriculum Cockpit</span>
-            </button>
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 border-b border-[#063750] pb-2">
+          <button
+            onClick={() => setActiveTab('learner')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'learner'
+                ? 'bg-[#FF4103] text-white shadow-lg shadow-[#FF4103]/25'
+                : 'bg-[#001f2e] text-slate-300 hover:text-white border border-[#063750]'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Learner Curriculum Cockpit</span>
+          </button>
 
+          <button
+            onClick={() => setActiveTab('revision')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 relative ${
+              activeTab === 'revision'
+                ? 'bg-[#FF4103] text-white shadow-lg shadow-[#FF4103]/25'
+                : 'bg-[#001f2e] text-slate-300 hover:text-white border border-[#063750]'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Spaced Revision Schedule</span>
+            {dueNowCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-900 font-black text-[10px] ml-1">
+                {dueNowCount}
+              </span>
+            )}
+          </button>
+
+          {isTrainerOrAdmin && (
             <button
               onClick={() => setActiveTab('cohort')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
@@ -313,8 +533,8 @@ export default function TrainingCurriculum() {
               <Users className="w-4 h-4" />
               <span>Cohort & Institutional Analytics</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* ================= TAB 1: LEARNER WORKSPACE ================= */}
         {activeTab === 'learner' && (
@@ -325,12 +545,27 @@ export default function TrainingCurriculum() {
               <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg space-y-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#002f47]">
                   <div>
-                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[#FF4103]/20 text-[#FF4103] border border-[#FF4103]/30 font-bold">
-                      {(activePathway.pathway_type || 'evidence_remediation').replace('_', ' ')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-[#FF4103]/20 text-[#FF4103] border border-[#FF4103]/30 font-bold">
+                        {(activePathway.pathway_type || 'evidence_remediation').replace('_', ' ')}
+                      </span>
+                      {pathways.length > 1 && (
+                        <select
+                          value={activePathway.id}
+                          onChange={(e) => loadPathwayDetails(e.target.value, true)}
+                          className="text-xs bg-[#00141f] border border-[#002f47] text-white rounded-lg px-2 py-1 font-mono focus:outline-none"
+                        >
+                          {pathways.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.title} ({p.target_role})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                     <h2 className="text-xl font-bold text-white mt-1.5">{activePathway.title}</h2>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Target Role: <strong className="text-white">{activePathway.target_role}</strong> • Domain: <strong className="text-white capitalize">{activePathway.domain}</strong>
+                      Target Role: <strong className="text-white">{activePathway.target_role}</strong> • Domain: <strong className="text-white capitalize">{activePathway.domain.replace('_', ' ')}</strong>
                     </p>
                   </div>
 
@@ -402,6 +637,7 @@ export default function TrainingCurriculum() {
                             setSelectedOption(null);
                             setExerciseResult(null);
                             setReassessmentResult(null);
+                            setActiveHint(null);
                           }
                         }}
                         className={`p-4 rounded-xl border transition-all text-left block ${
@@ -434,9 +670,17 @@ export default function TrainingCurriculum() {
                         <h4 className="text-sm font-bold text-white">{mod.title}</h4>
                         <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{mod.description}</p>
 
-                        <div className="mt-3 pt-2 border-t border-[#002b40] flex items-center justify-between text-[10px] text-slate-400">
-                          <span>{mod.units.length} Units</span>
-                          <span className="text-slate-300">{mod.competency_name}</span>
+                        <div className="mt-3 pt-2 border-t border-[#002b40] space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-slate-400">
+                            <span>{mod.units.length} Units</span>
+                            <span className="text-slate-300">{mod.competency_name}</span>
+                          </div>
+                          {mod.revision_due_at && (
+                            <div className="text-[10px] font-mono text-amber-300/90 flex items-center justify-between pt-1 border-t border-[#002233]">
+                              <span>Spaced Revision:</span>
+                              <span>Due {new Date(mod.revision_due_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -455,7 +699,14 @@ export default function TrainingCurriculum() {
                             <AlertTriangle className="w-4 h-4 text-amber-400" />
                             <span>Diagnosed Capability Gap</span>
                           </span>
-                          <span className="text-[10px] font-mono text-slate-400">Prerequisite Enforced</span>
+                          <div className="flex items-center gap-2">
+                            {currentModule.revision_due_at && (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                Spaced Revision: Due {new Date(currentModule.revision_due_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-mono text-slate-400">Prerequisite Enforced</span>
+                          </div>
                         </div>
                         <p className="text-xs text-slate-300 leading-relaxed">{currentModule.evidence_gap_summary}</p>
                         <div className="text-[11px] text-slate-400 pt-1 border-t border-[#002b40]">
@@ -473,6 +724,7 @@ export default function TrainingCurriculum() {
                               setSelectedOption(null);
                               setExerciseResult(null);
                               setReassessmentResult(null);
+                              setActiveHint(null);
                             }}
                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
                               uIdx === activeUnitIndex
@@ -510,17 +762,38 @@ export default function TrainingCurriculum() {
                           {currentUnit.content_markdown}
                         </div>
 
-                        {/* Interactive Exercise (if unit has one) */}
+                        {/* Formative Interactive Practice Exercise */}
                         {currentUnit.interactive_exercise && (
                           <div className="p-5 bg-[#001a29] rounded-xl border border-[#063750] space-y-4">
-                            <div className="flex items-center gap-2 text-xs font-bold text-white">
-                              <HelpCircle className="w-4 h-4 text-[#FF4103]" />
-                              <span>Formative Practice Exercise</span>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                                <HelpCircle className="w-4 h-4 text-[#FF4103]" />
+                                <span>Formative Practice Exercise</span>
+                              </div>
+                              <button
+                                onClick={handleRequestHint}
+                                disabled={hintLoading}
+                                className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1.5 transition-all"
+                              >
+                                <Sparkles className="w-3 h-3 text-amber-400" />
+                                <span>{hintLoading ? 'Retrieving Hint...' : 'Request Guiding Hint'}</span>
+                              </button>
                             </div>
 
                             <p className="text-xs text-slate-200 font-semibold">
                               {currentUnit.interactive_exercise.question}
                             </p>
+
+                            {/* Progressive Hint Display */}
+                            {activeHint && (
+                              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200 space-y-1">
+                                <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                                  <Info className="w-3.5 h-3.5" />
+                                  <span>Pedagogical Hint</span>
+                                </div>
+                                <p>{activeHint}</p>
+                              </div>
+                            )}
 
                             <div className="space-y-2">
                               {(currentUnit.interactive_exercise.options || []).map((opt, optIdx) => {
@@ -547,13 +820,15 @@ export default function TrainingCurriculum() {
                               })}
                             </div>
 
-                            <button
-                              onClick={handleSubmitExercise}
-                              disabled={selectedOption === null || submittingExercise}
-                              className="px-4 py-2 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md"
-                            >
-                              {submittingExercise ? 'Evaluating...' : 'Submit Answer'}
-                            </button>
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={handleSubmitExercise}
+                                disabled={selectedOption === null || submittingExercise}
+                                className="px-4 py-2 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md"
+                              >
+                                {submittingExercise ? 'Evaluating...' : 'Submit Answer'}
+                              </button>
+                            </div>
 
                             {/* Exercise Instant Feedback */}
                             {exerciseResult && (
@@ -589,47 +864,265 @@ export default function TrainingCurriculum() {
 
                         {/* Reassessment Gate View (if checkpoint unit) */}
                         {currentUnit.unit_type === 'reassessment_gate' && (
-                          <div className="p-5 bg-gradient-to-br from-[#001f2e] to-[#001824] rounded-xl border border-emerald-500/30 space-y-4">
-                            <div className="flex items-center justify-between">
+                          <div className="p-5 bg-gradient-to-br from-[#001f2e] to-[#001824] rounded-xl border border-emerald-500/30 space-y-5">
+                            
+                            {/* Gate Header */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#002f47]">
                               <div className="flex items-center gap-2 text-xs font-bold text-white">
                                 <Award className="w-5 h-5 text-emerald-400" />
                                 <span>Module Reassessment Checkpoint Gate</span>
                               </div>
-                              <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
-                                75% Score Required for Mastery
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
+                                  75% Score Required for Mastery
+                                </span>
+                                {reassessmentPrompt && (
+                                  <span className="text-[10px] font-mono text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30">
+                                    Variation #{reassessmentPrompt.variation_index} · Attempt #{reassessmentPrompt.attempt_number}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              This checkpoint validates that learning transfer has occurred. Passing this reassessment unlocks the next sequential module and commits verified mastery evidence into your Bayesian competency profile and M05 ledger.
-                            </p>
+                            {/* Challenge Scenario & Specific Prompt */}
+                            {reassessmentPromptLoading ? (
+                              <div className="p-4 bg-[#00141f] rounded-xl border border-[#002f47] text-xs text-slate-400 text-center">
+                                Loading dynamic challenge scenario...
+                              </div>
+                            ) : reassessmentPrompt ? (
+                              <div className="space-y-3">
+                                <div className="p-4 bg-[#00141f] rounded-xl border border-[#002f47] space-y-2">
+                                  <div className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>Realistic Operational Challenge Scenario</span>
+                                  </div>
+                                  <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                                    {reassessmentPrompt.challenge_scenario}
+                                  </p>
+                                </div>
 
-                            <textarea
-                              rows={2}
-                              value={reassessmentNotes}
-                              onChange={(e) => setReassessmentNotes(e.target.value)}
-                              placeholder="Record candidate practical demonstration notes or sandbox evidence summary..."
-                              className="w-full bg-[#00141f] border border-[#002f47] text-white text-xs rounded-xl p-2.5 focus:outline-none focus:border-emerald-400"
-                            />
+                                <div className="p-4 bg-[#00141f] rounded-xl border border-[#002f47] space-y-2">
+                                  <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Play className="w-3.5 h-3.5" />
+                                    <span>Demonstration Prompt</span>
+                                  </div>
+                                  <p className="text-xs text-slate-200 leading-relaxed font-semibold">
+                                    {reassessmentPrompt.specific_prompt}
+                                  </p>
+                                </div>
+
+                                {/* Criteria Dimensions Rubric */}
+                                <div className="p-3 bg-[#001824] rounded-xl border border-[#002f47] space-y-2">
+                                  <div className="text-[10px] font-mono uppercase text-slate-400 font-bold">
+                                    Server-Side Evaluation Rubric (4 Weighted Dimensions)
+                                  </div>
+                                  <div className="grid sm:grid-cols-2 gap-2 text-[11px]">
+                                    {(reassessmentPrompt.criteria_dimensions || []).map((cd, cdIdx) => (
+                                      <div key={cdIdx} className="p-2 bg-[#00141f] rounded-lg border border-[#002538] space-y-0.5">
+                                        <div className="font-bold text-white flex items-center justify-between">
+                                          <span>{cd.dimension}</span>
+                                          <span className="text-[#FF4103] font-mono text-[10px]">{Math.round(cd.weight * 100)}%</span>
+                                        </div>
+                                        <div className="text-slate-400 text-[10px]">{cd.description}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-4 bg-[#00141f] rounded-xl border border-[#002f47] text-xs text-slate-300">
+                                This checkpoint gate validates that learning transfer has occurred. Passing this reassessment unlocks the next sequential module and commits verified mastery evidence into your Bayesian competency profile and M05 ledger.
+                              </div>
+                            )}
+
+                            {/* Candidate Solution Inputs */}
+                            <div className="space-y-3">
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                                  Technical Solution & Implementation Synthesis (Required):
+                                </label>
+                                <textarea
+                                  rows={4}
+                                  value={reassessmentSolution}
+                                  onChange={(e) => setReassessmentSolution(e.target.value)}
+                                  placeholder="Record candidate practical demonstration notes, diagnostic sequence, or implementation synthesis..."
+                                  className="w-full bg-[#00141f] border border-[#002f47] text-white text-xs rounded-xl p-3 focus:outline-none focus:border-emerald-400 leading-relaxed font-mono"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                                  Approach Rationale, Trade-offs & Failure Modes (Recommended):
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  value={reassessmentRationale}
+                                  onChange={(e) => setReassessmentRationale(e.target.value)}
+                                  placeholder="Explain why you chose this intervention versus alternatives, operational trade-offs, and verification metrics..."
+                                  className="w-full bg-[#00141f] border border-[#002f47] text-white text-xs rounded-xl p-3 focus:outline-none focus:border-emerald-400 leading-relaxed font-mono"
+                                />
+                              </div>
+                            </div>
 
                             <button
                               onClick={handleReassessModule}
                               disabled={reassessing}
-                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2"
+                              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2"
                             >
                               <Play className="w-4 h-4" />
-                              <span>{reassessing ? 'Evaluating Checkpoint...' : 'Execute Reassessment Gate'}</span>
+                              <span>{reassessing ? 'Evaluating Checkpoint Rubric...' : 'Execute Reassessment Gate'}</span>
                             </button>
 
-                            {reassessmentResult && (
-                              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-200 space-y-1">
-                                <div className="font-bold flex items-center gap-2 text-white">
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                                  <span>Demonstrated Mastery Confirmed: {reassessmentResult.demonstrated_score}%</span>
+                            {/* Server-Side Rubric Evaluation Result */}
+                              {reassessmentResult && (
+                                <div className={`p-5 rounded-xl text-xs space-y-4 border ${
+                                  (reassessmentResult.is_mastered || reassessmentResult.passed)
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                                }`}>
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-emerald-500/20">
+                                    <div className="font-bold flex items-center gap-2 text-white text-sm">
+                                      {(reassessmentResult.is_mastered || reassessmentResult.passed) ? (
+                                      <>
+                                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                                        <span>Demonstrated Mastery Confirmed: {reassessmentResult.demonstrated_score || 0}%</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <AlertTriangle className="w-5 h-5 text-amber-400" />
+                                        <span>Checkpoint Needs Practice — Score: {reassessmentResult.demonstrated_score || 0}%</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-lg font-black text-white">{reassessmentResult.demonstrated_score || 0}%</span>
+                                    <span className="text-[10px] text-slate-400 block">Passing: 75%</span>
+                                  </div>
                                 </div>
-                                <p>Next module unlocked. Bayesian θ updated in M02 and verified entry recorded in M05 Evidence Ledger.</p>
+
+                                {reassessmentResult.error && (
+                                  <p className="text-rose-300 font-semibold">{reassessmentResult.error}</p>
+                                )}
+
+                                {/* Criteria Dimensions Breakdown */}
+                                {reassessmentResult.criteria_breakdown && (
+                                  <div className="space-y-2">
+                                    <div className="font-bold text-white text-[11px]">Criteria Dimension Scores:</div>
+                                    <div className="grid sm:grid-cols-2 gap-2">
+                                      {Object.entries(reassessmentResult.criteria_breakdown).map(([dimKey, val]: [string, any]) => (
+                                        <div key={dimKey} className="p-2.5 bg-[#00141f] rounded-lg border border-[#002f47] space-y-1">
+                                          <div className="flex items-center justify-between text-[11px]">
+                                            <span className="text-slate-300 capitalize">{dimKey.replace(/_/g, ' ')}</span>
+                                            <span className="font-mono font-bold text-white">{val.score}%</span>
+                                          </div>
+                                          <div className="w-full h-1.5 bg-[#001f2e] rounded-full overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full ${val.score >= 75 ? 'bg-emerald-400' : 'bg-amber-400'}`}
+                                              style={{ width: `${Math.min(100, val.score)}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Strengths & Omissions */}
+                                {reassessmentResult.strengths?.length > 0 && (
+                                  <div className="space-y-1">
+                                    <div className="font-bold text-emerald-300 text-[11px] flex items-center gap-1">
+                                      <Check className="w-3.5 h-3.5" /> Strengths Demonstrated:
+                                    </div>
+                                    <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-slate-200">
+                                      {reassessmentResult.strengths.map((s: string, idx: number) => (
+                                        <li key={idx}>{s}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {reassessmentResult.omissions?.length > 0 && (
+                                  <div className="space-y-1">
+                                    <div className="font-bold text-amber-300 text-[11px] flex items-center gap-1">
+                                      <AlertCircle className="w-3.5 h-3.5" /> Key Omissions:
+                                    </div>
+                                    <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-slate-200">
+                                      {reassessmentResult.omissions.map((o: string, idx: number) => (
+                                        <li key={idx}>{o}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {reassessmentResult.remediation_recommendations?.length > 0 && (
+                                  <div className="space-y-1 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                                    <div className="font-bold text-amber-200 text-[11px]">Remediation Guidance:</div>
+                                    <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-amber-100">
+                                      {reassessmentResult.remediation_recommendations.map((r: string, idx: number) => (
+                                        <li key={idx}>{r}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+
+                                {(reassessmentResult.is_mastered || reassessmentResult.passed) && (
+                                  <div className="pt-2 border-t border-emerald-500/20 text-slate-300 text-[11px] space-y-1">
+                                    <p className="text-emerald-300 font-bold">✓ Next module unlocked in sequence.</p>
+                                    <p>Bayesian θ updated in M02 and verified entry recorded in M05 Evidence Ledger.</p>
+                                    {reassessmentResult.revision_due_at && (
+                                      <p className="text-sky-300">
+                                        ✓ Spaced retention check scheduled for {new Date(reassessmentResult.revision_due_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} (+14 days).
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
+
+                            {/* Past Reassessment Attempts History Accordion */}
+                            {reassessmentHistory.length > 0 && (
+                              <div className="pt-3 border-t border-[#002f47] space-y-2">
+                                <button
+                                  onClick={() => setShowHistoryAccordion(!showHistoryAccordion)}
+                                  className="w-full flex items-center justify-between text-xs text-slate-400 hover:text-white transition-all py-1"
+                                >
+                                  <span className="flex items-center gap-1.5 font-bold">
+                                    <History className="w-3.5 h-3.5 text-sky-400" />
+                                    <span>Past Reassessment Attempts ({reassessmentHistory.length})</span>
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {showHistoryAccordion ? 'Hide History' : 'View History'}
+                                  </span>
+                                </button>
+
+                                {showHistoryAccordion && (
+                                  <div className="space-y-2 pt-2">
+                                    {reassessmentHistory.map((att) => (
+                                      <div key={att.id} className="p-3 bg-[#00141f] rounded-xl border border-[#002538] text-xs space-y-1.5">
+                                        <div className="flex items-center justify-between">
+                                          <span className="font-bold text-white flex items-center gap-1.5">
+                                            {att.is_mastered ? (
+                                              <span className="text-emerald-400 flex items-center gap-1">
+                                                <CheckCircle2 className="w-3.5 h-3.5" /> Mastered ({att.score_pct}%)
+                                              </span>
+                                            ) : (
+                                              <span className="text-amber-400 flex items-center gap-1">
+                                                <AlertTriangle className="w-3.5 h-3.5" /> Needs Practice ({att.score_pct}%)
+                                              </span>
+                                            )}
+                                          </span>
+                                          <span className="text-[10px] font-mono text-slate-500">
+                                            {new Date(att.created_at).toLocaleString()}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-300 line-clamp-2">{att.challenge_prompt}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                           </div>
                         )}
 
@@ -700,7 +1193,157 @@ export default function TrainingCurriculum() {
           </div>
         )}
 
-        {/* ================= TAB 2: COHORT & INSTITUTION ANALYTICS ================= */}
+        {/* ================= TAB 2: SPACED REVISION SCHEDULE ================= */}
+        {activeTab === 'revision' && (
+          <div className="space-y-6">
+
+            {/* Notification message */}
+            {revisionSuccessMsg && (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{revisionSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Overview Metric Cards */}
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg">
+                <span className="text-xs font-bold uppercase text-amber-400 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Due Now / Overdue
+                </span>
+                <div className="text-3xl font-black text-amber-400 mt-2">
+                  {spacedRevisionData?.due_now?.length || 0}
+                </div>
+                <p className="text-xs text-slate-400 mt-2">Modules requiring immediate retention practice to prevent decay.</p>
+              </div>
+
+              <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg">
+                <span className="text-xs font-bold uppercase text-sky-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" /> Upcoming This Week
+                </span>
+                <div className="text-3xl font-black text-sky-400 mt-2">
+                  {spacedRevisionData?.upcoming_this_week?.length || 0}
+                </div>
+                <p className="text-xs text-slate-400 mt-2">Scheduled within the next 7 days for consolidation.</p>
+              </div>
+
+              <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg">
+                <span className="text-xs font-bold uppercase text-emerald-400 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Retained Mastery
+                </span>
+                <div className="text-3xl font-black text-emerald-400 mt-2">
+                  {spacedRevisionData?.retained_mastery?.length || 0}
+                </div>
+                <p className="text-xs text-slate-400 mt-2">Consolidated modules with active long-term mastery.</p>
+              </div>
+            </div>
+
+            {/* List 1: Due Now Modules */}
+            <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[#002f47]">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Flame className="w-5 h-5 text-amber-400" />
+                  <span>Immediate Spaced Retention Queue</span>
+                </h3>
+                <span className="text-xs text-slate-400">Memory Decay Defense</span>
+              </div>
+
+              {spacedRevisionLoading ? (
+                <div className="text-xs text-slate-400 text-center py-6">Loading spaced revision queue...</div>
+              ) : (spacedRevisionData?.due_now || []).length === 0 ? (
+                <div className="p-6 bg-[#001824] rounded-xl text-center space-y-2 border border-[#002f47]">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                  <p className="text-xs font-bold text-white">All Active Modules Up-to-Date!</p>
+                  <p className="text-xs text-slate-400">No modules are currently overdue for retention practice.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[#002f47]">
+                  {(spacedRevisionData.due_now || []).map((item: any) => (
+                    <div key={item.module_id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                            Due Now
+                          </span>
+                          <span className="text-xs text-slate-400">{item.pathway_title}</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-white mt-1">{item.module_title}</h4>
+                        <p className="text-xs text-slate-300 mt-0.5">Competency: {item.competency_name}</p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => handleCompleteRevision(item.module_id)}
+                          disabled={completingRevisionId === item.module_id}
+                          className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-md transition-all"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${completingRevisionId === item.module_id ? 'animate-spin' : ''}`} />
+                          <span>{completingRevisionId === item.module_id ? 'Verifying...' : 'Complete Retention Review'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* List 2: Upcoming and Retained */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Upcoming */}
+              <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg space-y-4">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-sky-400" />
+                  <span>Upcoming This Week</span>
+                </h4>
+                {(spacedRevisionData?.upcoming_this_week || []).length === 0 ? (
+                  <p className="text-xs text-slate-400">No revisions scheduled this week.</p>
+                ) : (
+                  <div className="divide-y divide-[#002f47]">
+                    {(spacedRevisionData?.upcoming_this_week || []).map((item: any) => (
+                      <div key={item.module_id} className="py-2.5 flex items-center justify-between text-xs">
+                        <div>
+                          <div className="font-bold text-white">{item.module_title}</div>
+                          <div className="text-[11px] text-slate-400">{item.competency_name}</div>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                          in {item.days_until_due}d
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Retained Mastery */}
+              <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg space-y-4">
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Consolidated Long-Term Retention</span>
+                </h4>
+                {(spacedRevisionData?.retained_mastery || []).length === 0 ? (
+                  <p className="text-xs text-slate-400">Pass module reassessments to build long-term retention schedules.</p>
+                ) : (
+                  <div className="divide-y divide-[#002f47]">
+                    {(spacedRevisionData?.retained_mastery || []).map((item: any) => (
+                      <div key={item.module_id} className="py-2.5 flex items-center justify-between text-xs">
+                        <div>
+                          <div className="font-bold text-white">{item.module_title}</div>
+                          <div className="text-[11px] text-slate-400">{item.competency_name}</div>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          in {item.days_until_due}d
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* ================= TAB 3: COHORT & INSTITUTION ANALYTICS ================= */}
         {activeTab === 'cohort' && (
           <div className="space-y-6">
             <div className="grid md:grid-cols-4 gap-6">
@@ -721,7 +1364,7 @@ export default function TrainingCurriculum() {
               </div>
 
               <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg">
-                <span className="text-xs font-bold uppercase text-slate-400">Avg Verified Mastery</span>
+                <span className="text-xs font-bold uppercase text-emerald-400">Avg Verified Mastery</span>
                 <div className="text-3xl font-black text-emerald-400 mt-2">
                   {cohortMetrics?.avg_verified_mastery || 58}%
                 </div>
@@ -740,7 +1383,7 @@ export default function TrainingCurriculum() {
             {/* Top Diagnosed Cohort Gaps */}
             <div className="p-6 bg-[#001f2e] border border-[#063750] rounded-2xl shadow-lg space-y-4">
               <h3 className="text-lg font-bold text-white">Cohort Skill Gaps & Remediation Velocity</h3>
-              <p className="text-xs text-slate-400">Top diagnosed weaknesses across engineering, finance, and operations cohorts.</p>
+              <p className="text-xs text-slate-400">Top diagnosed weaknesses across engineering, finance, healthcare, and operations cohorts.</p>
 
               <div className="divide-y divide-[#002f47]">
                 {(cohortMetrics?.top_diagnosed_gaps || []).map((g: any, idx: number) => (
@@ -754,6 +1397,97 @@ export default function TrainingCurriculum() {
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pathway Generation Modal */}
+        {showGenerateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+            <div className="bg-[#001a26] border border-[#063750] rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-6">
+              <div className="flex items-center justify-between pb-3 border-b border-[#002f47]">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-[#FF4103]" />
+                  <h3 className="text-lg font-bold text-white">Compile Evidence-Driven Pathway</h3>
+                </div>
+                <button
+                  onClick={() => setShowGenerateModal(false)}
+                  className="p-1 rounded-lg hover:bg-[#002f47] text-slate-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-slate-300">
+                  Select a standardized role track or enter a custom target role. The curriculum engine will personalize learning objectives and calibrate checkpoint challenges to your verified M01 evidence and experience.
+                </p>
+
+                {/* Standard Preset Track Options */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
+                    Pre-Calibrated Occupation Tracks:
+                  </label>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {PRESET_ROLES.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPresetIndex(idx);
+                          setCustomRoleInput('');
+                        }}
+                        className={`p-3 rounded-xl border text-left text-xs transition-all ${
+                          selectedPresetIndex === idx
+                            ? 'bg-[#FF4103]/15 border-[#FF4103] text-white shadow-md'
+                            : 'bg-[#00141f] border-[#002f47] text-slate-300 hover:border-slate-500'
+                        }`}
+                      >
+                        <div className="text-[10px] uppercase font-mono text-[#FF4103] font-bold">
+                          {preset.category}
+                        </div>
+                        <div className="font-bold text-white mt-0.5">{preset.role}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Role Input */}
+                <div className="pt-2 border-t border-[#002f47] space-y-3">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
+                    Or Specify Custom Target Role:
+                  </label>
+                  <input
+                    type="text"
+                    value={customRoleInput}
+                    onChange={(e) => {
+                      setCustomRoleInput(e.target.value);
+                      setSelectedPresetIndex(null);
+                    }}
+                    placeholder="e.g. Lead Cybersecurity Architect, Pediatric Nurse..."
+                    className="w-full bg-[#00141f] border border-[#002f47] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#FF4103]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#002f47]">
+                <button
+                  type="button"
+                  onClick={() => setShowGenerateModal(false)}
+                  className="px-4 py-2 rounded-xl bg-[#00141f] text-slate-300 hover:text-white text-xs font-bold border border-[#002f47]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGeneratePathway}
+                  disabled={generatingPathway}
+                  className="px-5 py-2 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-[#FF4103]/25 flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Compile Pathway</span>
+                </button>
               </div>
             </div>
           </div>

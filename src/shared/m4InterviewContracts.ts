@@ -195,7 +195,10 @@ export function generateDeterministicInterviewPlan(params: {
   domain?: string;
   seniority?: string;
   skills?: string[];
+  projects?: string[];
   bio?: string;
+  claims?: string[];
+  diagnosedMisconceptions?: string[];
 }): InterviewPlan {
   const role = params.targetRole?.trim() || 'Professional Candidate';
   const domain = (params.domain || 'general').toLowerCase();
@@ -203,6 +206,7 @@ export function generateDeterministicInterviewPlan(params: {
   const skills = params.skills && params.skills.length > 0 ? params.skills : [`Core ${role} Methodology`];
   const primarySkill = skills[0] || 'Domain Execution';
   const secondarySkill = skills[1] || 'Collaborative Problem Solving';
+  const primaryProject = params.projects && params.projects.length > 0 ? params.projects[0] : null;
 
   const panelHiringManager = 'Hiring Manager';
   const panelDomainLead = domain.includes('software') || domain.includes('tech') 
@@ -238,7 +242,9 @@ export function generateDeterministicInterviewPlan(params: {
       panel_role: panelDomainLead,
       category: 'role_competency',
       competency: `${primarySkill} Execution`,
-      question: `In your work with ${primarySkill}, walk us through a complex challenge you led from requirements to delivery. What key trade-offs did you evaluate, and how did you measure success?`,
+      question: primaryProject
+        ? `In your work on "${primaryProject}" (and your focus on ${primarySkill}), walk us through a complex challenge you led from requirements to delivery. What key trade-offs did you evaluate, and how did you measure success?`
+        : `In your work with ${primarySkill}, walk us through a complex challenge you led from requirements to delivery. What key trade-offs did you evaluate, and how did you measure success?`,
       probe_intent: 'Verifies hands-on depth, trade-off reasoning, and disciplined delivery metrics without inventing candidate facts.',
       anchored_rubric: {
         unsatisfactory: 'Surface-level description lacking concrete decisions, metrics, or personal ownership.',
@@ -302,14 +308,16 @@ export function generateDeterministicInterviewPlan(params: {
         exceptional: 'Empowers cross-functional partners to champion the initiative by framing value in their specific success metrics.'
       }
     },
-    // 7. Role-Specific Technical/Functional Excellence (Role Competency)
+    // 7. Role-Specific Technical/Functional Excellence (Role Competency / M02 Evidence Grounding)
     {
       turn: 7,
       panel_role: panelDomainLead,
       category: 'role_competency',
-      competency: `${role} Standards & Rigor`,
-      question: `In modern ${domain} environments, operational standards are continually evolving. What quality, security, or regulatory benchmarks do you consider non-negotiable for a ${seniority} ${role}?`,
-      probe_intent: 'Tests mastery of domain hygiene, security/compliance awareness, and professional craftsmanship.',
+      competency: params.diagnosedMisconceptions?.[0] ? `${params.diagnosedMisconceptions[0]} Rigor` : `${role} Standards & Rigor`,
+      question: params.diagnosedMisconceptions?.[0]
+        ? `In your preparation and practice on ${params.diagnosedMisconceptions[0]}, what core quality and architectural benchmarks do you establish to prevent regressions and ensure domain rigor?`
+        : `In modern ${domain} environments, operational standards are continually evolving. What quality, security, or regulatory benchmarks do you consider non-negotiable for a ${seniority} ${role}?`,
+      probe_intent: 'Tests mastery of domain hygiene, security/compliance awareness, and professional craftsmanship grounded in candidate evidence.',
       anchored_rubric: {
         unsatisfactory: 'Treats standards as optional bureaucratic obstacles or demonstrates ignorance of core domain hygiene.',
         competent: 'Articulates industry-standard best practices, automated linting/testing, and statutory compliance protocols.',

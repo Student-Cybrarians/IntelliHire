@@ -1,13 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Brain, FileText, CheckCircle2, AlertTriangle, Sparkles, UserCheck, 
   ShieldCheck, ChevronRight, Layers, Play, Send, Award, Users, 
-  HelpCircle, MessageSquare, Star, ArrowRight, RefreshCw, BarChart2,
-  Video, Eye, Mic, Clock, Check, Target, Compass, BookOpen, Info
+  HelpCircle, MessageSquare, Star, ArrowRight, ArrowLeft, RefreshCw, BarChart2,
+  Video, Eye, Mic, MicOff, Clock, Check, Target, Compass, BookOpen, Info,
+  Volume2, VolumeX, Edit3, Search, Trash2, Calendar, Flame, Activity, X, Laptop
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
 import ModuleNavigationFooter from '../components/ModuleNavigationFooter';
 import InterviewCameraPreview from '../components/m4/InterviewCameraPreview';
+import {
+  useVoiceEngine,
+  VoiceStatusBar,
+  PreInterviewEvidenceCard,
+  InterviewInteractionMode
+} from '../components/m4/VoiceInterviewEngine';
+import { HumanInterviewLiveRoom } from '../components/m4/HumanInterviewLiveRoom';
+import { HumanInterviewSchedulingCard } from '../components/m4/HumanInterviewSchedulingCard';
 
 interface Protocol {
   id: string;
@@ -37,7 +46,32 @@ export default function Module4Interviews() {
   const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [selectedProtocol, setSelectedProtocol] = useState<Protocol | null>(null);
   const [candidateDossier, setCandidateDossier] = useState<any>(null);
+  const [candidateTargetRole, setCandidateTargetRole] = useState<string>('');
   const [loading, setLoading] = useState(true);
+
+  // Real-Time Voice AI Engine
+  const {
+    interactionMode,
+    setInteractionMode,
+    voiceState,
+    setVoiceState,
+    isSpeaking,
+    isListening,
+    audioLevel,
+    permissionError,
+    setPermissionError,
+    speakQuestion,
+    stopSpeaking,
+    startListening,
+    stopListening
+  } = useVoiceEngine({
+    onTranscriptAppend: (text) => {
+      setCandidateResponse(prev => prev ? `${prev} ${text}` : text);
+    },
+    onError: (err) => {
+      setTurnError(err);
+    }
+  });
 
   // Active interview session state
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -78,18 +112,121 @@ export default function Module4Interviews() {
 
   // Post-Interview Synthesis
   const [synthesis, setSynthesis] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'cockpit' | 'dossier' | 'synthesis'>('cockpit');
+  const [activeTab, setActiveTab] = useState<'cockpit' | 'dossier' | 'synthesis' | 'human_interview'>('cockpit');
+  const [activeLiveRoom, setActiveLiveRoom] = useState<{ roomId: string; token: string } | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Training Room Dashboard & Practice History State (nxtjob.ai parity)
+  const [sessionList, setSessionList] = useState<any[]>([]);
+  const [trainingStats, setTrainingStats] = useState<any>({
+    total: 0,
+    completedCount: 0,
+    processingCount: 0,
+    overallAvg: null,
+    delta: null,
+    thisWeekCount: 0,
+    activityByDay: {},
+    weakestCriterion: { label: 'Communication & STAR Structure', avg: 7.2, n: 3 }
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortFilter, setSortFilter] = useState<'Date Modified' | 'Date Added'>('Date Modified');
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renamingSession, setRenamingSession] = useState<{ id: string; title: string } | null>(null);
+  const [newSessionTitle, setNewSessionTitle] = useState('');
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [simSessions, setSimSessions] = useState<any[]>([]);
+  const [trackFilter, setTrackFilter] = useState<'all' | 'hr_mock' | 'technical_sim'>('all');
+  const [showWorkspaceDuringSession, setShowWorkspaceDuringSession] = useState<boolean>(false);
+
+  // Parse URL search parameters for direct room joins (?room=...&token=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    const tokenParam = params.get('token');
+    const tabParam = params.get('tab');
+    if (roomParam && tokenParam) {
+      setActiveLiveRoom({ roomId: roomParam, token: tokenParam });
+      setActiveTab('human_interview');
+    } else if (tabParam === 'human' || tabParam === 'human_interview') {
+      setActiveTab('human_interview');
+    }
+  }, []);
+
+  const loadSessions = async () => {
+    try {
+      const [res, simRes] = await Promise.all([
+        fetch('/api/m4/interviews/sessions').catch(() => null),
+        fetch('/api/m3/simulations/sessions').catch(() => null)
+      ]);
+      if (res && res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        if (data.success) {
+          setSessionList(data.sessions || []);
+          if (data.stats) setTrainingStats(data.stats);
+        }
+      }
+      if (simRes && simRes.ok) {
+        const simData = (await simRes.json().catch(() => ({}))) as any;
+        if (simData.success && Array.isArray(simData.sessions)) {
+          const mappedSims = simData.sessions.map((sim: any) => ({
+            id: sim.id,
+            interviewId: sim.id,
+            interviewTitle: sim.title,
+            jobTitle: sim.target_role || 'Practical Technical Round',
+            domain: sim.domain || 'software',
+            track: 'technical_sim',
+            status: sim.status === 'completed' || sim.status === 'evaluated' ? 'completed' : 'processing',
+            score: typeof sim.overall_score === 'number' ? Math.round(sim.overall_score / 10 * 10) / 10 : null,
+            createdAt: sim.created_at,
+            updatedAt: sim.updated_at || sim.created_at,
+            turn: 2
+          }));
+          setSimSessions(mappedSims);
+        }
+      }
+    } catch (_) {}
+  };
 
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [protoRes, candRes, authRes, activeRes] = await Promise.all([
+      const [protoRes, candRes, authRes, activeRes, sessRes, simRes] = await Promise.all([
         fetch('/api/m4/interviews/protocols').catch(() => null),
         fetch('/api/m4/interviews/candidates').catch(() => null),
         fetch('/api/auth/me').catch(() => null),
-        fetch('/api/m4/interviews/sessions/active').catch(() => null)
+        fetch('/api/m4/interviews/sessions/active').catch(() => null),
+        fetch('/api/m4/interviews/sessions').catch(() => null),
+        fetch('/api/m3/simulations/sessions').catch(() => null)
       ]);
+
+      if (sessRes && sessRes.ok) {
+        const sessData = (await sessRes.json().catch(() => ({}))) as any;
+        if (sessData.success) {
+          setSessionList(sessData.sessions || []);
+          if (sessData.stats) setTrainingStats(sessData.stats);
+        }
+      }
+
+      if (simRes && simRes.ok) {
+        const simData = (await simRes.json().catch(() => ({}))) as any;
+        if (simData.success && Array.isArray(simData.sessions)) {
+          const mappedSims = simData.sessions.map((sim: any) => ({
+            id: sim.id,
+            interviewId: sim.id,
+            interviewTitle: sim.title,
+            jobTitle: sim.target_role || 'Practical Technical Round',
+            domain: sim.domain || 'software',
+            track: 'technical_sim',
+            status: sim.status === 'completed' || sim.status === 'evaluated' ? 'completed' : 'processing',
+            score: typeof sim.overall_score === 'number' ? Math.round(sim.overall_score / 10 * 10) / 10 : null,
+            createdAt: sim.created_at,
+            updatedAt: sim.updated_at || sim.created_at,
+            turn: 2
+          }));
+          setSimSessions(mappedSims);
+        }
+      }
 
       if (authRes && authRes.ok) {
         const authData = await authRes.json() as any;
@@ -175,6 +312,90 @@ export default function Module4Interviews() {
     loadInitialData();
   }, []);
 
+  // Combined sessions from M04 AI Voice Mock + M03 Technical Simulation
+  const combinedList = useMemo(() => {
+    const list = [
+      ...sessionList.map(s => ({ ...s, track: s.track || 'hr_mock' })),
+      ...simSessions
+    ];
+    if (trackFilter === 'hr_mock') return list.filter(s => s.track === 'hr_mock');
+    if (trackFilter === 'technical_sim') return list.filter(s => s.track === 'technical_sim');
+    return list;
+  }, [sessionList, simSessions, trackFilter]);
+
+  // Filtered and sorted sessions
+  const filteredSessions = useMemo(() => {
+    let list = [...combinedList];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(s =>
+        (s.interviewTitle && s.interviewTitle.toLowerCase().includes(q)) ||
+        (s.jobTitle && s.jobTitle.toLowerCase().includes(q)) ||
+        (s.domain && s.domain.toLowerCase().includes(q))
+      );
+    }
+    if (sortFilter === 'Date Modified') {
+      list.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    } else {
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    return list;
+  }, [combinedList, searchQuery, sortFilter]);
+
+  // Chronologically grouped sessions (nxtjob.ai pattern)
+  const groupedSessions = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 86400000;
+    const today: any[] = [];
+    const prev3: any[] = [];
+    const prev7: any[] = [];
+    const prev30: any[] = [];
+    const earlier: any[] = [];
+
+    filteredSessions.forEach(s => {
+      const t = new Date(s.updatedAt || s.createdAt).getTime();
+      const diff = now - t;
+      if (diff <= dayMs) today.push(s);
+      else if (diff <= 3 * dayMs) prev3.push(s);
+      else if (diff <= 7 * dayMs) prev7.push(s);
+      else if (diff <= 30 * dayMs) prev30.push(s);
+      else earlier.push(s);
+    });
+
+    return [
+      { label: 'Today', items: today },
+      { label: 'Previous 3 days', items: prev3 },
+      { label: 'Previous 7 days', items: prev7 },
+      { label: 'Previous 30 days', items: prev30 },
+      { label: 'Earlier', items: earlier }
+    ].filter(g => g.items.length > 0);
+  }, [filteredSessions]);
+
+  // 12-Week practice rhythm heatmap grid
+  const practiceWeeks = useMemo(() => {
+    const weeks: Array<Array<{ date: Date; iso: string; count: number; isFuture: boolean; isToday: boolean }>> = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
+    const startMonday = new Date(now);
+    startMonday.setDate(startMonday.getDate() - dayOfWeek - (11 * 7));
+
+    for (let w = 0; w < 12; w++) {
+      const days = [];
+      for (let d = 0; d < 7; d++) {
+        const cur = new Date(startMonday);
+        cur.setDate(startMonday.getDate() + (w * 7) + d);
+        const iso = cur.toISOString().substring(0, 10);
+        const count = trainingStats?.activityByDay?.[iso] || 0;
+        const isFuture = cur.getTime() > now.getTime();
+        const isToday = cur.getTime() === now.getTime();
+        days.push({ date: cur, iso, count, isFuture, isToday });
+      }
+      weeks.push(days);
+    }
+    return weeks;
+  }, [trainingStats]);
+
   const startInterview = async (protocolToStart = selectedProtocol, personalized = false) => {
     setLoading(true);
     setSynthesis(null);
@@ -190,6 +411,8 @@ export default function Module4Interviews() {
     setFollowUpResponse('');
     setFollowUpsHistory([]);
     setFollowUpDecision(null);
+    stopSpeaking();
+    stopListening();
     try {
       const res = await fetch('/api/m4/interviews/sessions', {
         method: 'POST',
@@ -197,12 +420,16 @@ export default function Module4Interviews() {
         body: JSON.stringify({
           personalized: personalized || (isCandidateRole && !protocolToStart),
           protocol_id: protocolToStart?.id,
+          target_role: candidateTargetRole || candidateDossier?.target_role,
+          domain: candidateDossier?.domain || 'software',
+          seniority: candidateDossier?.experience_level || 'mid',
           candidate_user_id: candidateDossier?.id,
           camera_enabled: cameraActive
         })
       });
       const data = await res.json().catch(() => null) as any;
       if (res.ok && data?.success) {
+        setShowWorkspaceDuringSession(false);
         setSessionId(data.session_id);
         setCurrentTurn(data.current_turn || 1);
         setTotalQuestions(data.total_questions || data.protocol?.question_sequence?.length || 10);
@@ -212,6 +439,10 @@ export default function Module4Interviews() {
         setCandidateResponse('');
         setHumanRating(4);
         setHumanNotes('');
+
+        if (interactionMode === 'voice' && data.first_question?.question) {
+          speakQuestion(data.first_question.question, data.active_panel_role);
+        }
       } else {
         setTurnError(data?.error || 'Failed to initialize interview session. Please try again.');
       }
@@ -224,6 +455,9 @@ export default function Module4Interviews() {
 
   const submitTurn = async () => {
     if (!sessionId || !currentQuestion || !candidateResponse.trim() || submittingTurn) return;
+    stopSpeaking();
+    stopListening();
+    setVoiceState('processing');
     setSubmittingTurn(true);
     setTurnError(null);
     try {
@@ -253,6 +487,9 @@ export default function Module4Interviews() {
           setFollowUpResponse('');
           setPendingAdvance(false);
           setActiveCoaching(null);
+          if (interactionMode === 'voice' && incomingFollowUp?.question) {
+            speakQuestion(incomingFollowUp.question, activePanelRole);
+          }
         } else {
           setActiveFollowUp(null);
           setFollowUpsHistory(data.follow_ups || []);
@@ -323,6 +560,9 @@ export default function Module4Interviews() {
 
   const submitFollowUpResponse = async () => {
     if (!sessionId || !activeFollowUp || !followUpResponse.trim() || submittingFollowUp) return;
+    stopSpeaking();
+    stopListening();
+    setVoiceState('processing');
     setSubmittingFollowUp(true);
     setTurnError(null);
     try {
@@ -343,6 +583,9 @@ export default function Module4Interviews() {
           setFollowUpDecision(data.follow_up_decision || null);
           setFollowUpResponse('');
           setPendingAdvance(false);
+          if (interactionMode === 'voice' && data.follow_up?.question) {
+            speakQuestion(data.follow_up.question, activePanelRole);
+          }
         } else {
           // Probing completed
           setActiveFollowUp(null);
@@ -478,6 +721,8 @@ export default function Module4Interviews() {
 
   const advanceToNextTurn = async () => {
     if (!sessionId || advancingTurn) return;
+    stopSpeaking();
+    stopListening();
     setAdvancingTurn(true);
     setTurnError(null);
     try {
@@ -507,6 +752,10 @@ export default function Module4Interviews() {
           setFollowUpsHistory([]);
           setFollowUpDecision(null);
           setHumanNotes('');
+
+          if (interactionMode === 'voice' && data.next_turn?.next_question?.question) {
+            speakQuestion(data.next_turn.next_question.question, data.next_turn.active_panel_role);
+          }
         }
       } else {
         setTurnError(data.error || 'Failed to advance to next question');
@@ -528,11 +777,78 @@ export default function Module4Interviews() {
         setSynthesis(data);
         setActiveTab('synthesis');
         setCurrentQuestion(null);
+        loadSessions();
       }
     } catch (e) {
       console.error('Failed to complete interview', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const viewSessionSynthesis = async (sessId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessId}/synthesis`);
+      const data = await res.json() as any;
+      if (data.success && data.synthesis) {
+        setSynthesis(data.synthesis);
+        setActiveTab('synthesis');
+      }
+    } catch (e) {
+      console.error('Failed to view synthesis:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resumeExistingSession = async (sessId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessId}`);
+      const data = await res.json() as any;
+      if (data.success && data.session) {
+        setShowWorkspaceDuringSession(false);
+        setSessionId(data.session.id);
+        setCurrentTurn(data.session.current_turn || 1);
+        setActiveTab('cockpit');
+        if (data.protocol) setSelectedProtocol(data.protocol);
+      }
+    } catch (e) {
+      console.error('Failed to resume session:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRenameSession = async (sessId: string, title: string) => {
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessId}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interviewTitle: title })
+      });
+      if (res.ok) {
+        setSessionList(prev => prev.map(s => s.id === sessId ? { ...s, interviewTitle: title } : s));
+        setRenameModalOpen(false);
+        setRenamingSession(null);
+      }
+    } catch (e) {
+      console.error('Rename failed:', e);
+    }
+  };
+
+  const handleDeleteSession = async (sessId: string) => {
+    try {
+      const res = await fetch(`/api/m4/interviews/sessions/${sessId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSessionList(prev => prev.filter(s => s.id !== sessId));
+        setDeleteModalOpen(false);
+        setDeletingSessionId(null);
+        loadSessions();
+      }
+    } catch (e) {
+      console.error('Delete failed:', e);
     }
   };
 
@@ -585,9 +901,10 @@ export default function Module4Interviews() {
         {/* Tab Navigation */}
         <div className="flex items-center gap-2 border-b border-[#063750] pb-2">
           {[
-            { id: 'cockpit', label: isCandidateRole ? '10-Question Interview Session' : 'Interviewer Panel Cockpit', icon: Layers },
+            { id: 'cockpit', label: isCandidateRole ? 'AI Voice Mock Interview (10-Question)' : 'AI Interviewer Panel Cockpit', icon: Layers },
             { id: 'dossier', label: 'Candidate M01–M03 Evidence Dossier', icon: UserCheck },
-            { id: 'synthesis', label: 'M05 Evidence Package Synthesis', icon: Award }
+            { id: 'synthesis', label: 'M05 Evidence Package Synthesis', icon: Award },
+            { id: 'human_interview', label: 'Live Human HR Interview', icon: Video }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -615,7 +932,12 @@ export default function Module4Interviews() {
             {/* Active Protocol Ribbon & Context */}
             <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <span className="text-xs uppercase font-bold text-slate-400">Target Role & Interview Protocol</span>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs uppercase font-bold text-slate-400">Target Role & Interview Protocol</span>
+                  <span className="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[10px] font-bold uppercase tracking-wider">
+                    Mode: AI Voice Mock Interview Simulation
+                  </span>
+                </div>
                 <div className="flex items-center gap-3 mt-1">
                   <select
                     value={selectedProtocol?.id || ''}
@@ -669,83 +991,570 @@ export default function Module4Interviews() {
               </div>
             )}
 
-            {/* PRE-SESSION BRIEFING: When no interview is actively running */}
-            {!sessionId && (
-              <div className="grid lg:grid-cols-12 gap-6">
-                {/* Left: 10-Question Sequential Interview Blueprint */}
-                <div className="lg:col-span-7 space-y-4">
-                  <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4">
-                    <div className="flex items-center justify-between pb-3 border-b border-[#002a40]">
-                      <div className="flex items-center gap-2">
-                        <Compass className="w-4 h-4 text-[#FF4103]" />
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                          10-Question Sequential Interview Structure
-                        </h3>
-                      </div>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] font-bold">
-                        ONE QUESTION AT A TIME
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      Your personalized interview covers 10 sequential rounds designed to assess holistic professional maturity without hallucinating candidate history. Each question is asked one at a time, recorded, and evaluated against calibrated anchored rubrics.
-                    </p>
-
-                    <div className="grid sm:grid-cols-2 gap-2.5 pt-2 text-xs">
-                      {[
-                        { num: '01', title: 'Professional Narrative', cat: 'Communication' },
-                        { num: '02', title: 'Deep Technical Execution', cat: 'Role Competency' },
-                        { num: '03', title: 'Conflict & Stakeholder Alignment', cat: 'Behavioral STAR' },
-                        { num: '04', title: 'Judgment Under Ambiguity', cat: 'Professional Judgment' },
-                        { num: '05', title: 'Failure Recovery & Resilience', cat: 'Situational' },
-                        { num: '06', title: 'Cross-Functional Translation', cat: 'Communication' },
-                        { num: '07', title: 'Quality Standards & Hygiene', cat: 'Role Competency' },
-                        { num: '08', title: 'Ethical Governance & Integrity', cat: 'Professional Judgment' },
-                        { num: '09', title: 'Prioritization Under Crunch', cat: 'Situational' },
-                        { num: '10', title: 'Continuous Growth & Learning', cat: 'Behavioral' }
-                      ].map(step => (
-                        <div key={step.num} className="p-2.5 bg-[#001824] border border-[#002f47] rounded-xl flex items-center gap-2.5">
-                          <span className="w-6 h-6 rounded-md bg-[#FF4103]/15 text-[#FF4103] font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
-                            {step.num}
-                          </span>
-                          <div className="min-w-0">
-                            <span className="text-white font-semibold block text-[11px] truncate">{step.title}</span>
-                            <span className="text-[10px] text-slate-400 block">{step.cat}</span>
+            {/* PRACTICE WORKSPACE: Always hero destination on /interviews */}
+            {(!sessionId || showWorkspaceDuringSession) && (
+              <div className="space-y-6">
+                {/* Behavioral Interview Training Room & Practice Insights (nxtjob.ai parity) */}
+                <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-6">
+                  {/* Active Session in Progress Resume Banner */}
+                  {sessionId && (
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold shrink-0">
+                          <Flame className="w-5 h-5 text-amber-400" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                            <span>Active Interview Session in Progress</span>
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono">
+                              Turn {currentTurn} of {totalQuestions || 10}
+                            </span>
+                          </div>
+                          <div className="text-sm font-semibold text-white mt-0.5">
+                            {currentQuestion?.competency ? `Evaluating: ${currentQuestion.competency}` : 'Interview Turn Ready'}
                           </div>
                         </div>
-                      ))}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => setShowWorkspaceDuringSession(false)}
+                          className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/25 transition-all"
+                        >
+                          <span>Resume Interview Turn</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSessionId(null);
+                            setCurrentQuestion(null);
+                          }}
+                          className="px-3 py-2 rounded-xl bg-[#001824] border border-[#002f47] text-slate-400 hover:text-white text-xs font-semibold transition-colors"
+                        >
+                          Start Fresh
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dynamic IntelliCoach Greeting Banner */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-[#002a40]">
+                    <div>
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#FF4103]/10 border border-[#FF4103]/25 text-[11px] font-bold text-[#FF4103] uppercase tracking-wider mb-2">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>IntelliCoach · Behavioral Practice Room</span>
+                      </div>
+                      <h2 className="text-2xl font-black text-white tracking-tight">
+                        Hello, {userDisplayName}.
+                      </h2>
+                      {trainingStats.total === 0 ? (
+                        <p className="text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
+                          Your behavioral training room is ready — launch your first AI mock interview or schedule a human HR round to map your communicative progress.
+                        </p>
+                      ) : trainingStats.processingCount > 0 ? (
+                        <p className="text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
+                          {trainingStats.processingCount} session{trainingStats.processingCount === 1 ? '' : 's'} in progress — complete your interview turns to synthesize competency scores.
+                        </p>
+                      ) : trainingStats.delta !== null && trainingStats.delta >= 0.4 ? (
+                        <p className="text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
+                          You're trending up — your latest interview scored <span className="text-emerald-400 font-bold">+{trainingStats.delta}</span> above your average. Maintain the momentum.
+                        </p>
+                      ) : trainingStats.weakestCriterion ? (
+                        <p className="text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
+                          <span className="text-amber-400 font-semibold">{trainingStats.weakestCriterion.label}</span> is your trailing signal at {trainingStats.weakestCriterion.avg}/10 across {trainingStats.weakestCriterion.n} answers — make it this session's focus by structuring STAR outcomes.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-slate-300 mt-1.5 max-w-2xl leading-relaxed">
+                          Averaging {trainingStats.overallAvg}/10 across your recent sessions. Consistent reps unlock interview mastery.
+                        </p>
+                      )}
                     </div>
 
-                    <div className="pt-4 border-t border-[#002a40] flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                        <Clock className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Estimated duration: 25–35 minutes</span>
-                      </div>
+                    <div className="flex items-center gap-3 shrink-0">
                       <button
-                        onClick={() => startInterview(selectedProtocol, isCandidateRole)}
+                        onClick={() => startInterview(selectedProtocol, true)}
                         className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/20 transition-all"
                       >
                         <Play className="w-4 h-4" />
-                        <span>Begin 10-Question Personalized Interview</span>
+                        <span>Start Practicing</span>
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('human_interview')}
+                        className="px-4 py-2.5 rounded-xl bg-[#001824] border border-[#002f47] hover:border-[#FF4103]/60 text-slate-200 text-xs font-bold flex items-center gap-2 transition-all"
+                      >
+                        <Video className="w-4 h-4 text-[#FF4103]" />
+                        <span>Live Human HR</span>
                       </button>
                     </div>
                   </div>
+
+                  {/* 4 KPI Insight Cards */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Sessions</div>
+                      <div className="text-2xl font-black text-white mt-1 tabular-nums">
+                        {trainingStats.total}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-1">
+                        {trainingStats.completedCount} analyzed
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">This Week</div>
+                      <div className="text-2xl font-black text-white mt-1 tabular-nums">
+                        {trainingStats.thisWeekCount}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-1">
+                        weekly practice reps
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Average Score</div>
+                      <div className="text-2xl font-black text-white mt-1 tabular-nums">
+                        {trainingStats.overallAvg ? `${trainingStats.overallAvg.toFixed(1)}/10` : '—'}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-1">
+                        {trainingStats.delta !== null ? (
+                          <span className={trainingStats.delta >= 0 ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                            {trainingStats.delta >= 0 ? `+${trainingStats.delta}` : trainingStats.delta} vs prior
+                          </span>
+                        ) : (
+                          'across completed reps'
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Focus Area</div>
+                      <div className="text-sm font-bold text-white mt-2 truncate">
+                        {trainingStats.weakestCriterion?.label || 'STAR Structure'}
+                      </div>
+                      <div className="text-[11px] text-amber-400 mt-1">
+                        {trainingStats.weakestCriterion ? `${trainingStats.weakestCriterion.avg}/10 · ${trainingStats.weakestCriterion.n} answers` : 'needs 2+ answers'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 12-Week Practice Rhythm Heatmap */}
+                  <div className="p-5 rounded-xl bg-[#001824] border border-[#002f47] space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-[#FF4103]" />
+                        <h3 className="text-xs font-bold text-white uppercase tracking-wider">Practice Rhythm</h3>
+                      </div>
+                      <span className="text-[11px] text-slate-400">Past 12 Weeks Cadence</span>
+                    </div>
+
+                    <div className="overflow-x-auto pb-1">
+                      <div className="flex gap-1.5 min-w-[360px]">
+                        <div className="flex flex-col justify-between text-[9px] text-slate-500 pr-1.5 select-none font-mono">
+                          <span>M</span>
+                          <span>W</span>
+                          <span>F</span>
+                        </div>
+                        {practiceWeeks.map((week, wIdx) => (
+                          <div key={wIdx} className="flex flex-col gap-1">
+                            {week.map((day, dIdx) => {
+                              const bgClass = day.isFuture
+                                ? 'bg-transparent border border-dashed border-slate-800'
+                                : day.count === 0
+                                ? 'bg-slate-800/40 border border-slate-800'
+                                : day.count === 1
+                                ? 'bg-[#0284c7]/40 border border-[#0284c7]/60'
+                                : day.count === 2
+                                ? 'bg-[#FF4103]/60 border border-[#FF4103]/80'
+                                : 'bg-[#FF4103] border border-[#ff7847]';
+
+                              return (
+                                <div
+                                  key={dIdx}
+                                  title={`${day.iso}: ${day.count} interview session${day.count === 1 ? '' : 's'}`}
+                                  className={`w-3.5 h-3.5 rounded-sm transition-all hover:scale-125 ${bgClass} ${day.isToday ? 'ring-1 ring-[#FF4103]' : ''}`}
+                                />
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-[#002a40]">
+                      <span>Daily repetitions and consistency</span>
+                      <div className="flex items-center gap-1.5">
+                        <span>less</span>
+                        <span className="w-2.5 h-2.5 rounded-sm bg-slate-800/40 border border-slate-800" />
+                        <span className="w-2.5 h-2.5 rounded-sm bg-[#0284c7]/40" />
+                        <span className="w-2.5 h-2.5 rounded-sm bg-[#FF4103]/60" />
+                        <span className="w-2.5 h-2.5 rounded-sm bg-[#FF4103]" />
+                        <span>more</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Historical Interview Reps Table */}
+                  <div className="space-y-3 pt-2">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-white uppercase tracking-wider">Practice Reps & History</h3>
+                          <span className="px-2 py-0.5 rounded bg-[#001824] border border-[#002f47] text-slate-300 text-xs font-bold">
+                            {filteredSessions.length}
+                          </span>
+                        </div>
+                        {/* Track filter pills */}
+                        <div className="flex items-center gap-1 bg-[#001824] p-1 rounded-xl border border-[#002f47] text-xs">
+                          <button
+                            onClick={() => setTrackFilter('all')}
+                            className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                              trackFilter === 'all'
+                                ? 'bg-[#FF4103] text-white'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            All ({combinedList.length})
+                          </button>
+                          <button
+                            onClick={() => setTrackFilter('hr_mock')}
+                            className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                              trackFilter === 'hr_mock'
+                                ? 'bg-[#FF4103] text-white'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            <Brain className="w-3.5 h-3.5" />
+                            <span>HR Mock ({sessionList.length})</span>
+                          </button>
+                          <button
+                            onClick={() => setTrackFilter('technical_sim')}
+                            className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                              trackFilter === 'technical_sim'
+                                ? 'bg-[#FF4103] text-white'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            <Laptop className="w-3.5 h-3.5" />
+                            <span>Technical ({simSessions.length})</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5">
+                        {/* Search Input */}
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Search interviews..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-48 sm:w-60 bg-[#001824] border border-[#002f47] rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#FF4103]"
+                          />
+                          {searchQuery && (
+                            <button
+                              onClick={() => setSearchQuery('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Sort Dropdown */}
+                        <select
+                          value={sortFilter}
+                          onChange={e => setSortFilter(e.target.value as any)}
+                          className="bg-[#001824] border border-[#002f47] rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#FF4103]"
+                        >
+                          <option value="Date Modified">Date Modified</option>
+                          <option value="Date Added">Date Added</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {groupedSessions.length > 0 ? (
+                      <div className="space-y-4">
+                        {groupedSessions.map(group => (
+                          <div key={group.label} className="space-y-1.5">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 bg-[#001824] rounded-lg border border-[#002f47]/50 flex items-center justify-between">
+                              <span>{group.label}</span>
+                              <span className="text-slate-500">{group.items.length} session{group.items.length === 1 ? '' : 's'}</span>
+                            </div>
+
+                            <div className="divide-y divide-[#002a40] border border-[#002f47] rounded-xl overflow-hidden bg-[#001824]">
+                              {group.items.map(s => {
+                                const isSim = s.track === 'technical_sim';
+                                return (
+                                <div
+                                  key={s.id}
+                                  className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#002234] transition-colors"
+                                >
+                                  <div className="flex items-start gap-3 min-w-0">
+                                    <div className="w-9 h-9 rounded-xl bg-[#001f2e] border border-[#002f47] flex items-center justify-center shrink-0 mt-0.5">
+                                      {isSim ? (
+                                        <Laptop className="w-4 h-4 text-sky-400" />
+                                      ) : (
+                                        <Brain className="w-4 h-4 text-[#FF4103]" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <h4 
+                                        className="text-sm font-bold text-white truncate hover:text-[#FF4103] transition-colors cursor-pointer" 
+                                        onClick={() => {
+                                          if (isSim) {
+                                            window.location.href = '/simulation';
+                                          } else if (s.status === 'completed') {
+                                            viewSessionSynthesis(s.id);
+                                          } else {
+                                            resumeExistingSession(s.id);
+                                          }
+                                        }}
+                                      >
+                                        {s.interviewTitle}
+                                      </h4>
+                                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                                        <span className="truncate">{s.jobTitle}</span>
+                                        <span>·</span>
+                                        <span className={`uppercase font-semibold ${isSim ? 'text-sky-400' : 'text-slate-400'}`}>
+                                          {isSim ? 'M03 Simulation' : (s.domain || 'HR Round')}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-3 sm:gap-4 shrink-0 self-end sm:self-auto">
+                                    {/* Status Badge */}
+                                    {s.status === 'completed' ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
+                                        Done
+                                      </span>
+                                    ) : s.status === 'processing' ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                                        <Flame className="w-3 h-3 animate-spin" /> In Progress
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400 text-[10px] font-bold uppercase">
+                                        Created
+                                      </span>
+                                    )}
+
+                                    {/* Score */}
+                                    <div className="w-16 text-right">
+                                      {s.score !== null ? (
+                                        <span className="text-sm font-black text-white tabular-nums">
+                                          {s.score}<span className="text-[10px] text-slate-400 font-normal">/10</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-slate-500 font-mono">—</span>
+                                      )}
+                                    </div>
+
+                                    {/* Date */}
+                                    <span className="text-[11px] text-slate-400 w-24 text-right hidden md:inline-block">
+                                      {new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                    </span>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-1.5">
+                                      {isSim ? (
+                                        <button
+                                          onClick={() => { window.location.href = '/simulation'; }}
+                                          className="px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500 hover:text-white text-xs font-semibold transition-all"
+                                          title="Open M03 Technical Simulation"
+                                        >
+                                          {s.status === 'completed' ? 'Review' : 'Resume'}
+                                        </button>
+                                      ) : s.status === 'completed' ? (
+                                        <button
+                                          onClick={() => viewSessionSynthesis(s.id)}
+                                          className="px-2.5 py-1 rounded-lg bg-[#FF4103]/15 border border-[#FF4103]/30 text-[#FF4103] hover:bg-[#FF4103] hover:text-white text-xs font-semibold transition-all"
+                                          title="View Synthesis & Evidence Dossier"
+                                        >
+                                          Report
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => resumeExistingSession(s.id)}
+                                          className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500 hover:text-white text-xs font-semibold transition-all"
+                                          title="Resume Session"
+                                        >
+                                          Resume
+                                        </button>
+                                      )}
+
+                                      {!isSim && (
+                                        <>
+                                          <button
+                                            onClick={() => {
+                                              setRenamingSession({ id: s.id, title: s.interviewTitle });
+                                              setNewSessionTitle(s.interviewTitle);
+                                              setRenameModalOpen(true);
+                                            }}
+                                            className="p-1.5 rounded-lg bg-[#001f2e] border border-[#002f47] text-slate-400 hover:text-white transition-colors"
+                                            title="Rename Session"
+                                            aria-label="Rename interview"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5" />
+                                          </button>
+
+                                          <button
+                                            onClick={() => {
+                                              setDeletingSessionId(s.id);
+                                              setDeleteModalOpen(true);
+                                            }}
+                                            className="p-1.5 rounded-lg bg-[#001f2e] border border-[#002f47] text-slate-400 hover:text-red-400 transition-colors"
+                                            title="Delete Session"
+                                            aria-label="Delete interview"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : searchQuery ? (
+                      <div className="p-8 bg-[#001824] border border-[#002f47] rounded-xl text-center space-y-2">
+                        <Search className="w-6 h-6 text-slate-500 mx-auto" />
+                        <h4 className="text-sm font-bold text-white">No interviews match your search</h4>
+                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                          Try searching for a different term or clear your filter to see all recorded sessions.
+                        </p>
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="text-xs font-bold text-[#FF4103] hover:underline"
+                        >
+                          Clear search filter
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="p-8 bg-[#001824] border border-[#002f47] rounded-xl text-center space-y-2">
+                        <Brain className="w-8 h-8 text-slate-500 mx-auto" />
+                        <h4 className="text-sm font-bold text-white">Your first session starts here</h4>
+                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                          Practice with the AI panel, get scored behavioral evidence in minutes, and watch this room fill with your progress.
+                        </p>
+                        <button
+                          onClick={() => startInterview(selectedProtocol, true)}
+                          className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FF4103] text-white text-xs font-bold hover:bg-[#e03200] transition-colors"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          <span>Start Practicing</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Right: Camera & Hardware Readiness Check */}
-                <div className="lg:col-span-5 space-y-4">
-                  <InterviewCameraPreview 
-                    compact={false}
-                    onCameraStateChange={(active) => setCameraActive(active)}
-                  />
+                {/* Candidate Pre-Interview Evidence Grounding & Target Role Review Card */}
+                <PreInterviewEvidenceCard
+                  candidateDossier={candidateDossier}
+                  selectedTargetRole={candidateTargetRole || selectedProtocol?.target_role || ''}
+                  onTargetRoleChange={(newRole) => {
+                    setCandidateTargetRole(newRole);
+                  }}
+                  interactionMode={interactionMode}
+                  onModeChange={(mode) => setInteractionMode(mode)}
+                  onStartSession={() => startInterview(selectedProtocol, true)}
+                  loading={loading}
+                />
+
+                <div className="grid lg:grid-cols-12 gap-6">
+                  {/* Left: 10-Question Sequential Interview Blueprint */}
+                  <div className="lg:col-span-7 space-y-4">
+                    <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#002a40]">
+                        <div className="flex items-center gap-2">
+                          <Compass className="w-4 h-4 text-[#FF4103]" />
+                          <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                            10-Question Sequential Interview Structure
+                          </h3>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] font-bold">
+                          ONE QUESTION AT A TIME
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Your personalized interview covers 10 sequential rounds designed to assess holistic professional maturity without hallucinating candidate history. Each question is asked one at a time, recorded, and evaluated against calibrated anchored rubrics.
+                      </p>
+
+                      <div className="grid sm:grid-cols-2 gap-2.5 pt-2 text-xs">
+                        {[
+                          { num: '01', title: 'Professional Narrative', cat: 'Communication' },
+                          { num: '02', title: 'Deep Technical Execution', cat: 'Role Competency' },
+                          { num: '03', title: 'Conflict & Stakeholder Alignment', cat: 'Behavioral STAR' },
+                          { num: '04', title: 'Judgment Under Ambiguity', cat: 'Professional Judgment' },
+                          { num: '05', title: 'Failure Recovery & Resilience', cat: 'Situational' },
+                          { num: '06', title: 'Cross-Functional Translation', cat: 'Communication' },
+                          { num: '07', title: 'Quality Standards & Hygiene', cat: 'Role Competency' },
+                          { num: '08', title: 'Ethical Governance & Integrity', cat: 'Professional Judgment' },
+                          { num: '09', title: 'Prioritization Under Crunch', cat: 'Situational' },
+                          { num: '10', title: 'Continuous Growth & Learning', cat: 'Behavioral' }
+                        ].map(step => (
+                          <div key={step.num} className="p-2.5 bg-[#001824] border border-[#002f47] rounded-xl flex items-center gap-2.5">
+                            <span className="w-6 h-6 rounded-md bg-[#FF4103]/15 text-[#FF4103] font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                              {step.num}
+                            </span>
+                            <div className="min-w-0">
+                              <span className="text-white font-semibold block text-[11px] truncate">{step.title}</span>
+                              <span className="text-[10px] text-slate-400 block">{step.cat}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-4 border-t border-[#002a40] flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                          <Clock className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Estimated duration: 25–35 minutes</span>
+                        </div>
+                        <button
+                          onClick={() => startInterview(selectedProtocol, true)}
+                          className="px-5 py-2.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#FF4103]/20 transition-all"
+                        >
+                          <Play className="w-4 h-4" />
+                          <span>Begin 10-Question Personalized Interview</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Camera & Hardware Readiness Check */}
+                  <div className="lg:col-span-5 space-y-4">
+                    <InterviewCameraPreview 
+                      compact={false}
+                      onCameraStateChange={(active) => setCameraActive(active)}
+                    />
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* ACTIVE TURN EXECUTION: When session is in progress */}
-            {sessionId && currentQuestion && (
+            {/* ACTIVE TURN EXECUTION: When session is in progress and candidate is in cockpit mode */}
+            {sessionId && currentQuestion && !showWorkspaceDuringSession && (
               <div className="space-y-6">
                 
+                {/* Return to Practice Workspace Navigation */}
+                <div className="flex items-center justify-between pb-1">
+                  <button
+                    onClick={() => setShowWorkspaceDuringSession(true)}
+                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#001824] border border-[#002f47] text-slate-300 hover:text-white text-xs font-semibold transition-colors"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Practice Workspace & History</span>
+                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    Turn progress auto-saved in real-time
+                  </span>
+                </div>
+
                 {/* 10-Question Progress Ribbon */}
                 <div className="bg-[#001824] border border-[#063750] rounded-2xl p-4 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -797,6 +1606,18 @@ export default function Module4Interviews() {
                     })}
                   </div>
                 </div>
+
+                {/* Real-Time Voice AI Turn & Audio Status Bar */}
+                <VoiceStatusBar
+                  voiceState={voiceState}
+                  isSpeaking={isSpeaking}
+                  isListening={isListening}
+                  audioLevel={audioLevel}
+                  activePanelRole={activePanelRole}
+                  onReplayAudio={() => speakQuestion(currentQuestion.question, activePanelRole)}
+                  onStopAudio={stopSpeaking}
+                  interactionMode={interactionMode}
+                />
 
                 {/* Two-Column Work Surface */}
                 <div className="grid lg:grid-cols-12 gap-6">
@@ -893,6 +1714,50 @@ export default function Module4Interviews() {
                             </span>
                           </div>
                         </div>
+
+                        {/* Voice Controls for Follow-Up Probe */}
+                        {interactionMode === 'voice' && (
+                          <div className="flex flex-wrap items-center justify-between p-2.5 bg-[#001420] border border-[#002b40] rounded-xl gap-2">
+                            <div className="flex items-center gap-2">
+                              {!isListening ? (
+                                <button
+                                  type="button"
+                                  onClick={startListening}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold flex items-center gap-1.5 text-xs shadow-sm transition-all"
+                                >
+                                  <Mic className="w-3.5 h-3.5" />
+                                  <span>Speak Follow-Up (Mic)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={stopListening}
+                                  className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-bold flex items-center gap-1.5 text-xs animate-pulse transition-all"
+                                >
+                                  <MicOff className="w-3.5 h-3.5" />
+                                  <span>Done Speaking</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => speakQuestion(activeFollowUp.question, activePanelRole)}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#001e30] hover:bg-[#002c45] text-slate-300 text-xs border border-[#003452] flex items-center gap-1"
+                              >
+                                <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Replay Probe Aloud</span>
+                              </button>
+                            </div>
+                            {followUpResponse && (
+                              <button
+                                type="button"
+                                onClick={() => setFollowUpResponse('')}
+                                className="text-slate-400 hover:text-red-400 text-[11px]"
+                              >
+                                Clear Probe Answer
+                              </button>
+                            )}
+                          </div>
+                        )}
 
                         {/* Follow-up Response Textarea */}
                         <div className="space-y-1">
@@ -1238,23 +2103,97 @@ export default function Module4Interviews() {
                     ) : (
                       /* INITIAL SUBMISSION INTERFACE */
                       <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4 text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-400 font-bold uppercase tracking-wider block">
-                            Candidate Oral / Stated Response
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            {candidateResponse.trim().split(/\s+/).filter(Boolean).length} words
-                          </span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-[#002a40] gap-2">
+                          <div>
+                            <span className="text-white font-bold uppercase tracking-wider text-xs block">
+                              {interactionMode === 'voice' ? '🎙️ Real-Time Voice AI Response' : '⌨️ Stated Oral / Written Response'}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {interactionMode === 'voice' 
+                                ? 'Speak into your microphone. Words stream live into the transcript below.'
+                                : 'Draft your structured response detailing your methodology, trade-offs, and concrete examples.'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setInteractionMode(interactionMode === 'voice' ? 'text' : 'voice')}
+                              className="px-2.5 py-1 rounded-lg bg-[#001824] hover:bg-[#00283d] text-slate-300 hover:text-white border border-[#002f47] text-[11px] font-semibold transition-colors"
+                            >
+                              {interactionMode === 'voice' ? 'Switch to Text Mode' : 'Switch to Voice AI Mode'}
+                            </button>
+                            <span className="text-[11px] text-slate-500 font-mono">
+                              {candidateResponse.trim().split(/\s+/).filter(Boolean).length} words
+                            </span>
+                          </div>
                         </div>
 
-                        <textarea
-                          rows={6}
-                          value={candidateResponse}
-                          onChange={e => setCandidateResponse(e.target.value)}
-                          disabled={submittingTurn}
-                          placeholder="Transcribe candidate's response detailing their methodology, trade-offs, and concrete examples..."
-                          className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed disabled:opacity-50"
-                        />
+                        {/* Voice Controls Ribbon */}
+                        {interactionMode === 'voice' && (
+                          <div className="p-3 bg-[#001420] border border-[#002b42] rounded-xl flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              {!isListening ? (
+                                <button
+                                  type="button"
+                                  onClick={startListening}
+                                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold flex items-center gap-2 text-xs shadow-md shadow-emerald-500/20 transition-all"
+                                >
+                                  <Mic className="w-4 h-4" />
+                                  <span>Start Speaking (Microphone)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={stopListening}
+                                  className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold flex items-center gap-2 text-xs shadow-md shadow-red-500/20 animate-pulse transition-all"
+                                >
+                                  <MicOff className="w-4 h-4" />
+                                  <span>Done Speaking (Stop Mic)</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => speakQuestion(currentQuestion.question, activePanelRole)}
+                                className="px-3 py-2 rounded-xl bg-[#002033] hover:bg-[#00304a] text-slate-300 hover:text-white border border-[#003854] text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                              >
+                                <Volume2 className="w-3.5 h-3.5 text-blue-400" />
+                                <span>Replay Question Aloud</span>
+                              </button>
+                            </div>
+
+                            {candidateResponse && (
+                              <button
+                                type="button"
+                                onClick={() => setCandidateResponse('')}
+                                className="text-slate-400 hover:text-red-400 text-[11px] transition-colors"
+                              >
+                                Clear Response
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {permissionError && (
+                          <div className="p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{permissionError}</span>
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-slate-400 block font-semibold">
+                            {interactionMode === 'voice' ? 'Live Transcribed Speech Transcript (Editable):' : 'Candidate Stated Response:'}
+                          </span>
+                          <textarea
+                            rows={6}
+                            value={candidateResponse}
+                            onChange={e => setCandidateResponse(e.target.value)}
+                            disabled={submittingTurn}
+                            placeholder="Transcribe candidate's response detailing their methodology, trade-offs, and concrete examples (or speak via microphone)..."
+                            className="w-full bg-[#001824] border border-[#002f47] rounded-xl p-3.5 text-white text-xs focus:outline-none focus:border-[#FF4103] leading-relaxed disabled:opacity-50"
+                          />
+                        </div>
 
                         {turnError && (
                           <div className="p-2.5 bg-red-950/30 border border-red-500/30 rounded-xl text-red-300 text-xs">
@@ -1617,12 +2556,114 @@ export default function Module4Interviews() {
           </div>
         )}
 
+        {/* TAB 4: REAL HUMAN HR INTERVIEW & LIVE WEBRTC ROOMS */}
+        {activeTab === 'human_interview' && (
+          <div className="space-y-6">
+            {activeLiveRoom ? (
+              <HumanInterviewLiveRoom
+                roomId={activeLiveRoom.roomId}
+                token={activeLiveRoom.token}
+                onExit={() => setActiveLiveRoom(null)}
+              />
+            ) : (
+              <HumanInterviewSchedulingCard
+                currentUser={currentUser}
+                onJoinRoom={(roomId, token) => setActiveLiveRoom({ roomId, token })}
+              />
+            )}
+          </div>
+        )}
+
         {/* Global Candidate Journey Navigation */}
         <ModuleNavigationFooter
           currentModule="M04"
           isCompleted={Boolean(synthesis)}
           saveStatusText={sessionId ? (submittingTurn ? 'Synthesizing response…' : 'Interview turn synchronized') : undefined}
         />
+
+        {/* Rename Session Modal */}
+        {renameModalOpen && renamingSession && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[#002a40]">
+                <div className="flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-[#FF4103]" />
+                  <h3 className="text-base font-bold text-white">Rename Interview Session</h3>
+                </div>
+                <button
+                  onClick={() => { setRenameModalOpen(false); setRenamingSession(null); }}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Interview Title</label>
+                <input
+                  type="text"
+                  value={newSessionTitle}
+                  onChange={e => setNewSessionTitle(e.target.value)}
+                  className="w-full bg-[#001824] border border-[#002f47] rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-[#FF4103]"
+                  placeholder="Enter a descriptive session title..."
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  onClick={() => { setRenameModalOpen(false); setRenamingSession(null); }}
+                  className="px-4 py-2 rounded-xl bg-[#001824] border border-[#002f47] text-slate-300 hover:text-white text-xs font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleRenameSession(renamingSession.id, newSessionTitle)}
+                  disabled={!newSessionTitle.trim()}
+                  className="px-4 py-2 rounded-xl bg-[#FF4103] hover:bg-[#e03200] disabled:opacity-50 text-white text-xs font-bold transition-all"
+                >
+                  Save Title
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Session Confirmation Modal */}
+        {deleteModalOpen && deletingSessionId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Delete Interview Session</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">This action cannot be undone.</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Are you sure you want to delete this interview session? All recorded turns, transcripts, and evaluation observations for this session will be permanently removed.
+              </p>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  onClick={() => { setDeleteModalOpen(false); setDeletingSessionId(null); }}
+                  className="px-4 py-2 rounded-xl bg-[#001824] border border-[#002f47] text-slate-300 hover:text-white text-xs font-bold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDeleteSession(deletingSessionId)}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all"
+                >
+                  Delete Session
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

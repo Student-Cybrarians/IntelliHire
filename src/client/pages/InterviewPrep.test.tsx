@@ -143,7 +143,8 @@ describe('Phase 0 Verification: M02 Interview Preparation Engine UI & Flows', ()
     render(<BrowserRouter><InterviewPrep /></BrowserRouter>);
 
     expect(await screen.findByText(/Adaptive Interview Preparation Engine/i)).toBeInTheDocument();
-    expect(await screen.findByText('Senior Financial Analyst')).toBeInTheDocument();
+    const roleElements = await screen.findAllByText('Senior Financial Analyst');
+    expect(roleElements.length).toBeGreaterThanOrEqual(1);
     expect(await screen.findByText('Variance Analysis Under Inflation')).toBeInTheDocument();
     expect(await screen.findByText(/Treating cost-push inflation as volume variance/i)).toBeInTheDocument();
   });

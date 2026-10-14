@@ -1301,6 +1301,102 @@ describe('Priority 16: M04 Interaction / Interview Simulation & Enterprise Proto
     expect(data.success).toBe(false);
     expect(data.error).toBe('Failed to start interview session. Please try again.');
   });
+
+  it('35. Workers AI Audio Transcription: POST /api/m4/interviews/transcribe accepts audio and delegates to Whisper', async () => {
+    const whisperEnv = {
+      DB: {
+        prepare: () => ({
+          bind: () => ({
+            first: vi.fn().mockResolvedValue({ organization_id: 'org-m4' }),
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockResolvedValue({ success: true })
+          })
+        })
+      },
+      SESSION_KV: {
+        get: vi.fn().mockResolvedValue('candidate-token')
+      },
+      AI: {
+        run: vi.fn().mockResolvedValue({
+          text: 'We deployed a distributed Redis cluster with write-through invalidation.'
+        })
+      }
+    };
+
+    const dummyAudio = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
+    const req = new Request('http://localhost/api/m4/interviews/transcribe', {
+      method: 'POST',
+      headers: {
+        'Cookie': 'intellihire_session=candidate-token',
+        'Content-Type': 'audio/webm'
+      },
+      body: dummyAudio
+    });
+
+    const res = await app.request(req, {}, whisperEnv as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.transcript).toBe('We deployed a distributed Redis cluster with write-through invalidation.');
+    expect(data.provider).toBe('cloudflare-workers-ai-whisper');
+  });
+
+  it('36. Evidence-Grounded Role Personalization: POST /api/m4/interviews/sessions respects custom candidate target role & grounds projects', async () => {
+    let capturedProtocolTitle = '';
+    const customRoleEnv = {
+      DB: {
+        prepare: (query: string) => ({
+          bind: (...args: any[]) => ({
+            first: vi.fn().mockImplementation(async () => {
+              if (query.includes('FROM candidate_context')) {
+                return {
+                  context_data_json: JSON.stringify({
+                    projects: ['AI-Powered SIEM Pipeline', 'Distributed Firewall']
+                  })
+                };
+              }
+              return { organization_id: 'org-m4', target_role: 'Default Role' };
+            }),
+            all: vi.fn().mockResolvedValue({
+              results: [
+                { claim_value: 'Threat Detection' },
+                { skill_name: 'Incident Response' }
+              ]
+            }),
+            run: vi.fn().mockImplementation(async () => {
+              if (query.includes('INSERT OR IGNORE INTO interview_protocol')) {
+                capturedProtocolTitle = args[2];
+              }
+              return { success: true };
+            })
+          })
+        })
+      },
+      SESSION_KV: {
+        get: vi.fn().mockResolvedValue('candidate-token')
+      }
+    };
+
+    const req = new Request('http://localhost/api/m4/interviews/sessions', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personalized: true,
+        target_role: 'Lead Security Operations Engineer',
+        domain: 'software',
+        seniority: 'senior'
+      })
+    });
+
+    const res = await app.request(req, {}, customRoleEnv as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    expect(data.plan.targetRole).toBe('Lead Security Operations Engineer');
+    expect(capturedProtocolTitle).toContain('Lead Security Operations Engineer');
+    // Turn 2 grounds in the candidate project
+    expect(data.plan.questions[1].question).toContain('AI-Powered SIEM Pipeline');
+  });
 });
 
 

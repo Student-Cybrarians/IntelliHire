@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Laptop, Database, DollarSign, Activity, FileText, 
   Play, CheckCircle2, AlertTriangle, RefreshCw, Send, 
   ShieldCheck, Award, Flame, ArrowRight, Sparkles, Clock, 
   HelpCircle, ChevronRight, Terminal, BarChart2, Layers,
-  BookOpen, Lightbulb, Compass, BrainCircuit, Check, X
+  BookOpen, Lightbulb, Compass, BrainCircuit, Check, X, Search
 } from 'lucide-react';
 import DashboardLayout from './dashboard/DashboardLayout';
 import UniversalWorkSurfaceDispatcher from '../components/m3/UniversalWorkSurfaceDispatcher';
@@ -63,13 +63,30 @@ export default function Module3Simulation() {
   const [proceedingToNextModule, setProceedingToNextModule] = useState(false);
   const [completionSummary, setCompletionSummary] = useState<any>(null);
 
+  // Simulation Practice History & Stats
+  const [simulationHistory, setSimulationHistory] = useState<any[]>([]);
+  const [simulationStats, setSimulationStats] = useState<any>({ total: 0, completed: 0, average_score: null });
+  const [simSearchQuery, setSimSearchQuery] = useState('');
+
   const loadDefinitions = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/m3/simulations/definitions');
-      const data = await res.json() as any;
-      if (data.success) {
-        setCatalog(data.simulations || []);
+      const [defsRes, sessRes] = await Promise.all([
+        fetch('/api/m3/simulations/definitions').catch(() => null),
+        fetch('/api/m3/simulations/sessions').catch(() => null)
+      ]);
+      if (defsRes && defsRes.ok) {
+        const data = await defsRes.json() as any;
+        if (data.success) {
+          setCatalog(data.simulations || []);
+        }
+      }
+      if (sessRes && sessRes.ok) {
+        const sData = await sessRes.json() as any;
+        if (sData.success) {
+          setSimulationHistory(sData.sessions || []);
+          if (sData.stats) setSimulationStats(sData.stats);
+        }
       }
     } catch (e) {
       console.error('Failed to load simulations', e);
@@ -391,9 +408,20 @@ export default function Module3Simulation() {
     }
   };
 
-  const filteredCatalog = selectedDomain === 'all' 
-    ? catalog 
-    : catalog.filter(c => c.domain === selectedDomain);
+  const filteredCatalog = useMemo(() => {
+    let list = selectedDomain === 'all' 
+      ? catalog 
+      : catalog.filter(c => c.domain === selectedDomain);
+    if (simSearchQuery.trim()) {
+      const q = simSearchQuery.toLowerCase();
+      list = list.filter(c => 
+        (c.title && c.title.toLowerCase().includes(q)) ||
+        (c.target_role && c.target_role.toLowerCase().includes(q)) ||
+        (c.competency_name && c.competency_name.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [catalog, selectedDomain, simSearchQuery]);
 
   return (
     <DashboardLayout role="candidate" userFullName="Candidate Command">
@@ -427,28 +455,72 @@ export default function Module3Simulation() {
         {/* VIEW 1: SIMULATION CATALOG */}
         {!activeSim && (
           <div className="space-y-6">
-            {/* Domain Filter Pills */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-[#063750]">
-              {[
-                { id: 'all', label: 'All Disciplines' },
-                { id: 'software', label: 'Software & Tech' },
-                { id: 'finance', label: 'Finance & Accounting' },
-                { id: 'operations', label: 'Operations & Triage' },
-                { id: 'data', label: 'Data Engineering' },
-                { id: 'general', label: 'Legal & Procurement' }
-              ].map(pill => (
-                <button
-                  key={pill.id}
-                  onClick={() => setSelectedDomain(pill.id)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                    selectedDomain === pill.id
-                      ? 'bg-[#FF4103] text-white shadow-md shadow-[#FF4103]/20'
-                      : 'bg-[#001f2e] border border-[#063750] text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {pill.label}
-                </button>
-              ))}
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl bg-[#001f2e] border border-[#063750]">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Exercises</div>
+                <div className="text-2xl font-black text-white mt-1 tabular-nums">{catalog.length}</div>
+                <div className="text-[11px] text-slate-400 mt-1">{simulationStats.completed} completed reps</div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-[#001f2e] border border-[#063750]">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Average Technical Score</div>
+                <div className="text-2xl font-black text-white mt-1 tabular-nums">
+                  {simulationStats.average_score !== null ? `${simulationStats.average_score}%` : '—'}
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">objective verified rubrics</div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-[#001f2e] border border-[#063750]">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active Discipline</div>
+                <div className="text-lg font-bold text-white mt-1 truncate uppercase">{selectedDomain}</div>
+                <div className="text-[11px] text-slate-400 mt-1">{filteredCatalog.length} exercise modules available</div>
+              </div>
+            </div>
+
+            {/* Filter Pills & Search Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[#063750]">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+                {[
+                  { id: 'all', label: 'All Disciplines' },
+                  { id: 'software', label: 'Software & Tech' },
+                  { id: 'finance', label: 'Finance & Accounting' },
+                  { id: 'operations', label: 'Operations & Triage' },
+                  { id: 'data', label: 'Data Engineering' },
+                  { id: 'general', label: 'Legal & Procurement' }
+                ].map(pill => (
+                  <button
+                    key={pill.id}
+                    onClick={() => setSelectedDomain(pill.id)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                      selectedDomain === pill.id
+                        ? 'bg-[#FF4103] text-white shadow-md shadow-[#FF4103]/20'
+                        : 'bg-[#001f2e] border border-[#063750] text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {pill.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative shrink-0">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search practical simulations..."
+                  value={simSearchQuery}
+                  onChange={e => setSimSearchQuery(e.target.value)}
+                  className="w-full sm:w-64 bg-[#001824] border border-[#002f47] rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#FF4103]"
+                />
+                {simSearchQuery && (
+                  <button
+                    onClick={() => setSimSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Simulations Grid */}
@@ -521,6 +593,90 @@ export default function Module3Simulation() {
                 </div>
               ))}
             </div>
+
+            {/* Past Simulation Reps & Practical Evidence Table */}
+            {simulationHistory.length > 0 && (
+              <div className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 shadow-lg space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-[#002a40]">
+                  <div className="flex items-center gap-2">
+                    <Laptop className="w-4 h-4 text-[#FF4103]" />
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                      Practical Simulation Reps History
+                    </h3>
+                  </div>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {simulationHistory.length} recorded session{simulationHistory.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                <div className="divide-y divide-[#002a40] border border-[#002f47] rounded-xl overflow-hidden bg-[#001824]">
+                  {simulationHistory.map(s => {
+                    const matchedDef = catalog.find(c => c.id === s.definition_id);
+                    return (
+                      <div
+                        key={s.id}
+                        className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#002234] transition-colors"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-[#001f2e] border border-[#002f47] flex items-center justify-center shrink-0 mt-0.5">
+                            <Laptop className="w-4 h-4 text-[#FF4103]" />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-bold text-white truncate">
+                              {s.title}
+                            </h4>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                              <span className="truncate">{s.target_role}</span>
+                              <span>·</span>
+                              <span className="text-slate-500 uppercase">{s.domain}</span>
+                              <span>·</span>
+                              <span className="text-slate-500">Level {s.difficulty_level}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 shrink-0 self-end sm:self-auto">
+                          {s.status === 'evaluated' || s.status === 'completed' ? (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
+                              Evaluated
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                              In Progress
+                            </span>
+                          )}
+
+                          <div className="w-16 text-right">
+                            {s.overall_score !== null ? (
+                              <span className="text-sm font-black text-white tabular-nums">
+                                {s.overall_score}%
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-500 font-mono">—</span>
+                            )}
+                          </div>
+
+                          <span className="text-[11px] text-slate-400 w-24 text-right hidden md:inline-block">
+                            {new Date(s.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </span>
+
+                          <button
+                            onClick={() => {
+                              if (matchedDef) {
+                                startSimulation(matchedDef, s.status !== 'in_progress');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold transition-all shadow-md shadow-[#FF4103]/20"
+                          >
+                            {s.status === 'in_progress' ? 'Resume' : 'Re-run'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

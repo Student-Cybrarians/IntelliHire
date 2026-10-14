@@ -536,3 +536,269 @@ CREATE TABLE IF NOT EXISTS interview_synthesis (
 CREATE INDEX IF NOT EXISTS idx_m4_proto_org ON interview_protocol(organization_id, domain);
 CREATE INDEX IF NOT EXISTS idx_m4_sess_cand ON interview_session(candidate_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_m4_obs_sess ON interview_observation(session_id, turn_number);
+
+-- =========================================================================
+-- M02 Phase 1, Phase 2 & Phase 3 Universal Learning, Preparation & Assessment Tables
+-- =========================================================================
+
+-- M02 Audit Events & Evidence Packages
+CREATE TABLE IF NOT EXISTS m2_audit_event (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  details_json TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS candidate_gap (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  skill_id TEXT NOT NULL REFERENCES skill(id),
+  gap_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'unassessed',
+  evidence_json TEXT,
+  recommendation TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS evidence_package (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  organization_id TEXT NOT NULL,
+  attempt_id TEXT REFERENCES assessment_attempt(id),
+  package_version INTEGER NOT NULL DEFAULT 1,
+  package_json TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- M02 Interview Preparation Engine
+CREATE TABLE IF NOT EXISTS interview_prep_session (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  organization_id TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'practice' CHECK (mode IN ('practice', 'learning', 'mock', 'assessment', 'targeted')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'abandoned')),
+  target_role TEXT,
+  target_jd_id TEXT,
+  prep_plan_json TEXT NOT NULL DEFAULT '{}',
+  readiness_snapshot_json TEXT NOT NULL DEFAULT '{}',
+  questions_json TEXT NOT NULL DEFAULT '[]',
+  misconceptions_json TEXT NOT NULL DEFAULT '[]',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS interview_prep_response (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES interview_prep_session(id),
+  question_json TEXT NOT NULL,
+  response_text TEXT NOT NULL,
+  evaluation_json TEXT,
+  follow_up_json TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_prep_session_user ON interview_prep_session(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_prep_response_session ON interview_prep_response(session_id);
+
+-- M02 Phase 1: Universal Market Intelligence Question Bank
+CREATE TABLE IF NOT EXISTS interview_intelligence_item (
+  id TEXT PRIMARY KEY,
+  target_role TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  category TEXT NOT NULL CHECK(category IN ('public_source', 'employer_guidance', 'llm_practice', 'candidate_gap', 'unverified')),
+  topic TEXT NOT NULL,
+  question TEXT NOT NULL,
+  question_type TEXT NOT NULL,
+  difficulty_level INTEGER NOT NULL DEFAULT 3,
+  evaluation_rubric_json TEXT NOT NULL DEFAULT '[]',
+  hints_json TEXT NOT NULL DEFAULT '[]',
+  source_url TEXT,
+  source_publisher TEXT,
+  retrieved_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  company_context TEXT,
+  provenance_type TEXT NOT NULL DEFAULT 'curated_benchmark',
+  occupation_id TEXT REFERENCES taxonomy_occupation(id),
+  seniority_level TEXT NOT NULL DEFAULT 'mid' CHECK(seniority_level IN ('entry', 'graduate', 'mid', 'senior', 'specialist', 'manager')),
+  competency_name TEXT NOT NULL DEFAULT 'Core Competency',
+  is_stale INTEGER NOT NULL DEFAULT 0,
+  last_verified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_intel_domain_role ON interview_intelligence_item(domain, target_role);
+CREATE INDEX IF NOT EXISTS idx_intel_category ON interview_intelligence_item(category);
+CREATE INDEX IF NOT EXISTS idx_intel_seniority ON interview_intelligence_item(seniority_level);
+CREATE INDEX IF NOT EXISTS idx_intel_stale ON interview_intelligence_item(is_stale);
+
+-- M02 Phase 2: Learning Pathways, Modules & Pedagogical Units
+CREATE TABLE IF NOT EXISTS learning_pathway (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  title TEXT NOT NULL,
+  target_role TEXT NOT NULL,
+  domain TEXT NOT NULL CHECK (domain IN ('software', 'data', 'finance', 'operations', 'marketing', 'hr', 'healthcare_admin', 'general')),
+  occupation_code TEXT,
+  pathway_type TEXT NOT NULL CHECK (pathway_type IN (
+    'role_readiness', 'skill_gap_remediation', 'misconception_remediation', 
+    'interview_prep', 'simulation_readiness', 'career_advancement'
+  )),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'paused', 'archived')),
+  prerequisite_graph_json TEXT NOT NULL DEFAULT '{}',
+  overall_progress REAL NOT NULL DEFAULT 0.0,
+  mastery_score REAL NOT NULL DEFAULT 0.0,
+  evidence_sources_json TEXT NOT NULL DEFAULT '[]',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS curriculum_module (
+  id TEXT PRIMARY KEY,
+  pathway_id TEXT NOT NULL REFERENCES learning_pathway(id),
+  sequence_order INTEGER NOT NULL,
+  competency_name TEXT NOT NULL,
+  skill_name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  target_capability TEXT NOT NULL,
+  current_capability TEXT NOT NULL,
+  evidence_gap_summary TEXT NOT NULL,
+  prerequisite_module_ids_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('locked', 'available', 'in_progress', 'completed', 'mastered')),
+  mastery_status TEXT NOT NULL DEFAULT 'unassessed' CHECK (mastery_status IN ('unassessed', 'needs_practice', 'proficient', 'mastered')),
+  revision_due_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS learning_unit (
+  id TEXT PRIMARY KEY,
+  module_id TEXT NOT NULL REFERENCES curriculum_module(id),
+  unit_order INTEGER NOT NULL,
+  unit_type TEXT NOT NULL CHECK (unit_type IN (
+    'micro_concept', 'misconception_deepdive', 'guided_exercise', 
+    'checkpoint_assessment', 'work_simulation', 'reassessment_gate'
+  )),
+  title TEXT NOT NULL,
+  content_markdown TEXT NOT NULL,
+  interactive_exercise_json TEXT,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  completion_status TEXT NOT NULL DEFAULT 'not_started' CHECK (completion_status IN ('not_started', 'in_progress', 'completed')),
+  demonstrated_score REAL,
+  completed_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS learning_progress_record (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  pathway_id TEXT NOT NULL REFERENCES learning_pathway(id),
+  module_id TEXT NOT NULL REFERENCES curriculum_module(id),
+  unit_id TEXT NOT NULL REFERENCES learning_unit(id),
+  action_type TEXT NOT NULL CHECK (action_type IN (
+    'unit_start', 'unit_complete', 'exercise_attempt', 'reassessment_attempt', 'mastery_verified'
+  )),
+  performance_score REAL,
+  evidence_generated_json TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS curriculum_reassessment_attempt (
+  id TEXT PRIMARY KEY,
+  module_id TEXT NOT NULL REFERENCES curriculum_module(id),
+  user_id TEXT NOT NULL REFERENCES user_account(id),
+  challenge_prompt TEXT NOT NULL,
+  solution_text TEXT NOT NULL,
+  evaluation_score REAL NOT NULL,
+  is_mastered INTEGER NOT NULL DEFAULT 0,
+  criteria_scores_json TEXT,
+  feedback_json TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_pathway_user ON learning_pathway(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_pathway_org ON learning_pathway(organization_id, pathway_type);
+CREATE INDEX IF NOT EXISTS idx_curr_module_pathway ON curriculum_module(pathway_id, sequence_order);
+CREATE INDEX IF NOT EXISTS idx_learn_unit_module ON learning_unit(module_id, unit_order);
+CREATE INDEX IF NOT EXISTS idx_progress_user ON learning_progress_record(user_id, action_type);
+CREATE INDEX IF NOT EXISTS idx_reassess_module ON curriculum_reassessment_attempt(module_id);
+CREATE INDEX IF NOT EXISTS idx_reassess_user ON curriculum_reassessment_attempt(user_id);
+
+-- =========================================================================
+-- Migration 0009: M04 Human Live Interview Rooms, Scheduling, Signaling & Evaluation
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS human_interview_invitation (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  candidate_user_id TEXT NOT NULL REFERENCES user_account(id),
+  interviewer_user_id TEXT NOT NULL REFERENCES user_account(id),
+  target_role TEXT NOT NULL,
+  job_description TEXT,
+  resume_id TEXT,
+  interview_type TEXT NOT NULL DEFAULT 'technical_and_behavioral',
+  scheduled_start_time TEXT NOT NULL,
+  scheduled_end_time TEXT NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'UTC',
+  status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('draft', 'invited', 'accepted', 'declined', 'rescheduled', 'scheduled', 'waiting', 'in_progress', 'completed', 'cancelled', 'no_show')),
+  candidate_token TEXT NOT NULL UNIQUE,
+  interviewer_token TEXT NOT NULL UNIQUE,
+  candidate_response_notes TEXT,
+  cancellation_reason TEXT,
+  created_by_user_id TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS human_interview_room (
+  id TEXT PRIMARY KEY,
+  invitation_id TEXT NOT NULL REFERENCES human_interview_invitation(id),
+  organization_id TEXT NOT NULL,
+  room_status TEXT NOT NULL DEFAULT 'waiting' CHECK (room_status IN ('waiting', 'in_progress', 'completed', 'closed')),
+  candidate_joined_at DATETIME,
+  interviewer_joined_at DATETIME,
+  candidate_recording_consent INTEGER NOT NULL DEFAULT 0,
+  interviewer_recording_consent INTEGER NOT NULL DEFAULT 0,
+  recording_enabled INTEGER NOT NULL DEFAULT 0,
+  workspace_state_json TEXT NOT NULL DEFAULT '{}',
+  started_at DATETIME,
+  ended_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS human_interview_signal (
+  id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES human_interview_room(id),
+  sender_user_id TEXT NOT NULL,
+  sender_role TEXT NOT NULL,
+  signal_type TEXT NOT NULL,
+  signal_payload_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS human_interview_evaluation (
+  id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES human_interview_room(id),
+  invitation_id TEXT NOT NULL REFERENCES human_interview_invitation(id),
+  interviewer_user_id TEXT NOT NULL,
+  candidate_user_id TEXT NOT NULL,
+  organization_id TEXT NOT NULL,
+  overall_recommendation TEXT NOT NULL CHECK (overall_recommendation IN ('strong_hire', 'hire', 'further_review', 'no_hire', 'hold')),
+  competency_scores_json TEXT NOT NULL DEFAULT '{}',
+  interviewer_notes TEXT NOT NULL,
+  private_observations_json TEXT NOT NULL DEFAULT '[]',
+  m05_evidence_package_json TEXT NOT NULL DEFAULT '{}',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hi_inv_org ON human_interview_invitation(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_hi_inv_cand ON human_interview_invitation(candidate_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_hi_inv_intv ON human_interview_invitation(interviewer_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_hi_room_inv ON human_interview_room(invitation_id);
+CREATE INDEX IF NOT EXISTS idx_hi_sig_room ON human_interview_signal(room_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_hi_eval_room ON human_interview_evaluation(room_id);
+

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain, Laptop, GraduationCap, Edit3, X, Check, AlertCircle, Clock, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { Target, FileText, Upload, CheckCircle2, Briefcase, ClipboardCheck, ShieldCheck, Flame, RefreshCw, Zap, ArrowRight, Brain, Laptop, GraduationCap, Edit3, X, Check, AlertCircle, Clock, Sparkles, Activity, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function CandidateWorkspace({ profileName }: { profileName: string }) {
@@ -14,6 +14,7 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
   const [pathways, setPathways] = useState<any[]>([]);
   const [dataState, setDataState] = useState<'current' | 'updating' | 'empty' | 'error'>('empty');
   const [resumeMeta, setResumeMeta] = useState<{ version?: number; filename?: string; extracted_at?: string } | null>(null);
+  const [interviewStats, setInterviewStats] = useState<any>(null);
 
   // Edit Profile modal state
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -31,11 +32,12 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
   const load = async () => {
     setLoading(true);
     try {
-      const [profileRes, statusRes, jobsRes, pathwaysRes] = await Promise.all([
+      const [profileRes, statusRes, jobsRes, pathwaysRes, m4SessionsRes] = await Promise.all([
         fetch('/api/dashboard/candidate'),
         fetch('/api/resume/status'),
         fetch('/api/requisitions'),
-        fetch('/api/training/pathways').catch(() => null)
+        fetch('/api/training/pathways').catch(() => null),
+        fetch('/api/m4/interviews/sessions').catch(() => null)
       ]);
       const profileData: any = await profileRes.json().catch(() => ({}));
       const statusData: any = await statusRes.json().catch(() => ({}));
@@ -67,10 +69,41 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
           setPathways(pData.pathways);
         }
       }
+
+      if (m4SessionsRes && m4SessionsRes.ok) {
+        const m4Data: any = await m4SessionsRes.json().catch(() => ({}));
+        if (m4Data.success && m4Data.stats) {
+          setInterviewStats(m4Data.stats);
+        }
+      }
     } finally { setLoading(false); }
   };
 
   useEffect(() => { load().catch(console.error); }, []);
+
+  const practiceWeeks = useMemo(() => {
+    const weeks: Array<Array<{ date: Date; iso: string; count: number; isFuture: boolean; isToday: boolean }>> = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const dayOfWeek = (now.getDay() + 6) % 7;
+    const startMonday = new Date(now);
+    startMonday.setDate(startMonday.getDate() - dayOfWeek - (11 * 7));
+
+    for (let w = 0; w < 12; w++) {
+      const days = [];
+      for (let d = 0; d < 7; d++) {
+        const cur = new Date(startMonday);
+        cur.setDate(startMonday.getDate() + (w * 7) + d);
+        const iso = cur.toISOString().substring(0, 10);
+        const count = interviewStats?.activityByDay?.[iso] || 0;
+        const isFuture = cur.getTime() > now.getTime();
+        const isToday = cur.getTime() === now.getTime();
+        days.push({ date: cur, iso, count, isFuture, isToday });
+      }
+      weeks.push(days);
+    }
+    return weeks;
+  }, [interviewStats]);
 
   const uploadResume = async (file: File) => {
     setUploading(true); 
@@ -602,6 +635,131 @@ export default function CandidateWorkspace({ profileName }: { profileName: strin
             </Link>
           </div>
         )}
+      </section>
+
+      {/* Practice Rhythm & Behavioral Training Room (nxtjob.ai parity) */}
+      <section className="bg-[#001f2e] border border-[#063750] rounded-2xl p-6 sm:p-7 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-[#002a40]">
+          <div>
+            <div className="flex items-center gap-2 text-white font-bold text-lg">
+              <Brain className="w-5 h-5 text-[#FF4103]" />
+              <span>Practice Rhythm & Behavioral Simulation Cadence</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Consistent practice reps across AI voice simulation and human HR rooms build interview fluency and proven readiness.
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <Link
+              to="/interviews"
+              className="px-3.5 py-2 rounded-xl bg-[#FF4103] hover:bg-[#e03200] text-white text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-[#FF4103]/20"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>Enter Training Room</span>
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Sessions</span>
+            <div className="text-2xl font-black text-white mt-1 tabular-nums">
+              {interviewStats?.total || 0}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              {interviewStats?.completedCount || 0} completed reps
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reps This Week</span>
+            <div className="text-2xl font-black text-white mt-1 tabular-nums">
+              {interviewStats?.thisWeekCount || 0}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              weekly behavioral reps
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Average Score</span>
+            <div className="text-2xl font-black text-white mt-1 tabular-nums">
+              {interviewStats?.overallAvg ? `${interviewStats.overallAvg.toFixed(1)}/10` : '—'}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              {interviewStats?.delta !== null && interviewStats?.delta !== undefined ? (
+                <span className={interviewStats.delta >= 0 ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                  {interviewStats.delta >= 0 ? `+${interviewStats.delta}` : interviewStats.delta} vs prior
+                </span>
+              ) : (
+                'across completed rounds'
+              )}
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#001824] border border-[#002f47]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Trailing Signal</span>
+            <div className="text-sm font-bold text-white mt-2 truncate">
+              {interviewStats?.weakestCriterion?.label || 'STAR Structure'}
+            </div>
+            <div className="text-[11px] text-amber-400 mt-1">
+              {interviewStats?.weakestCriterion ? `${interviewStats.weakestCriterion.avg}/10 focus area` : 'needs 2+ answers'}
+            </div>
+          </div>
+        </div>
+
+        {/* 12-Week Practice Heatmap */}
+        <div className="mt-4 p-4 rounded-xl bg-[#001824] border border-[#002f47] space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-300">12-Week Repetition Cadence</span>
+            <span className="text-slate-500 text-[11px]">Daily Consistency</span>
+          </div>
+
+          <div className="overflow-x-auto pb-1">
+            <div className="flex gap-1.5 min-w-[360px]">
+              <div className="flex flex-col justify-between text-[9px] text-slate-500 pr-1 select-none font-mono">
+                <span>M</span>
+                <span>W</span>
+                <span>F</span>
+              </div>
+              {practiceWeeks.map((week, wIdx) => (
+                <div key={wIdx} className="flex flex-col gap-1">
+                  {week.map((day, dIdx) => {
+                    const bgClass = day.isFuture
+                      ? 'bg-transparent border border-dashed border-slate-800'
+                      : day.count === 0
+                      ? 'bg-slate-800/40 border border-slate-800'
+                      : day.count === 1
+                      ? 'bg-[#0284c7]/40 border border-[#0284c7]/60'
+                      : day.count === 2
+                      ? 'bg-[#FF4103]/60 border border-[#FF4103]/80'
+                      : 'bg-[#FF4103] border border-[#ff7847]';
+
+                    return (
+                      <div
+                        key={dIdx}
+                        title={`${day.iso}: ${day.count} session${day.count === 1 ? '' : 's'}`}
+                        className={`w-3 h-3 rounded-sm ${bgClass} ${day.isToday ? 'ring-1 ring-[#FF4103]' : ''}`}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-[#002a40]">
+            <span>Practice consistency tracker</span>
+            <div className="flex items-center gap-1.5">
+              <span>less</span>
+              <span className="w-2.5 h-2.5 rounded-sm bg-slate-800/40 border border-slate-800" />
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#0284c7]/40" />
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#FF4103]/60" />
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#FF4103]" />
+              <span>more</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* Recommended Next Actions Grid */}

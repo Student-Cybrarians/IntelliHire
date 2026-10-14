@@ -227,4 +227,135 @@ describe('M02 Assessment Initialization, Idempotency & Lifecycle Reliability', (
     expect(gapData.success).toBe(true);
     expect(Array.isArray(gapData.gaps)).toBe(true);
   });
+
+  it('DEF-M2-01: GET /api/m2/attempts/:id/next strips correct_answer, rationale, and expected_answer_json from client payload', async () => {
+    const env = createMockEnv({
+      first: (query: string) => {
+        if (query.includes('FROM assessment_attempt')) {
+          return {
+            id: 'attempt-sec-1',
+            user_id: 'candidate-1',
+            status: 'in_progress',
+            adaptive_state_json: '{"usedItems":[],"itemCount":0}'
+          };
+        }
+        if (query.includes('FROM assessment_item_v2')) {
+          return {
+            id: 'item-sec-1',
+            skill_id: 'skill-ts',
+            skill_name: 'TypeScript & Architecture',
+            competency_name: 'Software Engineering',
+            item_type: 'multiple_choice',
+            content_json: JSON.stringify({
+              question: 'Which HTTP status code indicates rate limiting?',
+              options: ['400', '429', '500', '503'],
+              correct_answer: '429',
+              rationale: 'RFC 6585 defines 429 Too Many Requests.',
+              _provenance: { model: 'test' }
+            }),
+            expected_answer_json: JSON.stringify({ correct_option: '429' }),
+            difficulty_level: 3
+          };
+        }
+        return null;
+      }
+    });
+
+    const req = new Request('http://localhost/api/m2/attempts/attempt-sec-1/next', {
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+
+    const res = await app.request(req, {}, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json() as any;
+    expect(data.success).toBe(true);
+    const parsedContent = typeof data.item.content_json === 'string'
+      ? JSON.parse(data.item.content_json)
+      : data.item.content_json;
+    expect(parsedContent.question).toBe('Which HTTP status code indicates rate limiting?');
+    expect(parsedContent.options).toEqual(['400', '429', '500', '503']);
+    expect(parsedContent.correct_answer).toBeUndefined();
+    expect(parsedContent.rationale).toBeUndefined();
+    expect(parsedContent._provenance).toBeUndefined();
+    expect(data.item.expected_answer_json).toBeUndefined();
+    expect(data.selection_reason).toBeDefined();
+    expect(data.item_number).toBe(1);
+  });
+
+  it('DEF-M2-06: POST /api/m2/attempts/:id/respond enforces candidate ownership (403) and rejects empty responses (400)', async () => {
+    const env = createMockEnv({
+      first: (query: string) => {
+        if (query.includes('user_account')) {
+          return { id: 'candidate-1', organization_id: 'org_default_public' };
+        }
+        if (query.includes('FROM assessment_attempt')) {
+          return {
+            id: 'attempt-other-user',
+            user_id: 'candidate-other',
+            organization_id: 'org_default_public',
+            status: 'in_progress'
+          };
+        }
+        return null;
+      }
+    });
+
+    const forbiddenReq = new Request('http://localhost/api/m2/attempts/attempt-other-user/respond', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: 'item-1', response_data: { selected_option: 'A' } })
+    });
+    const forbiddenRes = await app.request(forbiddenReq, {}, env as any);
+    expect(forbiddenRes.status).toBe(403);
+
+    // Now test empty response rejection for owned attempt
+    const ownedEnv = createMockEnv({
+      first: (query: string) => {
+        if (query.includes('user_account')) {
+          return { id: 'candidate-1', organization_id: 'org_default_public' };
+        }
+        if (query.includes('FROM assessment_attempt')) {
+          return {
+            id: 'attempt-owned',
+            user_id: 'candidate-1',
+            organization_id: 'org_default_public',
+            status: 'in_progress'
+          };
+        }
+        return null;
+      }
+    });
+
+    const emptyReq = new Request('http://localhost/api/m2/attempts/attempt-owned/respond', {
+      method: 'POST',
+      headers: { 'Cookie': 'intellihire_session=candidate-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: 'item-1', response_data: {} })
+    });
+    const emptyRes = await app.request(emptyReq, {}, ownedEnv as any);
+    expect(emptyRes.status).toBe(400);
+  });
+
+  it('DEF-M2-05: GET /api/m2/role-mapping/:role and GET /api/m2/evidence-package return enriched contracts', async () => {
+    const env = createMockEnv();
+
+    const roleReq = new Request('http://localhost/api/m2/role-mapping/Software%20Engineer', {
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+    const roleRes = await app.request(roleReq, {}, env as any);
+    expect(roleRes.status).toBe(200);
+    const roleData = await roleRes.json() as any;
+    expect(roleData.success).toBe(true);
+    expect(roleData.role).toBe('Software Engineer');
+    expect(Array.isArray(roleData.competencies)).toBe(true);
+
+    const pkgReq = new Request('http://localhost/api/m2/evidence-package', {
+      headers: { 'Cookie': 'intellihire_session=candidate-token' }
+    });
+    const pkgRes = await app.request(pkgReq, {}, env as any);
+    expect(pkgRes.status).toBe(200);
+    const pkgData = await pkgRes.json() as any;
+    expect(pkgData.success).toBe(true);
+    expect(pkgData.evidence_package.provenance).toBeDefined();
+    expect(Array.isArray(pkgData.evidence_package.limitations)).toBe(true);
+  });
 });
