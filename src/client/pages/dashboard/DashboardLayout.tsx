@@ -1,51 +1,129 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { 
   Flame, CheckCircle, FileText, Target, Users, Briefcase, 
   Settings, LogOut, ShieldCheck, UserCheck, Layers, Brain, 
-  BarChart3, GraduationCap, Home, Laptop
+  BarChart3, GraduationCap, Home, Laptop, Menu, X, ChevronRight, Activity
 } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
-export default function DashboardLayout({ children, role, userFullName }: { children: ReactNode, role: string, userFullName: string }) {
+export default function DashboardLayout({ 
+  children, 
+  role = 'candidate', 
+  userFullName = 'User' 
+}: { 
+  children: ReactNode, 
+  role?: string, 
+  userFullName?: string 
+}) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     navigate('/');
   };
 
+  const safeRole = role || 'candidate';
+  const safeName = userFullName || 'User';
   const getInitials = (name: string) => (name || 'U').split(' ').map(n => n[0]).join('').substring(0, 2);
   const isActive = (path: string) => location.pathname === path;
 
-  const isCandidate = role === 'candidate';
+  const isCandidate = safeRole === 'candidate';
   const homePath = isCandidate ? '/dashboard' : '/';
+
+  const getRouteMeta = (path: string) => {
+    if (path === '/' || path === '/dashboard') return { title: 'Candidate Workspace', module: 'Dashboard · Learning Progress' };
+    if (path.startsWith('/resume') || path.startsWith('/module-1')) return { title: 'Candidate Workspace', module: 'Module 1 · Resume Intelligence' };
+    if (path.startsWith('/assess') || path.startsWith('/module-2')) return { title: 'Candidate Workspace', module: 'Module 2 · Aptitude / Assessment Preparation' };
+    if (path.startsWith('/prep') || path.startsWith('/interview-prep')) return { title: 'Candidate Workspace', module: 'Module 2 · Interview Prep & Drills' };
+    if (path.startsWith('/simulation') || path.startsWith('/sandbox') || path.startsWith('/module-3')) return { title: 'Candidate Workspace', module: 'Module 3 · Technical Round' };
+    if (path.startsWith('/interviews') || path.startsWith('/module-4') || path.startsWith('/hr-round')) return { title: 'Candidate Workspace', module: 'Module 4 · HR Round' };
+    if (path.startsWith('/results') || path.startsWith('/readiness') || path.startsWith('/module-5') || path.startsWith('/analytics')) return { title: 'Candidate Workspace', module: 'Module 5 · Results' };
+    if (path.startsWith('/candidate')) return { title: 'Candidate Workspace', module: 'Candidate Profile & Evidence Portfolio' };
+    if (path.startsWith('/settings')) return { title: 'Account Settings', module: 'Configuration & Quotas' };
+    return { title: 'IntelliHire', module: 'Workspace' };
+  };
+
+  const routeMeta = getRouteMeta(location.pathname);
 
   return (
     <div className="min-h-screen bg-[#001621] text-slate-100 flex flex-col md:flex-row selection:bg-[#FF4103] selection:text-white">
       
+      {/* Mobile Top Header (Screens < md) */}
+      <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#001824] border-b border-[#063750] sticky top-0 z-30">
+        <Link to={homePath} className="flex items-center gap-2" aria-label="IntelliHire Mobile Brand">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#FF4103] to-[#b82500] flex items-center justify-center shadow-md shadow-[#FF4103]/25">
+            <Flame className="w-4 h-4 text-white" />
+          </div>
+          <span className="font-bold text-base text-white tracking-tight">IntelliHire</span>
+        </Link>
+        <div className="flex items-center gap-2">
+          <Link 
+            to={isCandidate ? "/candidate" : "/settings"} 
+            className="w-8 h-8 rounded-lg bg-[#002538] border border-[#063750] flex items-center justify-center text-xs font-bold text-white"
+            title="Profile"
+          >
+            {getInitials(safeName)}
+          </Link>
+          <button
+            onClick={() => setIsMobileOpen(!isMobileOpen)}
+            className="p-2 text-slate-300 hover:text-white hover:bg-[#002538] rounded-lg transition-colors focus:outline-none focus:ring-1 focus:ring-[#FF4103]"
+            aria-label="Toggle navigation menu"
+          >
+            {isMobileOpen ? <X className="w-5 h-5 text-[#FF4103]" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Backdrop */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setIsMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Sidebar Navigation */}
-      <aside className="w-full md:w-64 bg-[#001824] border-r border-[#063750] p-6 flex flex-col shrink-0">
+      <aside className={`
+        ${isMobileOpen 
+          ? 'fixed inset-y-0 left-0 w-72 z-50 flex flex-col bg-[#001824] p-6 border-r border-[#063750] shadow-2xl overflow-y-auto animate-in slide-in-from-left duration-200' 
+          : 'hidden md:flex md:w-64 md:shrink-0 md:min-h-screen bg-[#001824] border-r border-[#063750] p-6 flex-col'
+        }
+      `}>
         
         {/* Brand Header */}
-        <Link 
-          to={homePath} 
-          className="flex items-center gap-2.5 mb-8 group focus:outline-none focus:ring-2 focus:ring-[#FF4103] rounded-xl p-1"
-          title="IntelliHire"
-          aria-label="IntelliHire Brand"
-        >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FF4103] to-[#b82500] flex items-center justify-center shadow-lg shadow-[#FF4103]/25 group-hover:scale-105 transition-transform">
-            <Flame className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <span className="text-lg font-black tracking-tight text-white group-hover:text-[#FF4103] transition-colors">
-              IntelliHire
-            </span>
-            <div className="text-[10px] text-[#FF4103] font-bold uppercase tracking-wider">
-              {role.replace('_', ' ')}
+        <div className="flex items-center justify-between mb-8">
+          <Link 
+            to={homePath} 
+            onClick={() => setIsMobileOpen(false)}
+            className="flex items-center gap-2.5 group focus:outline-none focus:ring-2 focus:ring-[#FF4103] rounded-xl p-1"
+            title="IntelliHire"
+            aria-label="IntelliHire Brand"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FF4103] to-[#b82500] flex items-center justify-center shadow-lg shadow-[#FF4103]/25 group-hover:scale-105 transition-transform">
+              <Flame className="w-5 h-5 text-white" />
             </div>
-          </div>
-        </Link>
+            <div>
+              <span className="text-lg font-black tracking-tight text-white group-hover:text-[#FF4103] transition-colors">
+                IntelliHire
+              </span>
+              <div className="text-[10px] text-[#FF4103] font-bold uppercase tracking-wider">
+                {safeRole.replace('_', ' ')}
+              </div>
+            </div>
+          </Link>
+          {isMobileOpen && (
+            <button
+              onClick={() => setIsMobileOpen(false)}
+              className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-[#002538]"
+              aria-label="Close menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
 
         {/* Navigation Sections */}
         <nav className="flex-grow space-y-1.5" aria-label="Dashboard Navigation">
@@ -288,11 +366,11 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
               aria-label={isCandidate ? "Candidate Profile" : "Account Settings"}
             >
               <div className="w-10 h-10 rounded-xl bg-[#002538] border border-[#063750] group-hover:border-[#FF4103]/50 flex items-center justify-center text-white font-bold text-sm shrink-0 transition-colors">
-                {getInitials(userFullName || 'U')}
+                {getInitials(safeName)}
               </div>
               <div className="overflow-hidden">
-                <p className="text-sm font-bold text-white truncate group-hover:text-[#FF4103] transition-colors">{userFullName || 'User'}</p>
-                <p className="text-xs text-[#FF4103] capitalize truncate">{role.replace('_', ' ')}</p>
+                <p className="text-sm font-bold text-white truncate group-hover:text-[#FF4103] transition-colors">{safeName}</p>
+                <p className="text-xs text-[#FF4103] capitalize truncate">{safeRole.replace('_', ' ')}</p>
               </div>
             </Link>
             <button 
@@ -314,7 +392,7 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
                 Profile
               </Link>
               <button 
-                onClick={handleLogout}
+                onClick={handleLogout} 
                 className="text-slate-400 hover:text-rose-400 transition-colors font-semibold"
               >
                 Sign Out
@@ -326,7 +404,26 @@ export default function DashboardLayout({ children, role, userFullName }: { chil
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-grow p-6 sm:p-10 max-w-7xl mx-auto w-full overflow-y-auto">
+      <main className="flex-grow p-4 sm:p-8 md:p-10 max-w-7xl mx-auto w-full overflow-y-auto">
+        {/* Context Breadcrumb & Status Header */}
+        <header className="mb-6 pb-4 border-b border-[#063750]/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span className="font-semibold text-slate-300">{routeMeta.title}</span>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-[#FF4103] font-bold">{routeMeta.module}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#002538] border border-[#063750] text-[11px] text-slate-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-medium text-slate-300">Live Session Active</span>
+            </div>
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/60 border border-[#063750] text-[11px] text-slate-400">
+              <Activity className="w-3 h-3 text-[#FF4103]" />
+              <span>D1 Isolated Engine</span>
+            </div>
+          </div>
+        </header>
+
         {children}
       </main>
     </div>
