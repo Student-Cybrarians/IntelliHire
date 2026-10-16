@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowRight, ArrowLeft, CheckCircle2, Loader2, Sparkles, 
-  FileText, Target, Laptop, Brain, BarChart3, Check
+  FileText, Target, Laptop, Brain, BarChart3, Check, Home
 } from 'lucide-react';
 
 export type CandidateModuleKey = 'M01' | 'M02' | 'M03' | 'M04' | 'M05';
@@ -151,7 +151,19 @@ export default function ModuleNavigationFooter({
         </div>
 
         {/* Right / Action Controls */}
-        <div className="flex items-center justify-end gap-3 w-full md:w-auto">
+        <div className="flex items-center justify-end gap-2.5 w-full md:w-auto">
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            disabled={navigating}
+            className="px-3 py-2.5 rounded-xl bg-[#001f2e] hover:bg-[#002b40] border border-[#063750] text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all focus:outline-none focus:ring-2 focus:ring-[#063750]"
+            title="Return to Dashboard Workspace"
+            aria-label="Home Dashboard"
+          >
+            <Home className="w-3.5 h-3.5 text-[#FF4103]" />
+            <span className="hidden sm:inline">Home</span>
+          </button>
+
           {prevStep && (
             <button
               type="button"

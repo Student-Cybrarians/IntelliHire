@@ -61,6 +61,15 @@ export default function DashboardLayout({
         </Link>
         <div className="flex items-center gap-2">
           <Link 
+            to={homePath}
+            className="p-1.5 text-slate-300 hover:text-white hover:bg-[#002538] rounded-lg transition-colors border border-[#063750] flex items-center gap-1 text-xs"
+            title="Home"
+            aria-label="Home"
+          >
+            <Home className="w-4 h-4 text-[#FF4103]" />
+            <span className="font-medium">Home</span>
+          </Link>
+          <Link 
             to={isCandidate ? "/candidate" : "/settings"} 
             className="w-8 h-8 rounded-lg bg-[#002538] border border-[#063750] flex items-center justify-center text-xs font-bold text-white"
             title="Profile"
@@ -422,12 +431,29 @@ export default function DashboardLayout({
       <main className="flex-grow p-4 sm:p-8 md:p-10 max-w-7xl mx-auto w-full overflow-y-auto">
         {/* Context Breadcrumb & Status Header */}
         <header className="mb-6 pb-4 border-b border-[#063750]/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-slate-400">
+          <div className="flex items-center gap-2.5 text-xs text-slate-400">
+            <Link 
+              to={homePath}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#001f2e] border border-[#063750] text-slate-300 hover:text-white hover:border-[#FF4103]/60 transition-colors font-semibold"
+              title="Return to Home Dashboard"
+            >
+              <Home className="w-3.5 h-3.5 text-[#FF4103]" />
+              <span>Home</span>
+            </Link>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
             <span className="font-semibold text-slate-300">{routeMeta.title}</span>
             <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
             <span className="text-[#FF4103] font-bold">{routeMeta.module}</span>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              to={homePath}
+              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#001f2e] border border-[#063750] hover:border-[#FF4103]/60 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+              title="Return to Dashboard Workspace"
+            >
+              <Home className="w-3.5 h-3.5 text-[#FF4103]" />
+              <span>Workspace Home</span>
+            </Link>
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#002538] border border-[#063750] text-[11px] text-slate-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="font-medium text-slate-300">Live Session Active</span>
