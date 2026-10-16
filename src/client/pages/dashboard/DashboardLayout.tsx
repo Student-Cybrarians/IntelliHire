@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { 
   Flame, CheckCircle, FileText, Target, Users, Briefcase, 
   Settings, LogOut, ShieldCheck, UserCheck, Layers, Brain, 
-  BarChart3, GraduationCap, Home, Laptop, Menu, X, ChevronRight, Activity
+  BarChart3, GraduationCap, Home, Laptop, Menu, X, ChevronRight, Activity, Database
 } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
@@ -40,6 +40,7 @@ export default function DashboardLayout({
     if (path.startsWith('/simulation') || path.startsWith('/sandbox') || path.startsWith('/module-3')) return { title: 'Candidate Workspace', module: 'Module 3 · Technical Round' };
     if (path.startsWith('/interviews') || path.startsWith('/module-4') || path.startsWith('/hr-round')) return { title: 'Candidate Workspace', module: 'Module 4 · HR Round' };
     if (path.startsWith('/results') || path.startsWith('/readiness') || path.startsWith('/module-5') || path.startsWith('/analytics')) return { title: 'Candidate Workspace', module: 'Module 5 · Results' };
+    if (path.startsWith('/datasets') || path.startsWith('/resources')) return { title: 'Candidate Workspace', module: 'Dataset & Resources Registry' };
     if (path.startsWith('/candidate')) return { title: 'Candidate Workspace', module: 'Candidate Profile & Evidence Portfolio' };
     if (path.startsWith('/settings')) return { title: 'Account Settings', module: 'Configuration & Quotas' };
     return { title: 'IntelliHire', module: 'Workspace' };
@@ -229,6 +230,20 @@ export default function DashboardLayout({
               >
                 <ShieldCheck className={`w-4 h-4 shrink-0 ${isActive('/results') || isActive('/readiness') || isActive('/module-5') || isActive('/analytics') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
                 <span className="truncate">Module 5 · Results</span>
+              </Link>
+
+              {/* 8. Dataset & Learning Resources */}
+              <Link 
+                to="/datasets" 
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                  isActive('/datasets') || isActive('/resources')
+                    ? 'bg-[#FF4103]/15 border border-[#FF4103]/40 text-white shadow-sm'
+                    : 'text-slate-300 hover:text-white hover:bg-[#002538]'
+                }`}
+                title="Dataset & Learning Resources"
+              >
+                <Database className={`w-4 h-4 shrink-0 ${isActive('/datasets') || isActive('/resources') ? 'text-[#FF4103]' : 'text-slate-400'}`} />
+                <span className="truncate">Datasets & Governance</span>
               </Link>
             </>
           )}

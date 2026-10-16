@@ -18,6 +18,7 @@ import FeaturePlaceholder from './pages/FeaturePlaceholder';
 import InterviewPrep from './pages/InterviewPrep';
 import Module3Simulation from './pages/Module3Simulation';
 import TrainingCurriculum from './pages/TrainingCurriculum';
+import DatasetRegistryView from './pages/DatasetRegistryView';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function Module3RouteDispatcher() {
@@ -105,6 +106,10 @@ export default function App() {
       <Route path="/learning" element={<ProtectedRoute><TrainingCurriculum /></ProtectedRoute>} />
       <Route path="/training" element={<ProtectedRoute><TrainingCurriculum /></ProtectedRoute>} />
       <Route path="/curriculum" element={<ProtectedRoute><TrainingCurriculum /></ProtectedRoute>} />
+
+      {/* Audited Dataset & Learning Resources Registry */}
+      <Route path="/datasets" element={<ProtectedRoute><DatasetRegistryView /></ProtectedRoute>} />
+      <Route path="/resources" element={<ProtectedRoute><DatasetRegistryView /></ProtectedRoute>} />
 
       {/* Admin Control Center */}
       <Route path="/admin" element={<ProtectedRoute allowedRoles={['org_admin']}><AdminWorkspace /></ProtectedRoute>} />

@@ -28,6 +28,11 @@ export default function Resume() {
   const [jdId, setJdId] = useState<string | null>(null);
   const [isEditingJd, setIsEditingJd] = useState(false);
 
+  // Audited Dataset & Benchmark Ingestion State
+  const [sampleJds, setSampleJds] = useState<Array<{ id: string; role_title: string; soc_code: string; domain: string; experience_level: string; jd_text: string }>>([]);
+  const [sampleResumes, setSampleResumes] = useState<Array<{ id: string; role_title: string; target_role: string; candidate_name: string; filename: string; skills: string[]; raw_text: string }>>([]);
+  const [loadingBenchmark, setLoadingBenchmark] = useState(false);
+
   // Match & ATS Analysis State
   const [matchRunning, setMatchRunning] = useState(false);
   const [matchData, setMatchData] = useState<any>(null);
@@ -123,7 +128,23 @@ export default function Resume() {
           }
         }
 
-        // 3. Check candidate-scoped client draft for in-progress textarea text
+        // 3. Fetch Audited Learning Datasets & Benchmark Samples
+        try {
+          const [jdsRes, resumesRes] = await Promise.all([
+            fetch('/api/datasets/sample-jds'),
+            fetch('/api/datasets/sample-resumes')
+          ]);
+          if (jdsRes.ok) {
+            const jdsJson = await jdsRes.json() as any;
+            if (isMounted && Array.isArray(jdsJson.data)) setSampleJds(jdsJson.data);
+          }
+          if (resumesRes.ok) {
+            const resumesJson = await resumesRes.json() as any;
+            if (isMounted && Array.isArray(resumesJson.data)) setSampleResumes(resumesJson.data);
+          }
+        } catch (_) {}
+
+        // 4. Check candidate-scoped client draft for in-progress textarea text
         try {
           const draftRaw = sessionStorage.getItem(getDraftKey(user.id));
           if (draftRaw && isMounted) {
@@ -376,6 +397,34 @@ export default function Resume() {
     } finally {
       setUploading(false);
       setExtracting(false);
+    }
+  };
+
+  const handleLoadBenchmarkResume = async (benchmarkId: string) => {
+    if (!benchmarkId) return;
+    setLoadingBenchmark(true);
+    setError(null);
+    setStatusMessage(null);
+
+    try {
+      const res = await fetch('/api/datasets/load-benchmark-resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ benchmark_id: benchmarkId })
+      });
+      const data = await res.json() as any;
+      if (!res.ok) throw new Error(data.error || 'Failed to load benchmark resume');
+
+      setResumeId(data.resume_id);
+      setResumeVersion(data.version || 1);
+      setResumeFilename(data.filename);
+      setResumeData(data.data);
+      if (matchData) setMatchStale(true);
+      setStatusMessage(`Audited CC0 benchmark resume (${data.filename}) loaded into active candidate context.`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load benchmark resume');
+    } finally {
+      setLoadingBenchmark(false);
     }
   };
 
@@ -842,6 +891,47 @@ export default function Resume() {
                 >
                   {uploading ? 'Uploading & Hashing...' : 'Extract Evidence'}
                 </button>
+
+                {/* CC0 Curated Benchmark Candidate Resumes Selector */}
+                {sampleResumes.length > 0 && (
+                  <div className="pt-3 border-t border-[#063750] space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-[#FF4103]" />
+                        <span>Or Load Audited Benchmark Resume:</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-400 font-semibold px-1.5 py-0.5 bg-emerald-950/40 rounded border border-emerald-900/40">
+                        CC0 1.0 (Zero PII)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {sampleResumes.map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          disabled={loadingBenchmark}
+                          onClick={() => handleLoadBenchmarkResume(b.id)}
+                          className="text-left p-2.5 rounded-lg bg-[#001621] border border-[#063750] hover:border-[#FF4103] transition-colors group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-200 group-hover:text-white truncate">
+                              {b.candidate_name}
+                            </span>
+                            <span className="text-[10px] text-[#FF4103] font-bold shrink-0 ml-1">
+                              {b.skills?.length || 0} skills
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">{b.target_role}</p>
+                        </button>
+                      ))}
+                    </div>
+                    {loadingBenchmark && (
+                      <p className="text-xs text-[#FF4103] flex items-center gap-1.5 mt-1 animate-pulse">
+                        <RotateCcw className="w-3 h-3 animate-spin" /> Loading benchmark candidate profile...
+                      </p>
+                    )}
+                  </div>
+                )}
               </form>
             ) : extracting ? (
               <div className="flex-1 flex flex-col items-center justify-center text-[#FF4103] space-y-4 py-12">
@@ -1186,11 +1276,44 @@ export default function Resume() {
 
             {(!jdData || isEditingJd) && !jdAnalyzing ? (
               <form onSubmit={handleJDAnalyze} className="space-y-4 flex-1 flex flex-col">
+                {/* O*NET Standard Role Library Selector */}
+                {sampleJds.length > 0 && (
+                  <div className="p-3 bg-[#001621] border border-[#063750] rounded-lg space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400 font-semibold flex items-center gap-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-[#FF4103]" />
+                        <span>Load Standard Role (USDOL O*NET):</span>
+                      </span>
+                      <span className="text-[10px] text-sky-400 font-semibold px-1.5 py-0.5 bg-sky-950/40 rounded border border-sky-900/40">
+                        CC-BY 4.0
+                      </span>
+                    </div>
+                    <select
+                      className="w-full bg-[#001824] border border-[#002f47] rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-[#FF4103]"
+                      defaultValue=""
+                      onChange={(e) => {
+                        const selected = sampleJds.find(j => j.id === e.target.value);
+                        if (selected) {
+                          setJdText(selected.jd_text);
+                          setStatusMessage(`Loaded O*NET standard job specification for ${selected.role_title} (SOC ${selected.soc_code}).`);
+                        }
+                      }}
+                    >
+                      <option value="" disabled>-- Select a standard role profile --</option>
+                      {sampleJds.map(j => (
+                        <option key={j.id} value={j.id}>
+                          {j.role_title} ({j.experience_level}) — SOC {j.soc_code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <textarea 
                   value={jdText}
                   onChange={(e) => setJdText(e.target.value)}
-                  placeholder="Paste Job Description here to extract target competencies..."
-                  className="flex-1 w-full p-4 bg-[#001621] border border-[#002f47] rounded-lg text-slate-300 focus:outline-none focus:border-[#FF4103] resize-none min-h-[200px]"
+                  placeholder="Paste Job Description here or select an O*NET standard role above..."
+                  className="flex-1 w-full p-4 bg-[#001621] border border-[#002f47] rounded-lg text-slate-300 focus:outline-none focus:border-[#FF4103] resize-none min-h-[180px]"
                 />
                 <div className="flex gap-2">
                   {isEditingJd && (

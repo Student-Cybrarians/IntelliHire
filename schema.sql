@@ -802,3 +802,44 @@ CREATE INDEX IF NOT EXISTS idx_hi_room_inv ON human_interview_room(invitation_id
 CREATE INDEX IF NOT EXISTS idx_hi_sig_room ON human_interview_signal(room_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_hi_eval_room ON human_interview_evaluation(room_id);
 
+-- Dataset Registry and Curated Learning Resources Bank
+CREATE TABLE IF NOT EXISTS dataset_source (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  official_source_url TEXT NOT NULL,
+  version TEXT NOT NULL,
+  license TEXT NOT NULL,
+  provenance_type TEXT NOT NULL,
+  compliance_status TEXT NOT NULL,
+  intended_module TEXT NOT NULL,
+  historical_claimed_count TEXT NOT NULL,
+  verified_record_count INTEGER NOT NULL,
+  redistribution_terms TEXT NOT NULL,
+  privacy_implications TEXT NOT NULL,
+  compliance_notes TEXT NOT NULL,
+  retrieved_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS learning_resource (
+  id TEXT PRIMARY KEY,
+  source_id TEXT REFERENCES dataset_source(id),
+  module TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  topic TEXT NOT NULL,
+  difficulty_level INTEGER DEFAULT 3,
+  occupation_code TEXT,
+  target_role TEXT,
+  content_json TEXT NOT NULL,
+  rubric_or_solution_json TEXT,
+  provenance_notes TEXT NOT NULL,
+  is_verified INTEGER DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_res_module ON learning_resource(module, resource_type);
+CREATE INDEX IF NOT EXISTS idx_learning_res_domain ON learning_resource(domain, topic);
+CREATE INDEX IF NOT EXISTS idx_dataset_src_status ON dataset_source(compliance_status);
+

@@ -4542,6 +4542,10 @@ registerReadinessEvidenceRoutes(app);
 import { registerTrainingEngineRoutes } from './trainingEngine';
 registerTrainingEngineRoutes(app);
 
+// Priority 20: Dataset Registry & Curated Learning Resource Pipeline
+import { registerDatasetRoutes } from './datasetRoutes';
+registerDatasetRoutes(app);
+
 // Priority 19: NVIDIA Model Registry & AI Safety Guardrails
 import { NVIDIA_MODEL_CATALOG, checkSafetyGuardrail, invokeNvidiaChat } from './nvidiaModelRegistry';
 
