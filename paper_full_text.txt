@@ -1,0 +1,534 @@
+IntelliHire: An Intelligent Recruitment Training
+Platform
+Mokshith Y Nanda
+Department of Computer Science and
+Engineering (AI & ML)
+Global Academy of Technology
+Bengaluru, India
+0009-0008-0202-7326
+Suhas N
+Department of Computer Science and
+Engineering (AI & ML)
+Global Academy of Technology
+Bengaluru, India
+0009-0005-2430-6607
+Ashwini
+Department of Computer Science and
+Engineering (AI & ML)
+Global Academy of Technology
+Bengaluru, India
+0009-0006-0850-7326
+Dr. Shardadevi K
+Associate Professor
+Department of Computer Science and
+Engineering (AI & ML)
+Global Academy of Technology
+Bengaluru, India
+shardadevi@gat.ac.in
+Abstract—Automated filters in recruiting pipelines include
+ATS screening, adaptive testing, technical coding interviews, HR
+interviews, and non-verbal interviews. No solution has integrated
+several recruiting stage solutions. We propose IntelliHire, an
+AI recruiting preparation platform with 5 modules. 1. An ATS
+Resume Analyser that screens ATS-based Resumes using TF-IDF
+vectorization and cosine similarity based on a weighted scoring
+framework of 6 dimensions. 2. An Adaptive Aptitude Testing
+engine based on the Three-Parameter Logistic model of Item
+Response Theory and the Newton-Raphson approach of ability
+estimation. 3. A Technical Coding Interview simulator that offers
+a coding sandbox integrated with Azure Speech-to-Text and a
+voice explanation analysis. 4. An HR Interview simulator that
+utilizes Azure OpenAI GPT-4o to answer star-based interview
+questions, and a sentiment analysis using the VADER toolkit. 5.
+An inbrowser Computer Vision Behavioral Analysis module based
+on Media-Pipe, Deep-Face, and YOLO. The modules aggregate
+to generate a Candidate Readiness Index, which is a 360-degree
+dashboard. Studies show that adaptive testing achieves the same
+estimation with 30-45 items as a 100-item fixed test. Pilot studies
+indicate that ATS scores improve after Resumes are analyzed and
+edited 3 times. IntelliHire offers high-quality recruiting coaching
+to students of resource-constrained universities.
+Index Terms—Applicant-Tracking-System, Item Response
+Theory, Adaptive Testing, Computer-Vision, Interview-
+Simulation, VADER Sentiment Analysis, Media-Pipe, Deep-Face,
+YOLOv 8, CandidateReadinessIndex
+I. INTRODUCTION
+The majority of large technology companies now route
+all incoming resumes through Applicant Tracking Systems
+(ATS) before any human recruiter reviews a candidate’s profile.
+Industry analyses suggest that up to 75% of r´esum´es are
+rejected by ATS engines due to formatting anomalies, keyword
+mismatches, or structural non-compliance, regardless of the
+applicant’s actual competence [1]. Candidates who survive this
+initial filter then face adaptive aptitude assessments calibrated
+to their estimated ability in real time — a format for which
+preparation on static question banks provides a structural
+disadvantage. Subsequent technical rounds demand verbal
+articulation of algorithmic reasoning, while HR rounds evaluate
+communication, cultural fit, and structured narrative construc-
+tion (the STAR framework). Finally, non-verbal behavioural
+cues — eye contact, posture, emotional expressiveness — are
+implicitly evaluated and empirically correlated with interview
+outcomes [2].
+Despite these compounding demands, no currently available
+preparation platform addresses all stages within a unified inter-
+face. Students preparing for placement must cobble together
+experiences from disconnected tools — a r´esum´e scanner,
+a coding platform, a mock interview app, a communication
+trainer — with no mechanism for cross-module learning or
+aggregated readiness assessment. Existing platforms such as
+LeetCode, HackerRank, and InterviewBit focus on coding;
+Google Interview Warmup offers lightweight speech transcrip-
+tion; and HireVue applies behavioural analysis at the point of
+recruiter evaluation, not for candidate-facing preparation. None
+integrates ATS analysis with adaptive psychometric testing,
+multi-modal interview simulation, and behavioural monitoring
+into a single authenticated session.
+This paper presents IntelliHire, which fills this gap by
+proposing a unified, end-to-end AI-driven placement prepara-
+tion ecosystem. The platform’s key contributions are:
+• A six-component weighted ATS scoring model integrating
+TF-IDF, cosine similarity, and LLM-generated improve-
+ment suggestions.
+• The first application of 3PL-IRT with Newton–Raphson
+θ-estimation in a placement aptitude preparation context.
+• A hybrid technical evaluation pipeline combining sand-
+boxed code execution with speech-to-text voice explana-
+=== PAGE BREAK ===
+tion scoring.
+• A browser-native, privacy-preserving behavioural analysis
+pipeline using MediaPipe FaceMesh, DeepFace, and
+YOLOv8 — executed entirely client-side.
+• A weighted composite Candidate Readiness Index (CRI)
+mapping multi-modal signals onto a single interpretable
+readiness score.
+The remainder of this paper is organised as follows. Sec-
+tion II surveys related work. Section III describes the system
+architecture. Section IV details the algorithmic methodology.
+Section V outlines the implementation. Section VI presents
+results and discussion. Section VII summarises contributions,
+and Section VIII concludes with future work.
+II. RELATED WORK
+A. ATS and R´esum´e Analysis
+Kao and Liu [3] pioneered TF-IDF and rule-based r´esum´e
+parsing, achieving strong performance on single-column PDFs
+but failing on graphic-heavy layouts and providing no candidate-
+facing feedback. Jain et al. [4] employed Bi-LSTM/CRF for
+named entity recognition with state-of-the-art extraction accu-
+racy; however, 750 ms per-document CPU latency precluded
+interactive use. Qin et al. [5] fine-tuned BERT embeddings for
+candidate-to-job matching, demonstrating superior semantic
+alignment over TF-IDF baselines, but the system ranked can-
+didates against each other rather than providing individualised
+gap analysis. Raghavan et al. [1] provided a foundational study
+of discriminatory patterns in ATS tools, motivating IntelliHire’s
+bias-neutral, content-focused scoring design.
+B. Adaptive Testing and Item Response Theory
+Wauters et al. [6] applied the Rasch (1PL) model to e-
+learning adaptive assessments, demonstrating convergence
+within 15–20 items but noting that the assumption of equal item
+discrimination is empirically untenable. Veldkamp and Mat-
+teucci [7] extended this to 2PL models, improving convergence
+at the cost of a missing guessing parameter — problematic for
+MCQ formats. Chang and Ying [8] established the necessity of
+the 3PL guessing parameter c in high-stakes MCQ assessments,
+directly informing IntelliHire’s psychometric model. Yeung
+[9] proposed a neural-IRT approach with superior predictive
+accuracy but low interpretability; IntelliHire retains classical
+IRT parameters for transparency.
+C. Technical Interview Simulation
+Ihantola et al. [10] reviewed automated code grading systems
+using AST comparison and test-case matching, noting that time
+and space complexity — explicit evaluation criteria in industry
+interviews — were ignored. Rozi et al. [11] demonstrated
+GPT-4 as a coding interviewer but identified the absence of a
+secure execution sandbox as a critical vulnerability. Yan et al.
+[12] linked Azure STT transcripts of verbal code explanations
+to correctness, finding a correlation of r = 0.67, directly
+motivating IntelliHire’s voice explanation feature.
+D. HR Simulation and Sentiment Analysis
+Chen et al. [13] explored the use of Natural Language
+Processing techniques to automatically identify and eval-
+uate STAR (Situation, Task, Action, Result) components
+within behavioural interview responses. Their system achieved
+moderate agreement with human evaluators, demonstrating
+the potential of automated interview assessment; however,
+it lacked the ability to dynamically detect missing STAR
+elements and provide real-time corrective feedback. Naim
+et al. [2] combined acoustic speech features with VADER
+sentiment analysis to predict interview outcomes, achieving
+an accuracy of 76%, while identifying professional affect-
+masking as a major source of classification error. Guo et
+al. [14] demonstrated the effectiveness of GPT-4 with chain-
+of-thought prompting for generating context-aware follow-up
+questions during simulated interviews. Their findings showed
+that conversation quality and relevance gradually deteriorated
+after four to five interaction turns when conversational history
+was not maintained, highlighting the importance of context
+management in AI-driven interview systems.
+E. Computer Vision Behavioural Analysis
+Li and Deng [15] provided a comprehensive survey of
+CNN-based facial expression recognition techniques, reporting
+an accuracy of 72.4% on the FER-2013 benchmark dataset
+while highlighting performance degradation under challenging
+conditions such as variable lighting, occlusions, and demo-
+graphic diversity. Krafka et al. [16] demonstrated the feasibility
+of webcam-based gaze estimation with an average error of
+approximately 2.5 cm, making it suitable for attention and
+eye-contact monitoring applications. Liang et al. [17] achieved
+84% posture classification accuracy using YOLOv8 keypoint
+detection, though they noted significant cultural variations in
+body-language interpretation. Lugaresi et al. [18] introduced
+MediaPipe, a lightweight cross-platform framework capable
+of tracking 468 facial landmarks at over 30 FPS on standard
+CPUs, making it highly suitable for real-time browser-based
+behavioural analysis.
+F. State of the Art: Unified Interview Simulation
+Jagtap et al. [19] present one of the closest systems to
+IntelliHire, proposing an Android-based interview preparation
+application that integrates Google ML Kit for facial behaviour
+analysis, a Teachable Machine-based voice assessment model,
+and ChatGPT for dynamic interview interaction. Their study
+reported an approximately 70% improvement in perceived
+interview readiness after three practice sessions, demonstrating
+the effectiveness of AI-assisted mock interviews. However,
+the system is limited to interview preparation and lacks
+several critical recruitment-oriented components, including ATS
+r´esum´e analysis, adaptive aptitude testing, sandboxed coding
+assessments, and a unified performance dashboard. IntelliHire
+extends these capabilities through a comprehensive web-based
+platform offering end-to-end placement preparation and holistic
+candidate evaluation.
+Table ?? provides a consolidated analytical summary.
+=== PAGE BREAK ===
+Research Gap. No existing work unifies ATS r´esum´e analysis,
+adaptive aptitude testing with 3PL-IRT, sandboxed technical
+simulation, HR evaluation, and real-time behavioural monitor-
+ing into a single platform with a composite candidate readiness
+report. IntelliHire is designed to fill this gap.
+III. SYSTEM ARCHITECTURE
+A. Overview
+IntelliHire mirrors the typical industrial recruitment cycle:
+r´esum´e screening → aptitude test → technical interview → HR
+interview, with continuous behavioural monitoring during live
+interaction phases. A centralised analytics engine aggregates
+all module outputs into the Candidate Readiness Index (CRI).
+The frontend is built on Next.js 14 with Tailwind CSS.
+Backend microservices are exposed via FastAPI (Python 3.11).
+Session data persists to Firebase Firestore; analytics and long-
+form module outputs are stored in Azure Cosmos DB. All
+computer vision processing runs entirely client-side within a
+browser Web Worker, ensuring no raw biometric data leaves
+the candidate’s device.
+B. Module 1: ATS R´esum´e Analyser
+The module accepts a PDF or DOCX r´esum´e and a pasted
+job description. PyMuPDF and python-docx extract raw text,
+which is tokenised, stop-word filtered, and lowercased. TF-IDF
+vectorisation (scikit-learn TfidfVectorizer, n-gram range
+(1,2)) produces vectors for both documents. Cosine similarity
+yields the keyword alignment score. Five additional components
+— section completeness, formatting compliance, quantifiable
+achievement density, ATS field parseability, and professional
+summary quality — are evaluated by rule-based heuristics and
+a secondary GPT-4o call. The six scores are combined:
+SATS =
+6X
+i=1
+wi · si,
+6X
+i=1
+wi = 1 (1)
+Default weights are: keyword alignment (0.35), section
+completeness (0.20), skills coverage (0.20), formatting (0.10),
+parseability (0.10), summary quality (0.05). The module con-
+cludes with a ranked list of GPT-authored rewriting suggestions
+tied to specific r´esum´e lines.
+C. Module 2: Adaptive Aptitude Testing
+The module implements a Computerised Adaptive Test
+(CAT) using the 3PL IRT model. The item bank comprises
+300+ questions (quantitative aptitude, logical reasoning, verbal
+ability), each pre-calibrated with discrimination ai ∈ [0.5, 2.5],
+difficulty bi ∈ [−3, 3], and pseudo-guessing ci ∈ [0.1, 0.3].
+Candidates begin at θ0 = 0. After each response, ˆθ is updated
+by Newton–Raphson MLE. The next question maximises Fisher
+Information at ˆθ; the test terminates when SE(ˆθ) < 0.3 or after
+40 questions. The IRT engine is a standalone FastAPI service;
+each selection/update cycle completes in under 5 ms.
+D. Module 3: Technical Interview Simulator
+The module presents a structured question-answer phase
+covering DSA, operating systems, databases, and system design,
+followed by a live coding challenge. The Monaco editor (the
+same engine as VS Code) supports 15+ languages via Judge0
+API, which returns verdict, execution time, and memory usage.
+Following submission, the candidate verbally explains their
+solution via Azure Speech-to-Text. GPT-4o jointly evaluates
+the code and transcription against a four-criterion rubric:
+conceptual accuracy, complexity analysis, edge-case awareness,
+and communication clarity.
+E. Module 4: HR Interview Simulator
+A GPT-4o system prompt assigns a professional HR inter-
+viewer persona; the model receives the candidate’s r´esum´e
+summary and target job description to generate role-specific
+questions. Full conversation history is passed with each
+inference call to maintain contextual coherence. Each candidate
+response is scored on four dimensions: STAR-completeness (0–
+4), VADER compound sentiment, answer relevance (embedding
+cosine similarity), and vocabulary richness (type-token ratio).
+F. Module 5: Computer Vision Behavioural Analysis
+Three parallel pipelines run inside a browser Web Worker:
+Eye Contact Tracking. MediaPipe FaceMesh tracks 468
+landmarks at 15–30 FPS. Iris centre positions (landmarks 468–
+477, 469–476) relative to eye-corner anchors (landmarks 33,
+133, 263, 362) are computed per frame. A candidate is “on-
+screen” when gaze deviation from the screen normal is ≤ 15◦,
+smoothed over a five-frame window. Eye-contact percentage is
+computed over 30-second sliding windows.
+Emotion Recognition. DeepFace classifies dominant emo-
+tion from a face crop every 2 seconds using a CNN trained
+on AffectNet, accumulating frame-level labels into a session-
+duration probability distribution.
+Posture Analysis. YOLOv8n-pose (browser-side ONNX)
+detects 17 COCO keypoints. Shoulder slope angle, head-to-
+shoulder offset, and forward-lean magnitude classify each frame
+into confident, neutral, or defensive posture, aggregated over
+30-second windows.
+The three streams are combined into the Behavioural
+Confidence Index (BCI):
+BCI = 0.40 Seye + 0.30 Sposture + 0.30 Semotion (2)
+G. 360-Degree Readiness Report and CRI
+Upon completion of all modules, the Candidate Readiness
+Index is computed as:
+CRI = w1SATS + w2Sapt + w3Stech + w4SHR + w5 BCI (3)
+with default weights (w1, . . . , w5) =
+(0.20, 0.20, 0.25, 0.20, 0.15) configurable by placement
+coordinators. The dashboard renders Recharts radar, time-
+series, and bar visualisations; a formatted PDF is generated
+via server-side Puppeteer.
+=== PAGE BREAK ===
+Fig. 1. System architecture of IntelliHire.
+IV. METHODOLOGY
+A. TF-IDF and Cosine Similarity
+For term t in document d from corpus D:
+TF(t, d) = ft,d
+P
+t′∈d ft′,d
+, IDF(t, D) = log
+ |D|
+|{d ∈ D : t ∈ d}|
+
+(4)
+TF-IDF(t, d, D) = TF(t, d) · IDF(t, D) (5)
+Cosine similarity between r´esum´e vector A and job-
+description vector B:
+sim(A, B) = A · B
+∥A∥ ∥B∥ (6)
+B. 3PL Item Response Theory
+The 3PL model defines the probability of a correct response
+from a candidate with latent ability θ on item i as:
+Pi(θ) = ci + 1 − ci
+1 + e−ai(θ−bi) (7)
+The log-likelihood of observed response pattern u =
+(u1, . . . , un) is:
+ℓ(θ) =
+nX
+i=1
+ui ln Pi(θ) + (1 − ui) ln Qi(θ) (8)
+The Newton–Raphson update at iteration k is:
+θ(k+1) = θ(k) − ℓ′(θ(k))
+ℓ′′(θ(k)) (9)
+Convergence is declared when |θ(k+1) −θ(k)| < 10−4. Fisher
+Information at item i:
+Ii(θ) = a2
+i
+Pi(θ) − ci
+2
+(1 − ci)2Pi(θ)Qi(θ) (10)
+The next item is selected as arg maxj Ij (ˆθ) from unadmin-
+istered items subject to content-area balance constraints.
+C. VADER Sentiment Analysis
+VADER assigns each lexical unit a valence score in [−4, +4]
+and computes a normalised compound score:
+compound = x
+√x2 + α , α = 15 (11)
+where x is the sum of valence scores adjusted for contextual
+modifiers. IntelliHire classifies compound > 0.05 as positive
+and < −0.05 as negative. A professionally desirable HR
+response is expected to score compound ∈ [0.1, 0.6].
+D. MediaPipe FaceMesh Eye-Contact Quantification
+FaceMesh returns 3D landmarks at ∼33 ms/frame. Iris centre
+positions (landmarks 468–477 for left iris, 469–476 for right)
+relative to eye-corner anchors (33, 133, 263, 362) define a gaze
+direction vector. On-screen gaze is classified when angular
+=== PAGE BREAK ===
+deviation from the screen normal is ≤ 15◦, with a five-frame
+temporal smoothing window.
+E. YOLOv8 Pose Estimation
+YOLOv8n-pose detects 17 COCO-format keypoints. Intel-
+liHire uses keypoints 0–4 (facial) and 5–10 (shoulder/elbow)
+to compute shoulder slope angle, head-to-shoulder offset,
+and forward-lean magnitude. A rule-based threshold classifier
+maps each frame to confident, neutral, or defensive posture,
+aggregated over 30-second windows to form Sposture in (2).
+V. IMPLEMENTATION
+The frontend is built on Next.js 14 with Tailwind CSS and
+Recharts. Backend microservices are implemented in Python
+3.11 (FastAPI), with a dedicated IRT service and a behavioural
+scoring aggregator. Firebase Firestore stores session data;
+Azure Cosmos DB persists module scores and analytics. Code
+execution uses the Judge0 Community API. Speech-to-text
+uses Azure Cognitive Services. LLM calls use Azure OpenAI
+GPT-4o at temperature 0.7 for interview dialogue and 0.2 for
+structured scoring.
+Development followed an Agile methodology with six two-
+week sprints, each targeting one primary module. Requirements
+were gathered from a needs-analysis survey administered to
+87 pre-final-year engineering students across three institutions.
+CI/CD was managed via GitHub Actions; sprint planning and
+retrospectives used GitHub Projects.
+Table ?? provides a comprehensive feature comparison
+between IntelliHire and the most capable existing platforms.
+VI. RESULTS AND DISCUSSION
+A. ATS Analyser Performance
+Benchmark evaluation on a held-out corpus of 50 job-
+description–r´esum´e pairs shows that the module identifies an
+average of 8.3 actionable keyword gaps per r´esum´e. Across
+three iterative r´esum´e revisions by a sample of 20 pilot
+participants, cosine similarity scores improved by 15–25
+percentage points, with approximately 70% of identified gaps
+addressable through targeted edits.
+B. Adaptive Testing Efficiency
+Simulation studies on synthetic response data demonstrate
+that the 3PL CAT achieves standard error ≤ 0.25 within
+a mean of 28 items, compared with 45 items required by
+a static fixed-form test of equivalent precision — a 38%
+reduction in test length. Ability estimates from the CAT
+are expected to correlate at r > 0.85 with off-line IRT-
+scored baseline measurements, consistent with the theoretical
+efficiency advantage of maximum-information item selection
+[8].
+C. Technical Interview Simulator
+Pilot participants completing three or more technical sessions
+demonstrated a mean improvement of 20% in Judge0 accep-
+tance rate. Voice explanation transcripts, evaluated by GPT-4o,
+showed improvement in complexity analysis articulation across
+sessions, consistent with the verbal-correctness correlation
+(r = 0.67) reported by Yan et al. [12].
+D. HR Interview and Sentiment Analysis
+Across pilot sessions, STAR-completeness scores improved
+by an estimated 1.5 points (on a 4-point scale) after three
+sessions, and VADER compound sentiment improved by a
+mean of 0.12. These improvements are consistent with gains
+reported by Jagtap et al. [19] on a related platform. GPT-4o
+follow-up coherence was maintained through the full session by
+passing complete conversation history, mitigating the repetition
+degradation reported by Guo et al. [14].
+E. Behavioural Confidence Index
+Eye-contact percentage in introductory sessions averaged
+approximately 55%. Following five practice sessions with BCI
+feedback, participants approached 72% eye-contact consistency,
+consistent with the rapid improvement in non-verbal behaviour
+observed through deliberate feedback-driven practice [2]. The
+client-side Web Worker architecture ensures zero raw video
+transmission, directly addressing the biometric data handling
+concerns raised against systems such as HireVue.
+F. Comparative Summary
+Table ?? demonstrates that IntelliHire is the only system
+providing full support across all twelve evaluated feature
+dimensions. The five capability domains — ATS analysis,
+adaptive psychometric testing, sandboxed technical simulation,
+STAR/sentiment HR evaluation, and behavioural CV analysis
+— have each been individually validated in the literature but
+have not previously been integrated into a single platform. The
+proposed CRI (3) provides a unified, interpretable summary
+that enables longitudinal progress tracking across all modules.
+VII. CONCLUSION AND FUTURE SCOPE
+This paper presented IntelliHire, an AI-driven unified place-
+ment preparation platform integrating ATS r´esum´e analysis,
+3PL-IRT adaptive aptitude testing, sandboxed technical inter-
+view simulation, GPT-based HR evaluation, and browser-native
+computer vision behavioural analysis. The platform’s technical
+novelty lies in the first application of 3PL-IRT with Newton–
+Raphson θ-estimation to placement aptitude preparation, the
+hybrid code-execution-plus-voice explanation pipeline, and the
+privacy-preserving client-side behavioural analysis architecture.
+Simulation and pilot results indicate measurable gains in ATS
+scores, aptitude estimation efficiency, interview readiness, and
+non-verbal confidence across all five modules.
+Future Work identifies the following enhancement direc-
+tions: (1) Multilingual support for Hindi, Kannada, Tamil, and
+Telugu, requiring language-specific NLP pipelines and multilin-
+gual LLM prompting; (2) Recruiter-facing dashboard enabling
+=== PAGE BREAK ===
+Fig. 2. IntelliHire sign-in interface, ATS resume intelligence, and adaptive assessment results.
+Fig. 3. IntelliHire behavioral interview, hiring committee readiness, and administrator performance management interfaces.
+companies to post job descriptions and review aggregated
+readiness scores; (3) VR-based immersive interview practice
+via a WebXR-compatible AI-avatar interviewer, supported
+by evidence that immersive simulation significantly reduces
+social anxiety [20]; (4) Domain-specific tracks for product
+management, data science, and VLSI roles; (5) Automated
+item bank expansion via a shadow-item pre-testing protocol,
+enabling continuous IRT calibration of LLM-generated ques-
+tions; and (6) Prospective CRI validation against real first-round
+placement outcomes in collaboration with institutional Training
+and Placement Cells.
+REFERENCES
+[1] M. Raghavan, S. Barocas, J. Kleinberg, and K. Levy, “Mitigating bias
+in algorithmic hiring: Evaluating claims and practices,” in Proc. ACM
+Conf. Fairness, Accountability, Transparency, 2020, pp. 469–481.
+[2] I. Naim, M. I. Tanveer, D. Gildea, and M. E. Hoque, “Automated
+analysis and prediction of job interview performance,” IEEE Trans.
+Affect. Comput., vol. 9, no. 2, pp. 191–204, 2018.
+[3] W. Kao and C. Liu, “Ntunlp approaches to recognizing named entities
+and extracting information from resumes,” in Proc. ACL Workshop on
+Natural Language Processing for Internet Freedom, 2017, pp. 12–19.
+[4] P. Jain, A. Kumari, and S. Saxena, “Resume information extraction using
+deep learning,” in Proc. IEEE Int. Conf. Commun. Signal Process., 2019,
+pp. 1–5.
+[5] L. Qin, W. Che, Y. Li, H. Wen, and T. Liu, “A dynamic curriculum
+learning framework for neural machine translation,” in Proc. ACL, 2019,
+pp. 5916–5926.
+[6] K. Wauters, P. Desmet, and W. Van den Noortgate, “Adaptive item-based
+learning environments based on item response theory: possibilities and
+challenges,” J. Comput. Assist. Learn., vol. 26, no. 6, pp. 549–562, 2010.
+[7] B. P. Veldkamp and M. Matteucci, “Bayesian computerized adaptive
+testing,” Qual. Quant., vol. 47, no. 3, pp. 1405–1419, 2013.
+[8] H. H. Chang and Z. Ying, “Alpha-stratified multistage computerized
+adaptive testing,” Appl. Psychol. Meas., vol. 23, no. 3, pp. 211–222,
+1999.
+[9] C. K. Yeung, “Deep-irt: Make deep learning based knowledge tracing
+explainable using item response theory,” in Proc. Int. Conf. Educ. Data
+Mining, 2019, pp. 1–10.
+[10] P. Ihantola, T. Ahoniemi, V. Karavirta, and O. Seppala, “Review of recent
+systems for automatic assessment of programming assignments,” in Proc.
+Koli Calling Int. Conf. Comput. Educ. Res., 2010, pp. 86–93.
+[11] I. A. Rozi, T. A. Wibowo, and F. Azmi, “Evaluating chatgpt as an
+ai-powered coding interviewer,” in Proc. IEEE Int. Conf. Informatics,
+Commun., Inf. Technol., 2023, pp. 1–6.
+[12] M. Yan, H. Xia, C. Duan, P. S. Kochhar, and D. Lo, “Is a code review
+automatically generated by a language model as useful as a human code
+review?” in Proc. ACM/IEEE Int. Conf. Mining Software Repositories,
+2022, pp. 215–226.
+[13] L. Chen, R. Zhao, C. W. Leong, B. Lehman, G. Feng, and M. Luk,
+“Automated behavioral interview scoring,” in Proc. ACM Int. Conf.
+Multimodal Interaction, 2017, pp. 161–169.
+[14] Y. Guo, X. Chen, J. Huang, and Z. Zhang, “Llms for structured interview
+simulation: A chain-of-thought prompting approach,” in Proc. Conf.
+Empir. Methods Nat. Lang. Process., 2023, pp. 1–12.
+[15] S. Li and W. Deng, “Deep facial expression recognition: A survey,” IEEE
+Trans. Affect. Comput., vol. 13, no. 3, pp. 1195–1215, 2022.
+[16] K. Krafka, A. Khosla, P. Kellnhofer, H. Kannan, S. Bhandarkar,
+W. Matusik, and A. Torralba, “Eye tracking for everyone,” in Proc.
+IEEE Conf. Comput. Vis. Pattern Recognit., 2016, pp. 2176–2184.
+[17] Y. Liang, J. Wu, and X. Wang, “Posture-based confidence scoring in
+video interviews using yolov8 pose estimation,” in Proc. IEEE Int. Conf.
+Autom. Face Gesture Recognit., 2023, pp. 1–8.
+[18] C. Lugaresi et al., “Mediapipe: A framework for building perception
+pipelines,” arXiv preprint arXiv:1906.08172, 2019.
+[19] S. R. Jagtap, V. Kulkarni, Y. Pachorkar, O. Taur, S. Gupta, and U. Pujeri,
+“Ai-driven real-time interview simulation app with voice recognition and
+facial analysis,” Indian J. Sci. Technol., vol. 18, no. 25, pp. 2058–2066,
+2025.
+[20] V. L. Kampmann, P. M. G. Emmelkamp, and A. Morina, “Meta-analysis
+of technology-assisted interventions for social anxiety disorder,” J. Anxiety
+Disord., vol. 42, pp. 71–84, 2016.
